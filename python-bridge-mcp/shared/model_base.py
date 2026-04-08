@@ -15,7 +15,7 @@ class BaseModel:
     def to_dict(self, *, exclude_none: bool = False) -> dict[str, Any]:
         d = asdict(self)
         if exclude_none:
-            d = {k: v for k, v in d.items() if v is not None}
+            d = {k: v for k, v in d.items() if v is not None}  # top-level only
         return d
 
     @classmethod
