@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypeVar
+
+_T = TypeVar("_T", bound="BaseModel")
 
 import dacite
 
@@ -19,7 +21,7 @@ class BaseModel:
         return d
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> BaseModel:
+    def from_dict(cls: type[_T], data: dict[str, Any]) -> _T:
         return dacite.from_dict(cls, data)
 
 

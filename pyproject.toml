@@ -1,7 +1,7 @@
 [project]
 name = "python-bridge-mcp"
 version = "0.0.1"
-requires-python = ">=3.10"
+requires-python = ">=3.7"
 dependencies = ["mcp>=1.12.4", "dacite>=1.8"]
 
 [project.optional-dependencies]
