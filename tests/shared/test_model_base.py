@@ -8,6 +8,14 @@ import pytest
 from shared.model_base import BaseModel, WireModel, VersionedWireModel, WireModelError, wire_model
 
 
+@pytest.fixture(autouse=True)
+def _isolated_registry():
+    snapshot = dict(WireModel._registry)
+    yield
+    WireModel._registry.clear()
+    WireModel._registry.update(snapshot)
+
+
 # ---------------------------------------------------------------------------
 # BaseModel
 # ---------------------------------------------------------------------------
@@ -200,3 +208,8 @@ def test_versioned_wire_model_missing_version_raises():
 def test_versioned_wire_model_missing_type_raises():
     with pytest.raises(WireModelError, match="Missing 'type' field"):
         VersionedWireModel.parse_versioned({"version": 1, "val": "x"})
+
+
+def test_versioned_wire_model_unknown_type_raises():
+    with pytest.raises(WireModelError, match="Unknown type: 'DoesNotExist'"):
+        VersionedWireModel.parse_versioned({"type": "DoesNotExist", "version": 1})
