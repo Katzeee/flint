@@ -119,3 +119,84 @@ def test_wire_model_parse_missing_type_raises():
 def test_wire_model_parse_unknown_type_raises():
     with pytest.raises(WireModelError, match="Unknown type: 'Nonexistent'"):
         WireModel.parse({"type": "Nonexistent"})
+
+
+# ---------------------------------------------------------------------------
+# VersionedWireModel
+# ---------------------------------------------------------------------------
+
+def test_versioned_wire_model_default_protocol_version():
+    @wire_model
+    @dataclass
+    class MsgA(VersionedWireModel):
+        x: int
+
+    assert MsgA.PROTOCOL_VERSION == 1
+
+
+def test_versioned_wire_model_override_protocol_version():
+    @wire_model
+    @dataclass
+    class MsgB(VersionedWireModel):
+        PROTOCOL_VERSION = 3
+        x: int
+
+    assert MsgB.PROTOCOL_VERSION == 3
+
+
+def test_versioned_wire_model_to_dict_injects_type_and_version():
+    @wire_model
+    @dataclass
+    class MsgC(VersionedWireModel):
+        PROTOCOL_VERSION = 2
+        val: str
+
+    assert MsgC(val="x").to_dict() == {"type": "MsgC", "version": 2, "val": "x"}
+
+
+def test_versioned_wire_model_parse_versioned_dispatches():
+    @wire_model
+    @dataclass
+    class MsgD(VersionedWireModel):
+        PROTOCOL_VERSION = 2
+        val: str
+
+    result = VersionedWireModel.parse_versioned({"type": "MsgD", "version": 2, "val": "x"})
+    assert result == MsgD(val="x")
+
+
+def test_versioned_wire_model_roundtrip():
+    @wire_model
+    @dataclass
+    class MsgE(VersionedWireModel):
+        PROTOCOL_VERSION = 2
+        val: str
+
+    original = MsgE(val="test")
+    assert VersionedWireModel.parse_versioned(original.to_dict()) == original
+
+
+def test_versioned_wire_model_version_mismatch_raises():
+    @wire_model
+    @dataclass
+    class MsgF(VersionedWireModel):
+        PROTOCOL_VERSION = 2
+        val: str
+
+    with pytest.raises(WireModelError, match="Version mismatch: expected 2, got 1"):
+        VersionedWireModel.parse_versioned({"type": "MsgF", "version": 1, "val": "x"})
+
+
+def test_versioned_wire_model_missing_version_raises():
+    @wire_model
+    @dataclass
+    class MsgG(VersionedWireModel):
+        val: str
+
+    with pytest.raises(WireModelError, match="Missing 'version' field"):
+        VersionedWireModel.parse_versioned({"type": "MsgG", "val": "x"})
+
+
+def test_versioned_wire_model_missing_type_raises():
+    with pytest.raises(WireModelError, match="Missing 'type' field"):
+        VersionedWireModel.parse_versioned({"version": 1, "val": "x"})
