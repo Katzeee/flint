@@ -17,6 +17,8 @@ class RegisterDiscovery(DiscoveryWireModel):
     pid: str
     instance_id: str
     instance_name: str
+    exec_host: str
+    exec_port: int
     alias: Optional[str] = None
 
 
