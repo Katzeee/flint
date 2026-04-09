@@ -48,7 +48,7 @@ class AsyncJsonLineCodec:
     @staticmethod
     async def recv(reader: asyncio.StreamReader, timeout: Optional[float] = None) -> Dict[str, Any]:
         if timeout is not None:
-            line = await reader.readline()
-        else:
             line = await asyncio.wait_for(reader.readline(), timeout)
+        else:
+            line = await reader.readline()
         return JsonLineCodec.decode(line)

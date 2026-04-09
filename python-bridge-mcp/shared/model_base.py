@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 from dataclasses import asdict, dataclass
-from typing import Any, ClassVar, Dict, Type, TypeVar
+from enum import Enum
+from typing import Any, ClassVar, Dict, Type, TypeVar, Callable, List, Tuple
 
 import dacite
 
@@ -16,20 +15,27 @@ class WireModelError(Exception):
 
 @dataclass
 class BaseModel:
+    @staticmethod
+    def _dict_factory(exclude_none: bool = False) -> Callable[[List[Tuple[str, Any]]], Dict[str, Any]]:
+        def factory(items: List[Tuple[str, Any]]) -> Dict[str, Any]:
+            d = dict(items)
+            if exclude_none:
+                d = {k: v for k, v in d.items() if v is not None}
+            return d
+
+        return factory
+
     def to_dict(self, *, exclude_none: bool = False) -> Dict[str, Any]:
-        d = asdict(self)
-        if exclude_none:
-            d = {k: v for k, v in d.items() if v is not None}  # top-level only
-        return d
+        return asdict(self, dict_factory=self._dict_factory(exclude_none=exclude_none))
 
     @classmethod
     def from_dict(cls: Type[_T], data: Dict[str, Any]) -> _T:
-        return dacite.from_dict(cls, data)
+        return dacite.from_dict(cls, data, config=dacite.Config(cast=[Enum]))
 
 
 @dataclass
 class WireModel(BaseModel):
-    _registry: ClassVar[Dict[str, Type[WireModel]]] = {}
+    _registry: ClassVar[Dict[str, Type["WireModel"]]] = {}
 
     def to_dict(self, *, exclude_none: bool = False) -> Dict[str, Any]:
         d = super().to_dict(exclude_none=exclude_none)
