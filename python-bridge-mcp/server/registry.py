@@ -1,6 +1,7 @@
 import asyncio
-from dataclasses import dataclass
-from typing import Dict, Optional
+import time
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 from ..shared.discovery_models import AckDiscovery, HeartbeatDiscovery, RegisterDiscovery
 from ..shared.jsonline import AsyncJsonLineCodec
@@ -15,25 +16,80 @@ class ClientEntry:
     exec_host: str
     exec_port: int
     alias: Optional[str]
+    last_heartbeat: float = field(default_factory=time.monotonic)
 
 
-class DiscoveryServer:
+class Registry:
     DEFAULT_HOST = "localhost"
     DEFAULT_PORT = 6321
+    DEFAULT_STALE_TIMEOUT = 15.0
 
-    def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
+    def __init__(
+        self,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+        stale_timeout: float = DEFAULT_STALE_TIMEOUT,
+    ):
         self._host = host
         self._port = port
+        self._stale_timeout = stale_timeout
         self._clients: Dict[str, ClientEntry] = {}
+        self._lock = asyncio.Lock()
         self._server: Optional[asyncio.AbstractServer] = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    @property
-    def clients(self) -> Dict[str, ClientEntry]:
-        return dict(self._clients)
+    async def get_client(self, instance_id: str) -> Optional[ClientEntry]:
+        async with self._lock:
+            self._evict_stale()
+            return self._clients.get(instance_id)
+
+    async def list_clients(self) -> Dict[str, ClientEntry]:
+        async with self._lock:
+            self._evict_stale()
+            return dict(self._clients)
+
+    async def register(self, entry: ClientEntry) -> None:
+        async with self._lock:
+            self._evict_stale()
+            self._clients[entry.instance_id] = entry
+
+    async def unregister(self, instance_id: str) -> None:
+        async with self._lock:
+            self._evict_stale()
+            self._clients.pop(instance_id, None)
+
+    async def heartbeat(self, instance_id: str) -> bool:
+        async with self._lock:
+            self._evict_stale()
+            if instance_id not in self._clients:
+                return False
+            self._clients[instance_id].last_heartbeat = time.monotonic()
+            return True
+
+    async def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
+        async with self._lock:
+            self._evict_stale()
+            if instance_id not in self._clients:
+                raise KeyError(f"unknown client: {instance_id}")
+            self._clients[instance_id].alias = alias
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _evict_stale(self) -> List[str]:
+        """Remove clients whose last heartbeat exceeds stale_timeout. Must be called with lock held."""
+        now = time.monotonic()
+        stale = [
+            iid for iid, entry in self._clients.items()
+            if now - entry.last_heartbeat > self._stale_timeout
+        ]
+        for iid in stale:
+            del self._clients[iid]
+        return stale
 
     async def run(self) -> None:
         self._server = await asyncio.start_server(
@@ -69,18 +125,18 @@ class DiscoveryServer:
 
                 if isinstance(msg, RegisterDiscovery):
                     instance_id = msg.instance_id
-                    self._clients[instance_id] = ClientEntry(
+                    await self.register(ClientEntry(
                         pid=msg.pid,
                         instance_id=msg.instance_id,
                         instance_name=msg.instance_name,
                         exec_host=msg.exec_host,
                         exec_port=msg.exec_port,
                         alias=msg.alias,
-                    )
+                    ))
                     await AsyncJsonLineCodec.send(writer, AckDiscovery(success=True).to_dict())
 
                 elif isinstance(msg, HeartbeatDiscovery):
-                    if msg.instance_id not in self._clients:
+                    if not await self.heartbeat(msg.instance_id):
                         await AsyncJsonLineCodec.send(writer, AckDiscovery(success=False, error="not registered").to_dict())
                         return
                     await AsyncJsonLineCodec.send(writer, AckDiscovery(success=True).to_dict())
@@ -90,5 +146,5 @@ class DiscoveryServer:
                     return
         finally:
             if instance_id is not None:
-                self._clients.pop(instance_id, None)
+                await self.unregister(instance_id)
             writer.close()

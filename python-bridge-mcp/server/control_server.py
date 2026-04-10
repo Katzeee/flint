@@ -1,8 +1,8 @@
 import asyncio
 import uuid
-from typing import Dict
+from typing import Dict, Optional
 
-from ..server.discovery import ClientEntry, DiscoveryServer
+from .registry import ClientEntry, Registry
 from ..shared.exec_models import ExecRequest, ExecResult
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel
@@ -12,11 +12,14 @@ class ControlServer:
 
     DEFAULT_CONNECT_TIMEOUT: float = 10.0
 
-    def __init__(self, discovery: DiscoveryServer) -> None:
+    def __init__(self, discovery: Registry) -> None:
         self._discovery = discovery
 
-    def list_clients(self) -> Dict[str, ClientEntry]:
-        return self._discovery.clients
+    async def list_clients(self) -> Dict[str, ClientEntry]:
+        return await self._discovery.list_clients()
+
+    async def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
+        await self._discovery.set_alias(instance_id, alias)
 
     async def execute(
         self,
@@ -25,10 +28,9 @@ class ControlServer:
         *,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
     ) -> ExecResult:
-        clients = self._discovery.clients
-        if instance_id not in clients:
+        entry = await self._discovery.get_client(instance_id)
+        if entry is None:
             raise KeyError(f"unknown client: {instance_id}")
-        entry = clients[instance_id]
 
         request_id = str(uuid.uuid4())
         reader, writer = await asyncio.wait_for(

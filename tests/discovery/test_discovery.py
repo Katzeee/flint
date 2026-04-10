@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import asyncio
-import socket
 import threading
-import time
 from typing import Iterator
 
 import pytest
 
 from pbridge.client.discovery import DiscoveryClient, DiscoveryState
-from pbridge.server.discovery import DiscoveryServer
+from pbridge.server.registry import Registry
+
+from conftest import AsyncRunner, free_port, wait_for
 
 HEARTBEAT = 0.3  # short interval for fast tests
 
@@ -18,65 +17,8 @@ HEARTBEAT = 0.3  # short interval for fast tests
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
-
-
 def _wait_connected(client: DiscoveryClient, timeout: float = 3.0) -> bool:
     return client._connected_event.wait(timeout)
-
-
-def _wait_for(condition, timeout: float = 3.0, poll: float = 0.05) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if condition():
-            return True
-        time.sleep(poll)
-    return False
-
-
-class _ServerRunner:
-    def __init__(self, host: str, port: int) -> None:
-        self.server = DiscoveryServer(host=host, port=port)
-        self._loop: asyncio.AbstractEventLoop
-        self._thread: threading.Thread
-
-    def start(self) -> None:
-        ready = threading.Event()
-
-        def _thread_target() -> None:
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-            try:
-                self._loop.run_until_complete(self._boot(ready))
-            except (asyncio.CancelledError, RuntimeError):
-                pass
-            finally:
-                # cancel remaining tasks (active connections) so writers are closed
-                pending = asyncio.all_tasks(self._loop)
-                if pending:
-                    for t in pending:
-                        t.cancel()
-                    self._loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-                self._loop.close()
-
-        self._thread = threading.Thread(target=_thread_target, daemon=True)
-        self._thread.start()
-        assert ready.wait(timeout=5), "server did not start in time"
-
-    async def _boot(self, ready: threading.Event) -> None:
-        task = asyncio.ensure_future(self.server.run())
-        await asyncio.sleep(0.05)  # allow start_server to bind
-        ready.set()
-        await task
-
-    def stop(self) -> None:
-        # stop() only closes the listener; call loop.stop() to also tear down
-        # active connection handlers so clients detect the disconnect
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=5)
 
 
 class _ClientRunner:
@@ -111,14 +53,16 @@ def _client(port: int, instance_id: str, instance_name: str = "Test Client") -> 
 
 @pytest.fixture
 def port() -> int:
-    return _free_port()
+    return free_port()
 
 
 @pytest.fixture
-def srv(port: int) -> Iterator[_ServerRunner]:
-    runner = _ServerRunner("localhost", port)
-    runner.start()
-    yield runner
+def srv(port: int) -> Iterator[tuple]:
+    server = Registry(host="localhost", port=port)
+    runner = AsyncRunner()
+    runner.start(server.run)
+    yield server, runner
+    server.stop()
     runner.stop()
 
 
@@ -126,14 +70,16 @@ def srv(port: int) -> Iterator[_ServerRunner]:
 # Tests
 # ---------------------------------------------------------------------------
 
-def test_client_connects_and_is_registered(srv: _ServerRunner, port: int) -> None:
+def test_client_connects_and_is_registered(srv, port: int) -> None:
+    server, srv_runner = srv
     c = _client(port, "c1")
     r = _ClientRunner(c)
     r.start()
     try:
         assert _wait_connected(c), "client did not connect"
         assert c.state == DiscoveryState.CONNECTED
-        entry = srv.server.clients["c1"]
+        clients = srv_runner.run_async(server.list_clients())
+        entry = clients["c1"]
         assert entry.instance_name == "Test Client"
         assert entry.exec_host == "localhost"
         assert entry.exec_port == 9000
@@ -141,7 +87,7 @@ def test_client_connects_and_is_registered(srv: _ServerRunner, port: int) -> Non
         r.stop()
 
 
-def test_client_stop_transitions_to_stopped(srv: _ServerRunner, port: int) -> None:
+def test_client_stop_transitions_to_stopped(srv, port: int) -> None:
     c = _client(port, "c1")
     r = _ClientRunner(c)
     r.start()
@@ -152,22 +98,24 @@ def test_client_stop_transitions_to_stopped(srv: _ServerRunner, port: int) -> No
     assert c.state == DiscoveryState.STOPPED
 
 
-def test_client_disconnect_removes_entry_from_server(srv: _ServerRunner, port: int) -> None:
+def test_client_disconnect_removes_entry_from_server(srv, port: int) -> None:
+    server, srv_runner = srv
     c = _client(port, "c1")
     r = _ClientRunner(c)
     r.start()
     assert _wait_connected(c)
-    assert "c1" in srv.server.clients
+    assert "c1" in srv_runner.run_async(server.list_clients())
 
     r.stop()
 
-    assert _wait_for(lambda: "c1" not in srv.server.clients), \
+    assert wait_for(lambda: "c1" not in srv_runner.run_async(server.list_clients())), \
         "server did not remove client entry after disconnect"
 
 
 def test_server_disconnect_moves_client_to_connecting(port: int) -> None:
-    srv = _ServerRunner("localhost", port)
-    srv.start()
+    server = Registry(host="localhost", port=port)
+    runner = AsyncRunner()
+    runner.start(server.run)
 
     c = _client(port, "c1")
     r = _ClientRunner(c)
@@ -175,17 +123,18 @@ def test_server_disconnect_moves_client_to_connecting(port: int) -> None:
     try:
         assert _wait_connected(c)
 
-        srv.stop()
+        runner.stop()
 
-        assert _wait_for(lambda: c.state == DiscoveryState.CONNECTING), \
+        assert wait_for(lambda: c.state == DiscoveryState.CONNECTING), \
             "client did not fall back to CONNECTING after server stopped"
     finally:
         r.stop()
 
 
 def test_client_reconnects_after_server_restart(port: int) -> None:
-    srv1 = _ServerRunner("localhost", port)
-    srv1.start()
+    server1 = Registry(host="localhost", port=port)
+    runner1 = AsyncRunner()
+    runner1.start(server1.run)
 
     c = _client(port, "c1")
     r = _ClientRunner(c)
@@ -193,22 +142,24 @@ def test_client_reconnects_after_server_restart(port: int) -> None:
     try:
         assert _wait_connected(c)
 
-        srv1.stop()
-        assert _wait_for(lambda: c.state == DiscoveryState.CONNECTING)
+        runner1.stop()
+        assert wait_for(lambda: c.state == DiscoveryState.CONNECTING)
 
-        srv2 = _ServerRunner("localhost", port)
-        srv2.start()
+        server2 = Registry(host="localhost", port=port)
+        runner2 = AsyncRunner()
+        runner2.start(server2.run)
         try:
             assert _wait_connected(c, timeout=5), "client did not reconnect after server restart"
             assert c.state == DiscoveryState.CONNECTED
-            assert "c1" in srv2.server.clients
+            assert "c1" in runner2.run_async(server2.list_clients())
         finally:
-            srv2.stop()
+            runner2.stop()
     finally:
         r.stop()
 
 
-def test_multiple_clients_all_registered(srv: _ServerRunner, port: int) -> None:
+def test_multiple_clients_all_registered(srv, port: int) -> None:
+    server, srv_runner = srv
     ids = ["c1", "c2", "c3"]
     runners = [_ClientRunner(_client(port, cid)) for cid in ids]
     for r in runners:
@@ -216,7 +167,7 @@ def test_multiple_clients_all_registered(srv: _ServerRunner, port: int) -> None:
     try:
         for r in runners:
             assert _wait_connected(r.client), f"{r.client._instance_id} did not connect"
-        registered = srv.server.clients
+        registered = srv_runner.run_async(server.list_clients())
         for cid in ids:
             assert cid in registered
     finally:
@@ -225,12 +176,14 @@ def test_multiple_clients_all_registered(srv: _ServerRunner, port: int) -> None:
 
 
 def test_server_stop_with_no_clients(port: int) -> None:
-    srv = _ServerRunner("localhost", port)
-    srv.start()
-    srv.stop()  # should not raise
+    server = Registry(host="localhost", port=port)
+    runner = AsyncRunner()
+    runner.start(server.run)
+    server.stop()
+    runner.stop()
 
 
-def test_client_state_sequence(srv: _ServerRunner, port: int) -> None:
+def test_client_state_sequence(srv, port: int) -> None:
     c = _client(port, "c1")
     r = _ClientRunner(c)
 

@@ -1,6 +1,4 @@
 import asyncio
-import socket
-import threading
 import uuid
 from typing import Iterator
 
@@ -14,63 +12,7 @@ from pbridge.shared.exec_models import ExecRequest, ExecResult, ExecStatus
 from pbridge.shared.jsonline import AsyncJsonLineCodec
 from pbridge.shared.model_base import VersionedWireModel
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
-
-
-class _ListenerRunner:
-    """Runs ExecListener in a background thread with its own event loop."""
-
-    def __init__(self, listener: ExecListener) -> None:
-        self.listener = listener
-        self._loop: asyncio.AbstractEventLoop
-        self._thread: threading.Thread
-
-    def start(self) -> None:
-        ready = threading.Event()
-
-        def _thread_target() -> None:
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-            try:
-                self._loop.run_until_complete(self._boot(ready))
-            except (asyncio.CancelledError, RuntimeError):
-                pass
-            finally:
-                pending = asyncio.all_tasks(self._loop)
-                if pending:
-                    for t in pending:
-                        t.cancel()
-                    self._loop.run_until_complete(
-                        asyncio.gather(*pending, return_exceptions=True)
-                    )
-                self._loop.close()
-
-        self._thread = threading.Thread(target=_thread_target, daemon=True)
-        self._thread.start()
-        assert ready.wait(timeout=5), "listener did not start in time"
-
-    async def _boot(self, ready: threading.Event) -> None:
-        task = asyncio.ensure_future(self.listener.run())
-        await asyncio.sleep(0.05)
-        ready.set()
-        await task
-
-    def stop(self) -> None:
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=5)
-
-    def run_async(self, coro):
-        """Run an async call against the listener's event loop."""
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result(timeout=10)
+from conftest import AsyncRunner, free_port
 
 
 # ---------------------------------------------------------------------------
@@ -79,17 +21,18 @@ class _ListenerRunner:
 
 @pytest.fixture
 def port() -> int:
-    return _free_port()
+    return free_port()
 
 
 @pytest.fixture
-def listener_runner(port: int) -> Iterator[_ListenerRunner]:
+def listener_runner(port: int) -> Iterator[AsyncRunner]:
     executor = CodeExecutor()
-    runner = DirectRunner(executor)
-    listener = ExecListener("localhost", port, runner)
-    lr = _ListenerRunner(listener)
-    lr.start()
+    code_runner = DirectRunner(executor)
+    listener = ExecListener("localhost", port, code_runner)
+    lr = AsyncRunner()
+    lr.start(listener.run)
     yield lr
+    listener.stop()
     lr.stop()
 
 
@@ -117,7 +60,7 @@ def _call(port: int, code: str) -> ExecResult:
 # Tests
 # ---------------------------------------------------------------------------
 
-def test_exec_hello_world(listener_runner: _ListenerRunner, port: int) -> None:
+def test_exec_hello_world(listener_runner: AsyncRunner, port: int) -> None:
     result = _call(port, 'print("hello")')
     assert result.status == ExecStatus.SUCCEED
     assert result.stdout == "hello\n"
@@ -125,7 +68,7 @@ def test_exec_hello_world(listener_runner: _ListenerRunner, port: int) -> None:
     assert result.traceback is None
 
 
-def test_exec_exception(listener_runner: _ListenerRunner, port: int) -> None:
+def test_exec_exception(listener_runner: AsyncRunner, port: int) -> None:
     result = _call(port, "raise ValueError('boom')")
     assert result.status == ExecStatus.FAILED
     assert result.traceback is not None
@@ -133,7 +76,7 @@ def test_exec_exception(listener_runner: _ListenerRunner, port: int) -> None:
     assert "boom" in result.traceback
 
 
-def test_exec_stderr(listener_runner: _ListenerRunner, port: int) -> None:
+def test_exec_stderr(listener_runner: AsyncRunner, port: int) -> None:
     result = _call(port, 'import sys; sys.stderr.write("err\\n")')
     assert result.status == ExecStatus.SUCCEED
     assert "err" in result.stderr
@@ -142,10 +85,10 @@ def test_exec_stderr(listener_runner: _ListenerRunner, port: int) -> None:
 def test_exec_namespace_persists(port: int) -> None:
     """Two sequential calls share the same executor namespace."""
     executor = CodeExecutor()
-    runner = DirectRunner(executor)
-    listener = ExecListener("localhost", port, runner)
-    lr = _ListenerRunner(listener)
-    lr.start()
+    code_runner = DirectRunner(executor)
+    listener = ExecListener("localhost", port, code_runner)
+    lr = AsyncRunner()
+    lr.start(listener.run)
     try:
         r1 = _call(port, "x = 42")
         assert r1.status == ExecStatus.SUCCEED
@@ -154,10 +97,11 @@ def test_exec_namespace_persists(port: int) -> None:
         assert r2.status == ExecStatus.SUCCEED
         assert r2.stdout == "42\n"
     finally:
+        listener.stop()
         lr.stop()
 
 
-def test_exec_wrong_message_type(listener_runner: _ListenerRunner, port: int) -> None:
+def test_exec_wrong_message_type(listener_runner: AsyncRunner, port: int) -> None:
     """Sending a non-ExecRequest returns an error result."""
     async def _send_wrong():
         reader, writer = await asyncio.open_connection("localhost", port)
@@ -178,7 +122,7 @@ def test_exec_wrong_message_type(listener_runner: _ListenerRunner, port: int) ->
     assert "unexpected" in result.error.lower() or "RegisterDiscovery" in result.error
 
 
-def test_exec_concurrent(listener_runner: _ListenerRunner, port: int) -> None:
+def test_exec_concurrent(listener_runner: AsyncRunner, port: int) -> None:
     """Two concurrent requests both return correct results."""
     async def _run():
         t1 = asyncio.create_task(_exec_call("localhost", port, 'print("a")'))
