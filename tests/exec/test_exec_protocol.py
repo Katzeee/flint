@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 import asyncio
 import socket
 import threading
+import uuid
 from typing import Iterator
 
 import pytest
@@ -10,9 +9,8 @@ import pytest
 from pbridge.client.code_executor import CodeExecutor
 from pbridge.client.code_runner import DirectRunner
 from pbridge.client.exec_listener import ExecListener
-from pbridge.server.exec_caller import ExecCaller
 from pbridge.shared.discovery_models import RegisterDiscovery
-from pbridge.shared.exec_models import ExecStatus
+from pbridge.shared.exec_models import ExecRequest, ExecResult, ExecStatus
 from pbridge.shared.jsonline import AsyncJsonLineCodec
 from pbridge.shared.model_base import VersionedWireModel
 
@@ -95,9 +93,24 @@ def listener_runner(port: int) -> Iterator[_ListenerRunner]:
     lr.stop()
 
 
-def _call(port: int, code: str, **kwargs) -> object:
-    """Synchronously call ExecCaller.call via asyncio.run."""
-    return asyncio.run(ExecCaller.call("localhost", port, code, **kwargs))
+async def _exec_call(host: str, port: int, code: str, connect_timeout: float = 10.0) -> ExecResult:
+    request_id = str(uuid.uuid4())
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(host, port), timeout=connect_timeout,
+    )
+    try:
+        await AsyncJsonLineCodec.send(writer, ExecRequest(request_id=request_id, code=code).to_dict())
+        data = await AsyncJsonLineCodec.recv(reader)
+        result = VersionedWireModel.parse_versioned(data)
+        if not isinstance(result, ExecResult):
+            raise RuntimeError(f"unexpected response: {type(result).__name__}")
+        return result
+    finally:
+        writer.close()
+
+
+def _call(port: int, code: str) -> ExecResult:
+    return asyncio.run(_exec_call("localhost", port, code))
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +181,8 @@ def test_exec_wrong_message_type(listener_runner: _ListenerRunner, port: int) ->
 def test_exec_concurrent(listener_runner: _ListenerRunner, port: int) -> None:
     """Two concurrent requests both return correct results."""
     async def _run():
-        t1 = asyncio.create_task(ExecCaller.call("localhost", port, 'print("a")'))
-        t2 = asyncio.create_task(ExecCaller.call("localhost", port, 'print("b")'))
+        t1 = asyncio.create_task(_exec_call("localhost", port, 'print("a")'))
+        t2 = asyncio.create_task(_exec_call("localhost", port, 'print("b")'))
         r1, r2 = await asyncio.gather(t1, t2)
         return r1, r2
 

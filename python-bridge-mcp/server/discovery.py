@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from dataclasses import dataclass
 from typing import Dict, Optional
@@ -10,7 +8,7 @@ from ..shared.model_base import VersionedWireModel, WireModelError
 
 
 @dataclass
-class _ClientEntry:
+class ClientEntry:
     pid: str
     instance_id: str
     instance_name: str
@@ -26,7 +24,7 @@ class DiscoveryServer:
     def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
         self._host = host
         self._port = port
-        self._clients: Dict[str, _ClientEntry] = {}
+        self._clients: Dict[str, ClientEntry] = {}
         self._server: Optional[asyncio.AbstractServer] = None
 
     # ------------------------------------------------------------------
@@ -34,7 +32,7 @@ class DiscoveryServer:
     # ------------------------------------------------------------------
 
     @property
-    def clients(self) -> Dict[str, _ClientEntry]:
+    def clients(self) -> Dict[str, ClientEntry]:
         return dict(self._clients)
 
     async def run(self) -> None:
@@ -71,7 +69,7 @@ class DiscoveryServer:
 
                 if isinstance(msg, RegisterDiscovery):
                     instance_id = msg.instance_id
-                    self._clients[instance_id] = _ClientEntry(
+                    self._clients[instance_id] = ClientEntry(
                         pid=msg.pid,
                         instance_id=msg.instance_id,
                         instance_name=msg.instance_name,
