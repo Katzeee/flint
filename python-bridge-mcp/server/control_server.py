@@ -1,4 +1,5 @@
 import asyncio
+import time
 import uuid
 from typing import Dict, Optional
 
@@ -14,6 +15,7 @@ class ControlServer:
 
     def __init__(self, discovery: Registry) -> None:
         self._discovery = discovery
+        self._wf_counter = 0
 
     async def list_clients(self) -> Dict[str, ClientEntry]:
         return await self._discovery.list_clients()
@@ -21,10 +23,16 @@ class ControlServer:
     async def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
         await self._discovery.set_alias(instance_id, alias)
 
+    def start_workflow(self, name: str) -> str:
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        self._wf_counter += 1
+        return f"{name}_{ts}_{self._wf_counter}"
+
     async def execute(
         self,
         instance_id: str,
         code: str,
+        workflow_id: str,
         *,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
     ) -> ExecResult:
@@ -38,7 +46,7 @@ class ControlServer:
             timeout=connect_timeout,
         )
         try:
-            req = ExecRequest(request_id=request_id, code=code)
+            req = ExecRequest(request_id=request_id, code=code, workflow_id=workflow_id)
             await AsyncJsonLineCodec.send(writer, req.to_dict())
             data = await AsyncJsonLineCodec.recv(reader)
             result = VersionedWireModel.parse_versioned(data)

@@ -118,8 +118,9 @@ def test_list_clients_empty(app_runner) -> None:
 
 def test_execute_unknown_client(app_runner) -> None:
     app, runner = app_runner
+    wf_id = app.control.start_workflow("test")
     with pytest.raises(KeyError, match="unknown client"):
-        runner.run_async(app.control.execute("nonexistent", "print(1)"))
+        runner.run_async(app.control.execute("nonexistent", "print(1)", wf_id))
 
 
 def test_execute_on_client(
@@ -127,8 +128,9 @@ def test_execute_on_client(
 ) -> None:
     app, app_run = app_runner
     _bg_register(discovery_port, exec_port)
+    wf_id = app.control.start_workflow("test")
 
-    result = app_run.run_async(app.control.execute("c1", 'print("hello")'))
+    result = app_run.run_async(app.control.execute("c1", 'print("hello")', wf_id))
     assert result.status == ExecStatus.SUCCEED
     assert result.stdout == "hello\n"
 

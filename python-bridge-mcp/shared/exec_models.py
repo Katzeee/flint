@@ -13,7 +13,7 @@ class ExecStatus(str, Enum):
 
 @dataclass
 class ExecWireModel(VersionedWireModel):
-    PROTOCOL_VERSION: ClassVar[int] = 1
+    PROTOCOL_VERSION: ClassVar[int] = 2
 
 
 @wire_model
@@ -21,6 +21,7 @@ class ExecWireModel(VersionedWireModel):
 class ExecRequest(ExecWireModel):
     request_id: str
     code: str
+    workflow_id: str
 
 
 @wire_model

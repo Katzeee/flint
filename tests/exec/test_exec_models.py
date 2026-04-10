@@ -7,10 +7,10 @@ from pbridge.shared.model_base import VersionedWireModel, WireModelError
 
 
 def test_exec_request_roundtrip():
-    req = ExecRequest(request_id="r1", code="print(1)")
+    req = ExecRequest(request_id="r1", code="print(1)", workflow_id="wf-1")
     data = req.to_dict()
     assert data["type"] == "ExecRequest"
-    assert data["version"] == 1
+    assert data["version"] == 2
     parsed = VersionedWireModel.parse_versioned(data)
     assert isinstance(parsed, ExecRequest)
     assert parsed == req
@@ -22,7 +22,7 @@ def test_exec_result_roundtrip():
     )
     data = res.to_dict()
     assert data["type"] == "ExecResult"
-    assert data["version"] == 1
+    assert data["version"] == 2
     parsed = VersionedWireModel.parse_versioned(data)
     assert isinstance(parsed, ExecResult)
     assert parsed == res

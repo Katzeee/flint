@@ -42,7 +42,7 @@ async def _exec_call(host: str, port: int, code: str, connect_timeout: float = 1
         asyncio.open_connection(host, port), timeout=connect_timeout,
     )
     try:
-        await AsyncJsonLineCodec.send(writer, ExecRequest(request_id=request_id, code=code).to_dict())
+        await AsyncJsonLineCodec.send(writer, ExecRequest(request_id=request_id, code=code, workflow_id="test-wf").to_dict())
         data = await AsyncJsonLineCodec.recv(reader)
         result = VersionedWireModel.parse_versioned(data)
         if not isinstance(result, ExecResult):
