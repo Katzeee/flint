@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -100,6 +101,7 @@ class WorkflowPersistence:
                 if entry.execution_id == execution_id:
                     entry.stdout = stdout
                     entry.stderr = stderr
+                    entry.updated_at = datetime.now(timezone.utc).isoformat()
                     break
             f.write(json.dumps(record.to_dict(), indent=2))
 

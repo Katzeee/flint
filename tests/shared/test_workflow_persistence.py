@@ -137,6 +137,27 @@ def test_update_execution_result_with_error() -> None:
     assert entry.error == "ValueError"
 
 
+def test_updated_at_none_after_append() -> None:
+    wf_id = WorkflowPersistence.create_workflow("test")
+    exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
+
+    record = _read_record(wf_id)
+    entry = record.execs[0]
+    assert entry.updated_at is None
+
+
+def test_updated_at_set_after_update_output() -> None:
+    wf_id = WorkflowPersistence.create_workflow("test")
+    exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
+
+    WorkflowPersistence.update_execution_output(wf_id, exec_id, "hello\n", "")
+
+    record = _read_record(wf_id)
+    entry = record.execs[0]
+    assert isinstance(entry.updated_at, str)
+    assert "T" in entry.updated_at  # ISO format contains 'T'
+
+
 def test_multiple_execs_in_one_workflow() -> None:
     wf_id = WorkflowPersistence.create_workflow("test")
     id1 = WorkflowPersistence.append_running_execution(wf_id, "first", "c1", "x = 1")

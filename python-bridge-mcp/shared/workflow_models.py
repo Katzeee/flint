@@ -19,6 +19,7 @@ class ExecEntry(BaseModel):
     finished_at: Optional[float] = None
     traceback: Optional[str] = None
     error: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 @dataclass
