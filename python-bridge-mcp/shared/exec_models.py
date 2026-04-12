@@ -11,6 +11,10 @@ class ExecStatus(str, Enum):
     FAILED = "failed"
 
 
+class ExecError(str, Enum):
+    BUSY = "busy"
+
+
 @dataclass
 class ExecWireModel(VersionedWireModel):
     PROTOCOL_VERSION: ClassVar[int] = 2

@@ -121,15 +121,17 @@ def test_exec_wrong_message_type(listener_runner: AsyncRunner, port: int) -> Non
     assert "unexpected" in result.error.lower() or "RegisterDiscovery" in result.error
 
 
-def test_exec_concurrent(listener_runner: AsyncRunner, port: int) -> None:
-    """Two concurrent requests both return correct results."""
+def test_exec_concurrent_rejects_busy(listener_runner: AsyncRunner, port: int) -> None:
+    """Second concurrent request is rejected with BUSY error."""
     async def _run():
-        t1 = asyncio.create_task(_exec_call("localhost", port, 'print("a")'))
+        t1 = asyncio.create_task(_exec_call("localhost", port, 'import time; time.sleep(0.3); print("a")'))
+        await asyncio.sleep(0.05)
         t2 = asyncio.create_task(_exec_call("localhost", port, 'print("b")'))
         r1, r2 = await asyncio.gather(t1, t2)
         return r1, r2
 
     r1, r2 = asyncio.run(_run())
-    assert r1.status == ExecStatus.SUCCEED and r2.status == ExecStatus.SUCCEED
-    outputs = {r1.stdout.strip(), r2.stdout.strip()}
-    assert outputs == {"a", "b"}
+    assert r1.status == ExecStatus.SUCCEED
+    assert r1.stdout.strip() == "a"
+    assert r2.status == ExecStatus.FAILED
+    assert r2.error == "busy"

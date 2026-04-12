@@ -56,8 +56,8 @@ class WorkflowPersistence:
         path = WorkflowPersistence.resolve(workflow_id)
         with FileWriter.locked(path) as f:
             record = WorkflowRecord.from_dict(json.loads(f.read()))
-            record.execution_count += 1
-            execution_id = f"{record.execution_count:04d}"
+            record.latest_execution_id += 1
+            execution_id = f"{record.latest_execution_id:04d}"
             record.execs.append(ExecEntry(
                 execution_id=execution_id,
                 name=name,
@@ -69,10 +69,21 @@ class WorkflowPersistence:
                 stderr="",
                 started_at=time.time(),
             ))
+            record.execution_count = len(record.execs)
             if instance_id not in record.instance_ids:
                 record.instance_ids.append(instance_id)
             f.write(json.dumps(record.to_dict(), indent=2))
         return execution_id
+
+    @staticmethod
+    def remove_execution(workflow_id: str, execution_id: str) -> None:
+        """Remove an execution entry from the workflow file."""
+        path = WorkflowPersistence.resolve(workflow_id)
+        with FileWriter.locked(path) as f:
+            record = WorkflowRecord.from_dict(json.loads(f.read()))
+            record.execs = [e for e in record.execs if e.execution_id != execution_id]
+            record.execution_count = len(record.execs)
+            f.write(json.dumps(record.to_dict(), indent=2))
 
     @staticmethod
     def update_execution_output(

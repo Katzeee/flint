@@ -1,7 +1,7 @@
 import asyncio
 from typing import Optional
 
-from ..shared.exec_models import ExecRequest, ExecResult, ExecStatus
+from ..shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
 from ..shared.text_buffer import ThreadSafeTextBuffer
@@ -27,6 +27,7 @@ class ExecListener:
         self._runner = runner
         self._conn_timeout = conn_timeout
         self._server: Optional[asyncio.AbstractServer] = None
+        self._execution_lock = asyncio.Lock()
 
     async def run(self) -> None:
         self._server = await asyncio.start_server(self._handle_connection, self._host, self._port)
@@ -54,26 +55,35 @@ class ExecListener:
                     stderr="",
                     error=f"unexpected message: {type(msg).__name__}",
                 )
-            else:
-                out = ThreadSafeTextBuffer()
-                err = ThreadSafeTextBuffer()
-                flusher = PeriodicFlusher(
-                    self.FLUSH_INTERVAL,
-                    msg.workflow_id,
-                    msg.execution_id,
-                    out,
-                    err,
+            elif self._execution_lock.locked():
+                result = ExecResult(
+                    execution_id=msg.execution_id,
+                    status=ExecStatus.FAILED,
+                    stdout="",
+                    stderr="",
+                    error=ExecError.BUSY,
                 )
-                flusher.start()
-                try:
-                    result = await self._runner.async_execute(
+            else:
+                async with self._execution_lock:
+                    out = ThreadSafeTextBuffer()
+                    err = ThreadSafeTextBuffer()
+                    flusher = PeriodicFlusher(
+                        self.FLUSH_INTERVAL,
+                        msg.workflow_id,
                         msg.execution_id,
-                        msg.code,
                         out,
                         err,
                     )
-                finally:
-                    flusher.stop()
+                    flusher.start()
+                    try:
+                        result = await self._runner.async_execute(
+                            msg.execution_id,
+                            msg.code,
+                            out,
+                            err,
+                        )
+                    finally:
+                        flusher.stop()
         except (asyncio.TimeoutError, ConnectionError, WireModelError, ValueError) as exc:
             result = ExecResult(
                 execution_id="",
