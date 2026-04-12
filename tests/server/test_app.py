@@ -105,6 +105,13 @@ def listener_runner(exec_port: int) -> Iterator[AsyncRunner]:
 # Tests
 # ---------------------------------------------------------------------------
 
+def test_registry_list_clients_from_sync_thread(app_runner) -> None:
+    app, _ = app_runner
+    # Must return a plain dict when called directly from a non-async thread
+    result = app._discovery.list_clients()
+    assert isinstance(result, dict)
+
+
 def test_execute_unknown_client(app_runner) -> None:
     app, runner = app_runner
     wf_id = app.control.start_workflow("test")
@@ -130,7 +137,7 @@ def test_list_clients_after_register(
     app, app_run = app_runner
     _bg_register(discovery_port, exec_port, instance_name="myapp")
 
-    clients = app_run.run_async(app.control.list_clients())
+    clients = app.control.list_clients()
     assert "c1" in clients
     assert clients["c1"].instance_name == "myapp"
     assert clients["c1"].exec_host == "localhost"
@@ -143,7 +150,7 @@ def test_alias_from_registration(
     app, app_run = app_runner
     _bg_register(discovery_port, exec_port, alias="my-alias")
 
-    clients = app_run.run_async(app.control.list_clients())
+    clients = app.control.list_clients()
     assert clients["c1"].alias == "my-alias"
 
 
@@ -153,9 +160,9 @@ def test_set_alias(
     app, app_run = app_runner
     _bg_register(discovery_port, exec_port)
 
-    assert app_run.run_async(app.control.list_clients())["c1"].alias is None
-    app_run.run_async(app.control.set_alias("c1", "new-alias"))
-    assert app_run.run_async(app.control.list_clients())["c1"].alias == "new-alias"
+    assert app.control.list_clients()["c1"].alias is None
+    app.control.set_alias("c1", "new-alias")
+    assert app.control.list_clients()["c1"].alias == "new-alias"
 
 
 def test_set_alias_clear(
@@ -164,14 +171,14 @@ def test_set_alias_clear(
     app, app_run = app_runner
     _bg_register(discovery_port, exec_port, alias="old")
 
-    app_run.run_async(app.control.set_alias("c1", None))
-    assert app_run.run_async(app.control.list_clients())["c1"].alias is None
+    app.control.set_alias("c1", None)
+    assert app.control.list_clients()["c1"].alias is None
 
 
 def test_set_alias_unknown_client(app_runner) -> None:
     app, runner = app_runner
     with pytest.raises(KeyError, match="unknown client"):
-        runner.run_async(app.control.set_alias("nonexistent", "alias"))
+        app.control.set_alias("nonexistent", "alias")
 
 
 def test_client_disconnect_removes_entry(
@@ -181,9 +188,9 @@ def test_client_disconnect_removes_entry(
     disconnect = threading.Event()
     _bg_register(discovery_port, exec_port, disconnect_event=disconnect)
 
-    assert "c1" in app_run.run_async(app.control.list_clients())
+    assert "c1" in app.control.list_clients()
     disconnect.set()
-    assert wait_for(lambda: "c1" not in app_run.run_async(app.control.list_clients())), \
+    assert wait_for(lambda: "c1" not in app.control.list_clients()), \
         "client entry not removed after disconnect"
 
 
@@ -197,11 +204,11 @@ def test_evict_stale_on_register(
         exec_host="localhost", exec_port=0, alias=None,
         last_heartbeat=time.monotonic() - 9999,
     )
-    app_run.run_async(app._discovery.register(stale))
+    app._discovery.register(stale)
 
     # Register a new client — should evict the stale one
     _bg_register(discovery_port, exec_port)
-    clients = app_run.run_async(app.control.list_clients())
+    clients = app.control.list_clients()
     assert "c1" in clients
     assert "stale-1" not in clients
 
@@ -211,7 +218,7 @@ def test_instance_type_stored_on_registration(
 ) -> None:
     app, app_run = app_runner
     _bg_register(discovery_port, exec_port, instance_type="maya")
-    clients = app_run.run_async(app.control.list_clients())
+    clients = app.control.list_clients()
     assert clients["c1"].instance_type == "maya"
 
 
@@ -224,13 +231,13 @@ def test_list_clients_filters_by_instance_type(
     _bg_register(discovery_port, port_maya, instance_id="c1", instance_type="maya")
     _bg_register(discovery_port, port_nuke, instance_id="c2", instance_type="nuke")
 
-    maya_clients = app_run.run_async(app.control.list_clients("maya"))
+    maya_clients = app.control.list_clients("maya")
     assert "c1" in maya_clients
     assert "c2" not in maya_clients
 
-    nuke_clients = app_run.run_async(app.control.list_clients("nuke"))
+    nuke_clients = app.control.list_clients("nuke")
     assert "c2" in nuke_clients
     assert "c1" not in nuke_clients
 
-    all_clients = app_run.run_async(app.control.list_clients())
+    all_clients = app.control.list_clients()
     assert "c1" in all_clients and "c2" in all_clients

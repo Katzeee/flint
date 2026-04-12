@@ -79,7 +79,7 @@ def test_client_connects_and_is_registered(srv, port: int) -> None:
     try:
         assert _wait_connected(c), "client did not connect"
         assert c.state == DiscoveryState.CONNECTED
-        clients = srv_runner.run_async(server.list_clients())
+        clients = server.list_clients()
         entry = clients["c1"]
         assert entry.instance_name == "Test Client"
         assert entry.exec_host == "localhost"
@@ -105,11 +105,11 @@ def test_client_disconnect_removes_entry_from_server(srv, port: int) -> None:
     r = _ClientRunner(c)
     r.start()
     assert _wait_connected(c)
-    assert "c1" in srv_runner.run_async(server.list_clients())
+    assert "c1" in server.list_clients()
 
     r.stop()
 
-    assert wait_for(lambda: "c1" not in srv_runner.run_async(server.list_clients())), \
+    assert wait_for(lambda: "c1" not in server.list_clients()), \
         "server did not remove client entry after disconnect"
 
 
@@ -152,7 +152,7 @@ def test_client_reconnects_after_server_restart(port: int) -> None:
         try:
             assert _wait_connected(c, timeout=5), "client did not reconnect after server restart"
             assert c.state == DiscoveryState.CONNECTED
-            assert "c1" in runner2.run_async(server2.list_clients())
+            assert "c1" in server2.list_clients()
         finally:
             runner2.stop()
     finally:
@@ -168,7 +168,7 @@ def test_multiple_clients_all_registered(srv, port: int) -> None:
     try:
         for r in runners:
             assert _wait_connected(r.client), f"{r.client._instance_id} did not connect"
-        registered = srv_runner.run_async(server.list_clients())
+        registered = server.list_clients()
         for cid in ids:
             assert cid in registered
     finally:

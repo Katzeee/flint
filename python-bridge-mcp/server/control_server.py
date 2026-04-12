@@ -16,11 +16,11 @@ class ControlServer:
     def __init__(self, discovery: Registry) -> None:
         self._discovery = discovery
 
-    async def list_clients(self, instance_type: Optional[str] = None) -> Dict[str, ClientEntry]:
-        return await self._discovery.list_clients(instance_type)
+    def list_clients(self, instance_type: Optional[str] = None) -> Dict[str, ClientEntry]:
+        return self._discovery.list_clients(instance_type)
 
-    async def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
-        await self._discovery.set_alias(instance_id, alias)
+    def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
+        self._discovery.set_alias(instance_id, alias)
 
     def start_workflow(self, name: str, description: str = "") -> str:
         return WorkflowPersistence.create_workflow(name, description)
@@ -38,7 +38,7 @@ class ControlServer:
         if not WorkflowPersistence.exists(workflow_id):
             raise FileNotFoundError(f"workflow not found: {workflow_id}")
 
-        entry = await self._discovery.get_client(instance_id)
+        entry = self._discovery.get_client(instance_id)
         if entry is None:
             raise KeyError(f"unknown client: {instance_id}")
 

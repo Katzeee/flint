@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -35,45 +36,45 @@ class Registry:
         self._port = port
         self._stale_timeout = stale_timeout
         self._clients: Dict[str, ClientEntry] = {}
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
         self._server: Optional[asyncio.AbstractServer] = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    async def get_client(self, instance_id: str) -> Optional[ClientEntry]:
-        async with self._lock:
+    def get_client(self, instance_id: str) -> Optional[ClientEntry]:
+        with self._lock:
             self._evict_stale()
             return self._clients.get(instance_id)
 
-    async def list_clients(self, instance_type: Optional[str] = None) -> Dict[str, ClientEntry]:
-        async with self._lock:
+    def list_clients(self, instance_type: Optional[str] = None) -> Dict[str, ClientEntry]:
+        with self._lock:
             self._evict_stale()
             if instance_type is None:
                 return dict(self._clients)
             return {k: v for k, v in self._clients.items() if v.instance_type == instance_type}
 
-    async def register(self, entry: ClientEntry) -> None:
-        async with self._lock:
+    def register(self, entry: ClientEntry) -> None:
+        with self._lock:
             self._evict_stale()
             self._clients[entry.instance_id] = entry
 
-    async def unregister(self, instance_id: str) -> None:
-        async with self._lock:
+    def unregister(self, instance_id: str) -> None:
+        with self._lock:
             self._evict_stale()
             self._clients.pop(instance_id, None)
 
-    async def heartbeat(self, instance_id: str) -> bool:
-        async with self._lock:
+    def heartbeat(self, instance_id: str) -> bool:
+        with self._lock:
             self._evict_stale()
             if instance_id not in self._clients:
                 return False
             self._clients[instance_id].last_heartbeat = time.monotonic()
             return True
 
-    async def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
-        async with self._lock:
+    def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
+        with self._lock:
             self._evict_stale()
             if instance_id not in self._clients:
                 raise KeyError(f"unknown client: {instance_id}")
@@ -128,7 +129,7 @@ class Registry:
 
                 if isinstance(msg, RegisterDiscovery):
                     instance_id = msg.instance_id
-                    await self.register(ClientEntry(
+                    self.register(ClientEntry(
                         pid=msg.pid,
                         instance_id=msg.instance_id,
                         instance_name=msg.instance_name,
@@ -140,7 +141,7 @@ class Registry:
                     await AsyncJsonLineCodec.send(writer, AckDiscovery(success=True).to_dict())
 
                 elif isinstance(msg, HeartbeatDiscovery):
-                    if not await self.heartbeat(msg.instance_id):
+                    if not self.heartbeat(msg.instance_id):
                         await AsyncJsonLineCodec.send(writer, AckDiscovery(success=False, error="not registered").to_dict())
                         return
                     await AsyncJsonLineCodec.send(writer, AckDiscovery(success=True).to_dict())
@@ -150,5 +151,5 @@ class Registry:
                     return
         finally:
             if instance_id is not None:
-                await self.unregister(instance_id)
+                self.unregister(instance_id)
             writer.close()
