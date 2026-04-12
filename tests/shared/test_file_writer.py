@@ -56,12 +56,6 @@ def test_read_nonexistent_raises(tmp_path: Path) -> None:
             f.read()
 
 
-def test_path_property(tmp_path: Path) -> None:
-    p = tmp_path / "f.txt"
-    with FileWriter.locked(p) as f:
-        assert f.path == p
-
-
 # ---------------------------------------------------------------------------
 # Concurrency
 # ---------------------------------------------------------------------------

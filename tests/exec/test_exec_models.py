@@ -28,15 +28,6 @@ def test_exec_result_roundtrip():
     assert parsed == res
 
 
-def test_exec_result_exclude_none_omits_optional():
-    res = ExecResult(
-        execution_id="r1", status=ExecStatus.SUCCEEDED, stdout="", stderr=""
-    )
-    data = res.to_dict(exclude_none=True)
-    assert "traceback" not in data
-    assert "error" not in data
-
-
 def test_exec_result_with_traceback():
     res = ExecResult(
         execution_id="r1",

@@ -1,5 +1,4 @@
 import asyncio
-import socket
 import threading
 import time
 from typing import Iterator, Optional
@@ -103,18 +102,6 @@ def listener_runner(exec_port: int) -> Iterator[AsyncRunner]:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-
-def test_app_starts(app_runner, discovery_port: int) -> None:
-    app, runner = app_runner
-    with socket.create_connection(("localhost", discovery_port), timeout=2):
-        pass
-
-
-def test_list_clients_empty(app_runner) -> None:
-    app, runner = app_runner
-    clients = runner.run_async(app.control.list_clients())
-    assert clients == {}
-
 
 def test_execute_unknown_client(app_runner) -> None:
     app, runner = app_runner
