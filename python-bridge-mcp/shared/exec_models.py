@@ -22,6 +22,7 @@ class ExecRequest(ExecWireModel):
     request_id: str
     code: str
     workflow_id: str
+    workflow_file_path: str
 
 
 @wire_model

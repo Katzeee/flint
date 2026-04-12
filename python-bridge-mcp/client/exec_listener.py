@@ -4,13 +4,16 @@ from typing import Optional
 from ..shared.exec_models import ExecRequest, ExecResult, ExecStatus
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
+from ..shared.text_buffer import ThreadSafeTextBuffer
 from .code_runner import CodeRunner
+from .periodic_flusher import PeriodicFlusher
 
 
 class ExecListener:
     """Async TCP server that accepts ExecRequest and returns ExecResult."""
 
     DEFAULT_CONN_TIMEOUT = 30.0
+    FLUSH_INTERVAL = 0.5
 
     def __init__(
         self,
@@ -26,9 +29,7 @@ class ExecListener:
         self._server: Optional[asyncio.AbstractServer] = None
 
     async def run(self) -> None:
-        self._server = await asyncio.start_server(
-            self._handle_connection, self._host, self._port
-        )
+        self._server = await asyncio.start_server(self._handle_connection, self._host, self._port)
         async with self._server:
             await self._server.serve_forever()
 
@@ -43,9 +44,7 @@ class ExecListener:
     ) -> None:
         result: Optional[ExecResult] = None
         try:
-            data = await asyncio.wait_for(
-                AsyncJsonLineCodec.recv(reader), timeout=self._conn_timeout
-            )
+            data = await asyncio.wait_for(AsyncJsonLineCodec.recv(reader), timeout=self._conn_timeout)
             msg = VersionedWireModel.parse_versioned(data)
             if not isinstance(msg, ExecRequest):
                 result = ExecResult(
@@ -56,7 +55,25 @@ class ExecListener:
                     error=f"unexpected message: {type(msg).__name__}",
                 )
             else:
-                result = await self._runner.async_execute(msg.request_id, msg.code)
+                out = ThreadSafeTextBuffer()
+                err = ThreadSafeTextBuffer()
+                flusher = PeriodicFlusher(
+                    self.FLUSH_INTERVAL,
+                    msg.workflow_file_path,
+                    msg.request_id,
+                    out,
+                    err,
+                )
+                flusher.start()
+                try:
+                    result = await self._runner.async_execute(
+                        msg.request_id,
+                        msg.code,
+                        out,
+                        err,
+                    )
+                finally:
+                    flusher.stop()
         except (asyncio.TimeoutError, ConnectionError, WireModelError, ValueError) as exc:
             result = ExecResult(
                 request_id="",
@@ -67,5 +84,5 @@ class ExecListener:
             )
         finally:
             if result is not None:
-                await AsyncJsonLineCodec.send(writer, result.to_dict(exclude_none=True))
+                await AsyncJsonLineCodec.send(writer, result.to_dict())
             writer.close()

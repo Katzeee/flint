@@ -88,37 +88,39 @@ def listener_runner(exec_port: int) -> Iterator[AsyncRunner]:
 # Tests
 # ---------------------------------------------------------------------------
 
-def test_start_workflow_returns_id_with_name(app_runner) -> None:
+def test_start_workflow_returns_id_with_name(app_runner, tmp_path) -> None:
     app, runner = app_runner
-    wf_id = app.control.start_workflow("my-workflow")
+    wf_id = app.control.start_workflow("my-workflow", str(tmp_path / "wf.json"))
     assert isinstance(wf_id, str)
     assert "my-workflow" in wf_id
 
 
-def test_start_workflow_ids_are_unique(app_runner) -> None:
+def test_start_workflow_ids_are_unique(app_runner, tmp_path) -> None:
     app, runner = app_runner
-    wf1 = app.control.start_workflow("wf")
-    wf2 = app.control.start_workflow("wf")
+    wf1 = app.control.start_workflow("wf", str(tmp_path / "wf1.json"))
+    wf2 = app.control.start_workflow("wf", str(tmp_path / "wf2.json"))
     assert wf1 != wf2
 
 
 def test_execute_with_workflow_id(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
+    app_runner, listener_runner, discovery_port: int, exec_port: int, tmp_path,
 ) -> None:
     app, app_run = app_runner
     _bg_register(discovery_port, exec_port)
-    wf_id = app.control.start_workflow("test")
+    wf_path = str(tmp_path / "wf.json")
+    wf_id = app.control.start_workflow("test", wf_path)
 
-    result = app_run.run_async(app.control.execute("c1", 'print("hello")', wf_id))
+    result = app_run.run_async(app.control.execute("c1", 'print("hello")', wf_id, wf_path))
     assert result.status == ExecStatus.SUCCEED
     assert result.stdout == "hello\n"
 
 
-def test_execute_accepts_any_workflow_id(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
+def test_execute_rejects_missing_workflow(
+    app_runner, listener_runner, discovery_port: int, exec_port: int, tmp_path,
 ) -> None:
     app, app_run = app_runner
     _bg_register(discovery_port, exec_port)
+    wf_path = str(tmp_path / "nonexistent.json")
 
-    result = app_run.run_async(app.control.execute("c1", 'print("ok")', "arbitrary-id"))
-    assert result.status == ExecStatus.SUCCEED
+    with pytest.raises(FileNotFoundError, match="workflow file not found"):
+        app_run.run_async(app.control.execute("c1", 'print("ok")', "arbitrary-id", wf_path))
