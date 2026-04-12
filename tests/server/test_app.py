@@ -41,7 +41,7 @@ def _bg_register(
             reader, writer = await asyncio.open_connection("localhost", discovery_port)
             try:
                 msg = RegisterDiscovery(
-                    pid="1", instance_id=instance_id, instance_name=instance_name,
+                    pid=1, instance_id=instance_id, instance_name=instance_name,
                     exec_host="localhost", exec_port=exec_port, alias=alias,
                 )
                 await AsyncJsonLineCodec.send(writer, msg.to_dict())
@@ -191,7 +191,7 @@ def test_evict_stale_on_register(
     app, app_run = app_runner
 
     stale = ClientEntry(
-        pid="0", instance_id="stale-1", instance_name="stale",
+        pid=0, instance_id="stale-1", instance_name="stale",
         exec_host="localhost", exec_port=0, alias=None,
         last_heartbeat=time.monotonic() - 9999,
     )

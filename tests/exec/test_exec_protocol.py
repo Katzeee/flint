@@ -106,7 +106,7 @@ def test_exec_wrong_message_type(listener_runner: AsyncRunner, port: int) -> Non
         reader, writer = await asyncio.open_connection("localhost", port)
         try:
             msg = RegisterDiscovery(
-                pid="1", instance_id="x", instance_name="x",
+                pid=1, instance_id="x", instance_name="x",
                 exec_host="localhost", exec_port=0,
             )
             await AsyncJsonLineCodec.send(writer, msg.to_dict())

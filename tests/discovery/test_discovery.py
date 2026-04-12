@@ -7,6 +7,7 @@ import pytest
 
 from pbridge.client.discovery import DiscoveryClient, DiscoveryState
 from pbridge.server.registry import Registry
+from pbridge.shared.discovery_models import RegisterDiscovery
 
 from conftest import AsyncRunner, free_port, wait_for
 
@@ -181,6 +182,24 @@ def test_server_stop_with_no_clients(port: int) -> None:
     runner.start(server.run)
     server.stop()
     runner.stop()
+
+
+def test_register_discovery_pid_is_int() -> None:
+    msg = RegisterDiscovery(
+        pid=1234, instance_id="c1", instance_name="test",
+        exec_host="localhost", exec_port=9000,
+    )
+    data = msg.to_dict()
+    assert isinstance(data["pid"], int)
+    assert data["pid"] == 1234
+
+
+def test_client_entry_pid_equality() -> None:
+    from pbridge.server.registry import ClientEntry
+    import time
+    e1 = ClientEntry(pid=42, instance_id="c1", instance_name="t", exec_host="h", exec_port=1, alias=None)
+    e2 = ClientEntry(pid=42, instance_id="c2", instance_name="t", exec_host="h", exec_port=1, alias=None)
+    assert e1.pid == e2.pid
 
 
 def test_client_state_sequence(srv, port: int) -> None:

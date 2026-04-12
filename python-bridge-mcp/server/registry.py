@@ -10,7 +10,7 @@ from ..shared.model_base import VersionedWireModel, WireModelError
 
 @dataclass
 class ClientEntry:
-    pid: str
+    pid: int
     instance_id: str
     instance_name: str
     exec_host: str

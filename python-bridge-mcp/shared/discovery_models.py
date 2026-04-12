@@ -14,7 +14,7 @@ class DiscoveryWireModel(VersionedWireModel):
 @wire_model
 @dataclass
 class RegisterDiscovery(DiscoveryWireModel):
-    pid: str
+    pid: int
     instance_id: str
     instance_name: str
     exec_host: str

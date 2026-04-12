@@ -42,7 +42,7 @@ class DiscoveryClient:
         self._host = host
         self._port = port
         self._heartbeat_interval = heartbeat_interval
-        self._pid = str(os.getpid())
+        self._pid = os.getpid()
 
         self._stop_event = threading.Event()
         self._connected_event = threading.Event()
