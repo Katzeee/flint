@@ -18,7 +18,7 @@ def test_exec_request_roundtrip():
 
 def test_exec_result_roundtrip():
     res = ExecResult(
-        execution_id="r1", status=ExecStatus.SUCCEED, stdout="hello\n", stderr=""
+        execution_id="r1", status=ExecStatus.SUCCEEDED, stdout="hello\n", stderr=""
     )
     data = res.to_dict()
     assert data["type"] == "ExecResult"
@@ -30,7 +30,7 @@ def test_exec_result_roundtrip():
 
 def test_exec_result_exclude_none_omits_optional():
     res = ExecResult(
-        execution_id="r1", status=ExecStatus.SUCCEED, stdout="", stderr=""
+        execution_id="r1", status=ExecStatus.SUCCEEDED, stdout="", stderr=""
     )
     data = res.to_dict(exclude_none=True)
     assert "traceback" not in data
@@ -60,3 +60,18 @@ def test_exec_request_version_mismatch():
     }
     with pytest.raises(WireModelError, match="Version mismatch"):
         VersionedWireModel.parse_versioned(data)
+
+
+def test_exec_status_succeeded_value():
+    assert ExecStatus.SUCCEEDED.value == "succeeded"
+
+
+def test_exec_status_pending_roundtrip():
+    res = ExecResult(
+        execution_id="r1", status=ExecStatus.PENDING, stdout="", stderr=""
+    )
+    data = res.to_dict()
+    assert data["status"] == "pending"
+    parsed = VersionedWireModel.parse_versioned(data)
+    assert isinstance(parsed, ExecResult)
+    assert parsed.status == ExecStatus.PENDING

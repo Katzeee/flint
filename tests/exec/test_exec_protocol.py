@@ -61,7 +61,7 @@ def _call(port: int, code: str) -> ExecResult:
 
 def test_exec_hello_world(listener_runner: AsyncRunner, port: int) -> None:
     result = _call(port, 'print("hello")')
-    assert result.status == ExecStatus.SUCCEED
+    assert result.status == ExecStatus.SUCCEEDED
     assert result.stdout == "hello\n"
     assert result.stderr == ""
     assert result.traceback is None
@@ -77,7 +77,7 @@ def test_exec_exception(listener_runner: AsyncRunner, port: int) -> None:
 
 def test_exec_stderr(listener_runner: AsyncRunner, port: int) -> None:
     result = _call(port, 'import sys; sys.stderr.write("err\\n")')
-    assert result.status == ExecStatus.SUCCEED
+    assert result.status == ExecStatus.SUCCEEDED
     assert "err" in result.stderr
 
 
@@ -90,10 +90,10 @@ def test_exec_namespace_persists(port: int) -> None:
     lr.start(listener.run)
     try:
         r1 = _call(port, "x = 42")
-        assert r1.status == ExecStatus.SUCCEED
+        assert r1.status == ExecStatus.SUCCEEDED
 
         r2 = _call(port, "print(x)")
-        assert r2.status == ExecStatus.SUCCEED
+        assert r2.status == ExecStatus.SUCCEEDED
         assert r2.stdout == "42\n"
     finally:
         listener.stop()
@@ -131,7 +131,7 @@ def test_exec_concurrent_rejects_busy(listener_runner: AsyncRunner, port: int) -
         return r1, r2
 
     r1, r2 = asyncio.run(_run())
-    assert r1.status == ExecStatus.SUCCEED
+    assert r1.status == ExecStatus.SUCCEEDED
     assert r1.stdout.strip() == "a"
     assert r2.status == ExecStatus.FAILED
     assert r2.error == "busy"

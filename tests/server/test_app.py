@@ -131,7 +131,7 @@ def test_execute_on_client(
     wf_id = app.control.start_workflow("test")
 
     result = app_run.run_async(app.control.execute("c1", 'print("hello")', wf_id))
-    assert result.status == ExecStatus.SUCCEED
+    assert result.status == ExecStatus.SUCCEEDED
     assert result.stdout == "hello\n"
 
 

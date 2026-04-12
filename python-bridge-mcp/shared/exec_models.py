@@ -6,8 +6,9 @@ from .model_base import VersionedWireModel, wire_model
 
 
 class ExecStatus(str, Enum):
+    PENDING = "pending"
     RUNNING = "running"
-    SUCCEED = "succeed"
+    SUCCEEDED = "succeeded"
     FAILED = "failed"
 
 

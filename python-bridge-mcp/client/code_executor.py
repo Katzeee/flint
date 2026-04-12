@@ -24,7 +24,7 @@ class CodeExecutor:
         with redirect_stdout(out), redirect_stderr(err):
             try:
                 exec(code, self._ns, self._ns)
-                status = ExecStatus.SUCCEED
+                status = ExecStatus.SUCCEEDED
                 traceback = None
             except Exception:
                 status = ExecStatus.FAILED

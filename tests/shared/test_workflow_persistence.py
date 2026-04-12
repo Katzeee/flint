@@ -105,13 +105,13 @@ def test_update_execution_result() -> None:
     exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
 
     WorkflowPersistence.update_execution_result(
-        wf_id, exec_id, ExecStatus.SUCCEED,
+        wf_id, exec_id, ExecStatus.SUCCEEDED,
         "hello\n", "", 1700000000.0,
     )
 
     record = _read_record(wf_id)
     entry = record.execs[0]
-    assert entry.status == ExecStatus.SUCCEED
+    assert entry.status == ExecStatus.SUCCEEDED
     assert entry.stdout == "hello\n"
     assert entry.finished_at == 1700000000.0
     assert entry.traceback is None
@@ -143,7 +143,7 @@ def test_multiple_execs_in_one_workflow() -> None:
     id2 = WorkflowPersistence.append_running_execution(wf_id, "second", "c2", "x = 2")
 
     WorkflowPersistence.update_execution_result(
-        wf_id, id1, ExecStatus.SUCCEED, "1\n", "", 1700000000.0,
+        wf_id, id1, ExecStatus.SUCCEEDED, "1\n", "", 1700000000.0,
     )
     WorkflowPersistence.update_execution_result(
         wf_id, id2, ExecStatus.FAILED, "", "err", 1700000001.0,
@@ -152,6 +152,6 @@ def test_multiple_execs_in_one_workflow() -> None:
 
     record = _read_record(wf_id)
     assert len(record.execs) == 2
-    assert record.execs[0].status == ExecStatus.SUCCEED
+    assert record.execs[0].status == ExecStatus.SUCCEEDED
     assert record.execs[1].status == ExecStatus.FAILED
     assert set(record.instance_ids) == {"c1", "c2"}
