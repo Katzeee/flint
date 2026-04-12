@@ -14,7 +14,7 @@ class CodeExecutor:
 
     def execute(
         self,
-        request_id: str,
+        execution_id: str,
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
@@ -30,7 +30,7 @@ class CodeExecutor:
                 status = ExecStatus.FAILED
                 traceback = tb_mod.format_exc()
         return ExecResult(
-            request_id=request_id,
+            execution_id=execution_id,
             status=status,
             stdout=out.getvalue(),
             stderr=err.getvalue(),

@@ -2,6 +2,16 @@ import asyncio
 import socket
 import threading
 import time
+from pathlib import Path
+
+import pytest
+
+from pbridge.shared.workflow_persistence import WorkflowPersistence
+
+
+@pytest.fixture(autouse=True)
+def _workflow_tmpdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(WorkflowPersistence, "BASE_DIR", tmp_path / "workflows")
 
 
 def free_port() -> int:

@@ -1,6 +1,5 @@
 import asyncio
 import time
-import uuid
 from typing import Dict, Optional
 
 from .registry import ClientEntry, Registry
@@ -11,12 +10,10 @@ from ..shared.workflow_persistence import WorkflowPersistence
 
 
 class ControlServer:
-
     DEFAULT_CONNECT_TIMEOUT: float = 10.0
 
     def __init__(self, discovery: Registry) -> None:
         self._discovery = discovery
-        self._wf_counter = 0
 
     async def list_clients(self) -> Dict[str, ClientEntry]:
         return await self._discovery.list_clients()
@@ -24,36 +21,30 @@ class ControlServer:
     async def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
         await self._discovery.set_alias(instance_id, alias)
 
-    def start_workflow(self, name: str, workflow_file_path: str) -> str:
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        self._wf_counter += 1
-        workflow_id = f"{name}_{ts}_{self._wf_counter}"
-        WorkflowPersistence.create_workflow(
-            workflow_file_path, workflow_id, name,
-        )
-        return workflow_id
+    def start_workflow(self, name: str, description: str = "") -> str:
+        return WorkflowPersistence.create_workflow(name, description)
 
     async def execute(
         self,
         instance_id: str,
         code: str,
         workflow_id: str,
-        workflow_file_path: str,
+        name: str = "",
         *,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
     ) -> ExecResult:
-        if not WorkflowPersistence.exists(workflow_file_path):
-            raise FileNotFoundError(
-                f"workflow file not found: {workflow_file_path}"
-            )
+        # Validate workflow exists
+        if not WorkflowPersistence.exists(workflow_id):
+            raise FileNotFoundError(f"workflow not found: {workflow_id}")
 
+        # Look up entry
         entry = await self._discovery.get_client(instance_id)
         if entry is None:
             raise KeyError(f"unknown client: {instance_id}")
 
-        request_id = str(uuid.uuid4())
-        WorkflowPersistence.append_running_execution(
-            workflow_file_path, request_id, workflow_id, instance_id, code,
+        # Pre-write execution entry
+        execution_id = WorkflowPersistence.append_running_execution(
+            workflow_id, name, instance_id, code,
         )
 
         reader, writer = await asyncio.wait_for(
@@ -62,20 +53,24 @@ class ControlServer:
         )
         try:
             req = ExecRequest(
-                request_id=request_id, code=code,
-                workflow_id=workflow_id, workflow_file_path=workflow_file_path,
+                execution_id=execution_id,
+                code=code,
+                workflow_id=workflow_id,
             )
             await AsyncJsonLineCodec.send(writer, req.to_dict())
             data = await AsyncJsonLineCodec.recv(reader)
             result = VersionedWireModel.parse_versioned(data)
             if not isinstance(result, ExecResult):
-                raise RuntimeError(
-                    f"unexpected response: {type(result).__name__}"
-                )
+                raise RuntimeError(f"unexpected response: {type(result).__name__}")
             WorkflowPersistence.update_execution_result(
-                workflow_file_path, request_id,
-                result.status, result.stdout, result.stderr,
-                time.time(), result.traceback, result.error,
+                workflow_id,
+                execution_id,
+                result.status,
+                result.stdout,
+                result.stderr,
+                time.time(),
+                result.traceback,
+                result.error,
             )
             return result
         finally:

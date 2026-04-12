@@ -19,7 +19,7 @@ class CodeRunner(ABC):
     @abstractmethod
     def execute(
         self,
-        request_id: str,
+        execution_id: str,
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
@@ -27,14 +27,14 @@ class CodeRunner(ABC):
 
     async def async_execute(
         self,
-        request_id: str,
+        execution_id: str,
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
     ) -> ExecResult:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            None, functools.partial(self.execute, request_id, code, out=out, err=err),
+            None, functools.partial(self.execute, execution_id, code, out=out, err=err),
         )
 
 
@@ -43,12 +43,12 @@ class DirectRunner(CodeRunner):
 
     def execute(
         self,
-        request_id: str,
+        execution_id: str,
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
     ) -> ExecResult:
-        return self._executor.execute(request_id, code, out=out, err=err)
+        return self._executor.execute(execution_id, code, out=out, err=err)
 
 
 class MainThreadRunner(CodeRunner):
@@ -67,7 +67,7 @@ class MainThreadRunner(CodeRunner):
 
     def execute(
         self,
-        request_id: str,
+        execution_id: str,
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
@@ -76,7 +76,7 @@ class MainThreadRunner(CodeRunner):
         holder: list = [None]
 
         def _task() -> None:
-            holder[0] = self._executor.execute(request_id, code, out=out, err=err)
+            holder[0] = self._executor.execute(execution_id, code, out=out, err=err)
             result_event.set()
 
         self._queue.put(_task)

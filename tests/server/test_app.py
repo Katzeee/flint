@@ -116,23 +116,21 @@ def test_list_clients_empty(app_runner) -> None:
     assert clients == {}
 
 
-def test_execute_unknown_client(app_runner, tmp_path) -> None:
+def test_execute_unknown_client(app_runner) -> None:
     app, runner = app_runner
-    wf_path = str(tmp_path / "wf.json")
-    wf_id = app.control.start_workflow("test", wf_path)
+    wf_id = app.control.start_workflow("test")
     with pytest.raises(KeyError, match="unknown client"):
-        runner.run_async(app.control.execute("nonexistent", "print(1)", wf_id, wf_path))
+        runner.run_async(app.control.execute("nonexistent", "print(1)", wf_id))
 
 
 def test_execute_on_client(
-    app_runner, listener_runner, discovery_port: int, exec_port: int, tmp_path,
+    app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
     app, app_run = app_runner
     _bg_register(discovery_port, exec_port)
-    wf_path = str(tmp_path / "wf.json")
-    wf_id = app.control.start_workflow("test", wf_path)
+    wf_id = app.control.start_workflow("test")
 
-    result = app_run.run_async(app.control.execute("c1", 'print("hello")', wf_id, wf_path))
+    result = app_run.run_async(app.control.execute("c1", 'print("hello")', wf_id))
     assert result.status == ExecStatus.SUCCEED
     assert result.stdout == "hello\n"
 

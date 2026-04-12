@@ -19,16 +19,15 @@ class ExecWireModel(VersionedWireModel):
 @wire_model
 @dataclass
 class ExecRequest(ExecWireModel):
-    request_id: str
+    execution_id: str
     code: str
     workflow_id: str
-    workflow_file_path: str
 
 
 @wire_model
 @dataclass
 class ExecResult(ExecWireModel):
-    request_id: str
+    execution_id: str
     status: ExecStatus
     stdout: str
     stderr: str

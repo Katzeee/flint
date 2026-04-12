@@ -1,5 +1,4 @@
 import asyncio
-import uuid
 from typing import Iterator
 
 import pytest
@@ -37,12 +36,12 @@ def listener_runner(port: int) -> Iterator[AsyncRunner]:
 
 
 async def _exec_call(host: str, port: int, code: str, connect_timeout: float = 10.0) -> ExecResult:
-    request_id = str(uuid.uuid4())
+    execution_id = "test"
     reader, writer = await asyncio.wait_for(
         asyncio.open_connection(host, port), timeout=connect_timeout,
     )
     try:
-        await AsyncJsonLineCodec.send(writer, ExecRequest(request_id=request_id, code=code, workflow_id="test-wf", workflow_file_path="").to_dict())
+        await AsyncJsonLineCodec.send(writer, ExecRequest(execution_id=execution_id, code=code, workflow_id="test-wf").to_dict())
         data = await AsyncJsonLineCodec.recv(reader)
         result = VersionedWireModel.parse_versioned(data)
         if not isinstance(result, ExecResult):

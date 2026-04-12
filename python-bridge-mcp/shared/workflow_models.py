@@ -7,7 +7,8 @@ from .model_base import BaseModel
 
 @dataclass
 class ExecEntry(BaseModel):
-    request_id: str
+    execution_id: str
+    name: str
     workflow_id: str
     instance_id: str
     code: str
@@ -26,5 +27,6 @@ class WorkflowRecord(BaseModel):
     name: str
     description: str
     created_at: float
+    execution_count: int = 0
     instance_ids: List[str] = field(default_factory=list)
     execs: List[ExecEntry] = field(default_factory=list)

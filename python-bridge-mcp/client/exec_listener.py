@@ -48,7 +48,7 @@ class ExecListener:
             msg = VersionedWireModel.parse_versioned(data)
             if not isinstance(msg, ExecRequest):
                 result = ExecResult(
-                    request_id="",
+                    execution_id="",
                     status=ExecStatus.FAILED,
                     stdout="",
                     stderr="",
@@ -59,15 +59,15 @@ class ExecListener:
                 err = ThreadSafeTextBuffer()
                 flusher = PeriodicFlusher(
                     self.FLUSH_INTERVAL,
-                    msg.workflow_file_path,
-                    msg.request_id,
+                    msg.workflow_id,
+                    msg.execution_id,
                     out,
                     err,
                 )
                 flusher.start()
                 try:
                     result = await self._runner.async_execute(
-                        msg.request_id,
+                        msg.execution_id,
                         msg.code,
                         out,
                         err,
@@ -76,7 +76,7 @@ class ExecListener:
                     flusher.stop()
         except (asyncio.TimeoutError, ConnectionError, WireModelError, ValueError) as exc:
             result = ExecResult(
-                request_id="",
+                execution_id="",
                 status=ExecStatus.FAILED,
                 stdout="",
                 stderr="",
