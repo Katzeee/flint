@@ -28,6 +28,7 @@ def _bg_register(
     instance_name: str = "test",
     alias: Optional[str] = None,
     disconnect_event: Optional[threading.Event] = None,
+    instance_type: str = "",
 ) -> threading.Event:
     """Register a client in a background thread, return event that fires when done.
 
@@ -43,6 +44,7 @@ def _bg_register(
                 msg = RegisterDiscovery(
                     pid=1, instance_id=instance_id, instance_name=instance_name,
                     exec_host="localhost", exec_port=exec_port, alias=alias,
+                    instance_type=instance_type,
                 )
                 await AsyncJsonLineCodec.send(writer, msg.to_dict())
                 await AsyncJsonLineCodec.recv(reader)
@@ -202,3 +204,33 @@ def test_evict_stale_on_register(
     clients = app_run.run_async(app.control.list_clients())
     assert "c1" in clients
     assert "stale-1" not in clients
+
+
+def test_instance_type_stored_on_registration(
+    app_runner, discovery_port: int, exec_port: int,
+) -> None:
+    app, app_run = app_runner
+    _bg_register(discovery_port, exec_port, instance_type="maya")
+    clients = app_run.run_async(app.control.list_clients())
+    assert clients["c1"].instance_type == "maya"
+
+
+def test_list_clients_filters_by_instance_type(
+    app_runner, discovery_port: int,
+) -> None:
+    app, app_run = app_runner
+    port_maya = free_port()
+    port_nuke = free_port()
+    _bg_register(discovery_port, port_maya, instance_id="c1", instance_type="maya")
+    _bg_register(discovery_port, port_nuke, instance_id="c2", instance_type="nuke")
+
+    maya_clients = app_run.run_async(app.control.list_clients("maya"))
+    assert "c1" in maya_clients
+    assert "c2" not in maya_clients
+
+    nuke_clients = app_run.run_async(app.control.list_clients("nuke"))
+    assert "c2" in nuke_clients
+    assert "c1" not in nuke_clients
+
+    all_clients = app_run.run_async(app.control.list_clients())
+    assert "c1" in all_clients and "c2" in all_clients

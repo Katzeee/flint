@@ -16,8 +16,8 @@ class ControlServer:
     def __init__(self, discovery: Registry) -> None:
         self._discovery = discovery
 
-    async def list_clients(self) -> Dict[str, ClientEntry]:
-        return await self._discovery.list_clients()
+    async def list_clients(self, instance_type: Optional[str] = None) -> Dict[str, ClientEntry]:
+        return await self._discovery.list_clients(instance_type)
 
     async def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
         await self._discovery.set_alias(instance_id, alias)

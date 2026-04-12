@@ -16,6 +16,7 @@ class ClientEntry:
     exec_host: str
     exec_port: int
     alias: Optional[str]
+    instance_type: str = ""
     last_heartbeat: float = field(default_factory=time.monotonic)
 
 
@@ -46,10 +47,12 @@ class Registry:
             self._evict_stale()
             return self._clients.get(instance_id)
 
-    async def list_clients(self) -> Dict[str, ClientEntry]:
+    async def list_clients(self, instance_type: Optional[str] = None) -> Dict[str, ClientEntry]:
         async with self._lock:
             self._evict_stale()
-            return dict(self._clients)
+            if instance_type is None:
+                return dict(self._clients)
+            return {k: v for k, v in self._clients.items() if v.instance_type == instance_type}
 
     async def register(self, entry: ClientEntry) -> None:
         async with self._lock:
@@ -132,6 +135,7 @@ class Registry:
                         exec_host=msg.exec_host,
                         exec_port=msg.exec_port,
                         alias=msg.alias,
+                        instance_type=msg.instance_type,
                     ))
                     await AsyncJsonLineCodec.send(writer, AckDiscovery(success=True).to_dict())
 

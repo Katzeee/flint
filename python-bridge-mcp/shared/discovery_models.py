@@ -20,6 +20,7 @@ class RegisterDiscovery(DiscoveryWireModel):
     exec_host: str
     exec_port: int
     alias: Optional[str] = None
+    instance_type: str = ""
 
 
 @wire_model
