@@ -33,6 +33,7 @@ class DiscoveryClient:
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
         heartbeat_interval: float = HEARTBEAT_INTERVAL,
+        pid: Optional[int] = None,
     ):
         self._instance_id = instance_id
         self._instance_name = instance_name
@@ -42,7 +43,7 @@ class DiscoveryClient:
         self._host = host
         self._port = port
         self._heartbeat_interval = heartbeat_interval
-        self._pid = os.getpid()
+        self._pid = pid if pid is not None else os.getpid()
 
         self._stop_event = threading.Event()
         self._connected_event = threading.Event()

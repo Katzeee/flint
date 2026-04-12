@@ -29,6 +29,7 @@ def _bg_register(
     alias: Optional[str] = None,
     disconnect_event: Optional[threading.Event] = None,
     instance_type: str = "",
+    pid: int = 1,
 ) -> threading.Event:
     """Register a client in a background thread, return event that fires when done.
 
@@ -42,7 +43,7 @@ def _bg_register(
             reader, writer = await asyncio.open_connection("localhost", discovery_port)
             try:
                 msg = RegisterDiscovery(
-                    pid=1, instance_id=instance_id, instance_name=instance_name,
+                    pid=pid, instance_id=instance_id, instance_name=instance_name,
                     exec_host="localhost", exec_port=exec_port, alias=alias,
                     instance_type=instance_type,
                 )
@@ -228,8 +229,8 @@ def test_list_clients_filters_by_instance_type(
     app, app_run = app_runner
     port_maya = free_port()
     port_nuke = free_port()
-    _bg_register(discovery_port, port_maya, instance_id="c1", instance_type="maya")
-    _bg_register(discovery_port, port_nuke, instance_id="c2", instance_type="nuke")
+    _bg_register(discovery_port, port_maya, instance_id="c1", instance_type="maya", pid=1)
+    _bg_register(discovery_port, port_nuke, instance_id="c2", instance_type="nuke", pid=2)
 
     maya_clients = app.control.list_clients("maya")
     assert "c1" in maya_clients
@@ -241,3 +242,18 @@ def test_list_clients_filters_by_instance_type(
 
     all_clients = app.control.list_clients()
     assert "c1" in all_clients and "c2" in all_clients
+
+
+def test_same_pid_deduplication(
+    app_runner, discovery_port: int,
+) -> None:
+    app, app_run = app_runner
+    port_a = free_port()
+    port_b = free_port()
+    # Both use pid=99 — same pid, different instance_id
+    _bg_register(discovery_port, port_a, instance_id="old", pid=99)
+    _bg_register(discovery_port, port_b, instance_id="new", pid=99)
+    # "new" registers with the same pid — "old" must be evicted
+    clients = app.control.list_clients()
+    assert "new" in clients
+    assert "old" not in clients

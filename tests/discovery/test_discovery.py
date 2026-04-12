@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import threading
-from typing import Iterator
+from typing import Iterator, Optional
 
 import pytest
 
@@ -36,7 +36,7 @@ class _ClientRunner:
         self._thread.join(timeout=5)
 
 
-def _client(port: int, instance_id: str, instance_name: str = "Test Client") -> DiscoveryClient:
+def _client(port: int, instance_id: str, instance_name: str = "Test Client", pid: Optional[int] = None) -> DiscoveryClient:
     return DiscoveryClient(
         instance_id=instance_id,
         instance_name=instance_name,
@@ -45,6 +45,7 @@ def _client(port: int, instance_id: str, instance_name: str = "Test Client") -> 
         host="localhost",
         port=port,
         heartbeat_interval=HEARTBEAT,
+        pid=pid if pid is not None else abs(hash(instance_id)) % 100000,
     )
 
 
