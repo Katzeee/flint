@@ -81,7 +81,7 @@ class Registry:
             self._evict_stale()
             if instance_id not in self._clients:
                 raise KeyError(f"unknown client: {instance_id}")
-            self._clients[instance_id].alias = alias
+            self._clients[instance_id].alias = alias if alias and alias.strip() else None
 
     # ------------------------------------------------------------------
     # Internal

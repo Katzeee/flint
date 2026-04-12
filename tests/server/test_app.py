@@ -257,3 +257,21 @@ def test_same_pid_deduplication(
     clients = app.control.list_clients()
     assert "new" in clients
     assert "old" not in clients
+
+
+def test_set_alias_empty_string_becomes_none(
+    app_runner, discovery_port: int, exec_port: int,
+) -> None:
+    app, app_run = app_runner
+    _bg_register(discovery_port, exec_port, alias="initial")
+    app.control.set_alias("c1", "")
+    assert app.control.list_clients()["c1"].alias is None
+
+
+def test_set_alias_whitespace_becomes_none(
+    app_runner, discovery_port: int, exec_port: int,
+) -> None:
+    app, app_run = app_runner
+    _bg_register(discovery_port, exec_port, alias="initial")
+    app.control.set_alias("c1", "  ")
+    assert app.control.list_clients()["c1"].alias is None
