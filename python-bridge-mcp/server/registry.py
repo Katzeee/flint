@@ -58,9 +58,7 @@ class Registry:
     def register(self, entry: ClientEntry) -> None:
         with self._lock:
             self._evict_stale()
-            stale_pids = [iid for iid, e in self._clients.items() if e.pid == entry.pid]
-            for iid in stale_pids:
-                del self._clients[iid]
+            self._clients = {iid: e for iid, e in self._clients.items() if e.pid != entry.pid}
             self._clients[entry.instance_id] = entry
 
     def unregister(self, instance_id: str) -> None:

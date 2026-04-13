@@ -1,5 +1,4 @@
 import asyncio
-import time
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
@@ -7,7 +6,7 @@ from .registry import ClientEntry, Registry
 from ..shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel
-from ..shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
+from ..shared.workflow_persistence import WorkflowPersistence
 
 
 class ControlServer:
@@ -36,9 +35,6 @@ class ControlServer:
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
         early_return_window: float = DEFAULT_EARLY_RETURN_WINDOW,
     ) -> ExecResult:
-        # Raises WorkflowRecordUnavailableError if workflow does not exist.
-        WorkflowPersistence.resolve(workflow_id)
-
         entry = self._discovery.get_client(instance_id)
         if entry is None:
             raise KeyError(f"unknown client: {instance_id}")
