@@ -106,14 +106,14 @@ def test_update_execution_result() -> None:
 
     WorkflowPersistence.update_execution_result(
         wf_id, exec_id, ExecStatus.SUCCEEDED,
-        "hello\n", "", 1700000000.0,
+        "hello\n", "", "2023-11-14T22:13:20+00:00",
     )
 
     record = _read_record(wf_id)
     entry = record.execs[0]
     assert entry.status == ExecStatus.SUCCEEDED
     assert entry.stdout == "hello\n"
-    assert entry.finished_at == 1700000000.0
+    assert entry.finished_at == "2023-11-14T22:13:20+00:00"
     assert entry.traceback is None
     assert entry.error is None
 
@@ -124,7 +124,7 @@ def test_update_execution_result_with_error() -> None:
 
     WorkflowPersistence.update_execution_result(
         wf_id, exec_id, ExecStatus.FAILED,
-        "", "", 1700000000.0,
+        "", "", "2023-11-14T22:13:20+00:00",
         traceback="Traceback ...\nValueError\n",
         error="ValueError",
     )
@@ -135,6 +135,21 @@ def test_update_execution_result_with_error() -> None:
     assert entry.traceback is not None
     assert "ValueError" in entry.traceback
     assert entry.error == "ValueError"
+
+
+def test_created_at_is_iso_string() -> None:
+    wf_id = WorkflowPersistence.create_workflow("test")
+    record = _read_record(wf_id)
+    assert isinstance(record.created_at, str)
+    assert "T" in record.created_at  # ISO format
+
+
+def test_started_at_is_iso_string() -> None:
+    wf_id = WorkflowPersistence.create_workflow("test")
+    WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
+    record = _read_record(wf_id)
+    assert isinstance(record.execs[0].started_at, str)
+    assert "T" in record.execs[0].started_at  # ISO format
 
 
 def test_updated_at_none_after_append() -> None:
@@ -164,10 +179,10 @@ def test_multiple_execs_in_one_workflow() -> None:
     id2 = WorkflowPersistence.append_running_execution(wf_id, "second", "c2", "x = 2")
 
     WorkflowPersistence.update_execution_result(
-        wf_id, id1, ExecStatus.SUCCEEDED, "1\n", "", 1700000000.0,
+        wf_id, id1, ExecStatus.SUCCEEDED, "1\n", "", "2023-11-14T22:13:20+00:00",
     )
     WorkflowPersistence.update_execution_result(
-        wf_id, id2, ExecStatus.FAILED, "", "err", 1700000001.0,
+        wf_id, id2, ExecStatus.FAILED, "", "err", "2023-11-14T22:13:21+00:00",
         error="RuntimeError",
     )
 

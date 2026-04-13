@@ -1,5 +1,6 @@
 import asyncio
 import time
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from .registry import ClientEntry, Registry
@@ -94,7 +95,7 @@ class ControlServer:
                     result.status,
                     result.stdout,
                     result.stderr,
-                    time.time(),
+                    datetime.now(timezone.utc).isoformat(),
                     result.traceback,
                     result.error,
                 )

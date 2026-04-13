@@ -32,7 +32,7 @@ class WorkflowPersistence:
                 workflow_id=workflow_id,
                 name=name,
                 description=description,
-                created_at=time.time(),
+                created_at=datetime.now(timezone.utc).isoformat(),
             )
             f.write(json.dumps(record.to_dict(), indent=2))
         return workflow_id
@@ -68,7 +68,7 @@ class WorkflowPersistence:
                 status=ExecStatus.RUNNING,
                 stdout="",
                 stderr="",
-                started_at=time.time(),
+                started_at=datetime.now(timezone.utc).isoformat(),
             ))
             record.execution_count = len(record.execs)
             if instance_id not in record.instance_ids:
@@ -112,7 +112,7 @@ class WorkflowPersistence:
         status: ExecStatus,
         stdout: str,
         stderr: str,
-        finished_at: float,
+        finished_at: str,
         traceback: Optional[str] = None,
         error: Optional[str] = None,
     ) -> None:

@@ -15,8 +15,8 @@ class ExecEntry(BaseModel):
     status: ExecStatus
     stdout: str
     stderr: str
-    started_at: float
-    finished_at: Optional[float] = None
+    started_at: str
+    finished_at: Optional[str] = None
     traceback: Optional[str] = None
     error: Optional[str] = None
     updated_at: Optional[str] = None
@@ -27,7 +27,7 @@ class WorkflowRecord(BaseModel):
     workflow_id: str
     name: str
     description: str
-    created_at: float
+    created_at: str
     latest_execution_id: int = 0
     execution_count: int = 0
     instance_ids: List[str] = field(default_factory=list)
