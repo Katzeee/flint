@@ -96,5 +96,15 @@ class ControlServer:
                     result.error,
                 )
             return result
+        except Exception:
+            WorkflowPersistence.update_execution_result(
+                workflow_id,
+                execution_id,
+                ExecStatus.FAILED,
+                "", "",
+                datetime.now(timezone.utc).isoformat(),
+                error="connection lost",
+            )
+            raise
         finally:
             writer.close()

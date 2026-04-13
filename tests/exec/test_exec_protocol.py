@@ -1,4 +1,6 @@
 import asyncio
+import json
+import time
 from typing import Iterator
 
 import pytest
@@ -6,12 +8,25 @@ import pytest
 from pbridge.client.code_executor import CodeExecutor
 from pbridge.client.code_runner import DirectRunner
 from pbridge.client.exec_listener import ExecListener
+from pbridge.server.control_server import ControlServer
+from pbridge.server.registry import ClientEntry, Registry
 from pbridge.shared.discovery_models import RegisterDiscovery
 from pbridge.shared.exec_models import ExecRequest, ExecResult, ExecStatus
 from pbridge.shared.jsonline import AsyncJsonLineCodec
 from pbridge.shared.model_base import VersionedWireModel
+from pbridge.shared.workflow_models import WorkflowRecord
+from pbridge.shared.workflow_persistence import WorkflowPersistence
 
 from conftest import AsyncRunner, free_port
+
+
+def _make_control(exec_port: int, instance_id: str = "c1") -> ControlServer:
+    registry = Registry()
+    registry.register(ClientEntry(
+        pid=1, instance_id=instance_id, instance_name="test",
+        exec_host="localhost", exec_port=exec_port, alias=None,
+    ))
+    return ControlServer(registry)
 
 
 # ---------------------------------------------------------------------------
@@ -135,3 +150,69 @@ def test_exec_concurrent_rejects_busy(listener_runner: AsyncRunner, port: int) -
     assert r1.stdout.strip() == "a"
     assert r2.status == ExecStatus.FAILED
     assert r2.error == "busy"
+
+
+def _read_exec_status(wf_id: str) -> ExecStatus:
+    path = WorkflowPersistence.resolve(wf_id)
+    with open(path, encoding="utf-8") as f:
+        record = WorkflowRecord.from_dict(json.load(f))
+    return record.execs[0].status
+
+
+def test_early_return_result_persisted_to_disk(
+    listener_runner: AsyncRunner, port: int,
+) -> None:
+    """After early-return (RUNNING), the background task must still write the final status."""
+    control = _make_control(port)
+    wf_id = WorkflowPersistence.create_workflow("early-return-test")
+
+    result = listener_runner.run_async(
+        control.execute("c1", 'import time; time.sleep(0.3); print("done")', wf_id,
+                        early_return_window=0.05)
+    )
+    assert result.status == ExecStatus.RUNNING
+
+    # Give the background task time to finish (code sleeps 0.3s, allow 1s total)
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        time.sleep(0.05)
+        if _read_exec_status(wf_id) != ExecStatus.RUNNING:
+            break
+
+    assert _read_exec_status(wf_id) == ExecStatus.SUCCEEDED
+
+
+def test_dcc_disconnect_marks_execution_failed(
+    listener_runner: AsyncRunner,
+) -> None:
+    """If the DCC closes the connection before sending a result, status must be FAILED."""
+    disconnect_port = free_port()
+
+    async def _disconnect_server() -> None:
+        async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            try:
+                await AsyncJsonLineCodec.recv(reader)  # consume ExecRequest
+            finally:
+                writer.close()  # disconnect without replying
+
+        server = await asyncio.start_server(_handle, "localhost", disconnect_port)
+        async with server:
+            await server.serve_forever()
+
+    disc_runner = AsyncRunner()
+    disc_runner.start(_disconnect_server)
+
+    control = _make_control(disconnect_port, instance_id="disc")
+    wf_id = WorkflowPersistence.create_workflow("disconnect-test")
+
+    try:
+        listener_runner.run_async(
+            control.execute("disc", 'print("x")', wf_id)
+        )
+    except Exception:
+        pass  # connection error is expected
+
+    time.sleep(0.2)
+    assert _read_exec_status(wf_id) == ExecStatus.FAILED
+
+    disc_runner.stop()
