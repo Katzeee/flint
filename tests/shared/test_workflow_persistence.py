@@ -173,6 +173,12 @@ def test_updated_at_set_after_update_output() -> None:
     assert "T" in entry.updated_at  # ISO format contains 'T'
 
 
+def test_resolve_nonexistent_raises() -> None:
+    from pbridge.shared.workflow_persistence import WorkflowRecordUnavailableError
+    with pytest.raises(WorkflowRecordUnavailableError):
+        WorkflowPersistence.resolve("nonexistent-workflow-id-that-does-not-exist")
+
+
 def test_schema_version_in_json() -> None:
     wf_id = WorkflowPersistence.create_workflow("test")
     path = WorkflowPersistence.resolve(wf_id)

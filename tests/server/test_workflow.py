@@ -5,6 +5,7 @@ from typing import Iterator
 import pytest
 
 from pbridge.server.app import App
+from pbridge.shared.workflow_persistence import WorkflowRecordUnavailableError
 from pbridge.client.code_executor import CodeExecutor
 from pbridge.client.code_runner import DirectRunner
 from pbridge.client.exec_listener import ExecListener
@@ -120,5 +121,5 @@ def test_execute_rejects_missing_workflow(
     app, app_run = app_runner
     _bg_register(discovery_port, exec_port)
 
-    with pytest.raises(FileNotFoundError, match="workflow not found"):
+    with pytest.raises(WorkflowRecordUnavailableError, match="workflow not found"):
         app_run.run_async(app.control.execute("c1", 'print("ok")', "nonexistent"))

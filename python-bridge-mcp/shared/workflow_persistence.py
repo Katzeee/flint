@@ -12,13 +12,29 @@ from .file_writer import FileWriter
 from .workflow_models import ExecEntry, WorkflowRecord
 
 
+class WorkflowRecordUnavailableError(Exception):
+    """Raised when a requested workflow record file does not exist on disk."""
+
+
 class WorkflowPersistence:
 
     BASE_DIR: Path = Path(user_data_dir("python-bridge-mcp")) / "workflows"
 
     @staticmethod
-    def resolve(workflow_id: str) -> str:
+    def _path_for(workflow_id: str) -> str:
+        """Return the file-system path for a workflow ID without checking existence."""
         return str(WorkflowPersistence.BASE_DIR / f"{workflow_id}.json")
+
+    @staticmethod
+    def resolve(workflow_id: str) -> str:
+        """Return the file-system path for a workflow ID.
+
+        Raises WorkflowRecordUnavailableError if the file does not exist.
+        """
+        path = WorkflowPersistence._path_for(workflow_id)
+        if not Path(path).exists():
+            raise WorkflowRecordUnavailableError(f"workflow not found: {workflow_id}")
+        return path
 
     @staticmethod
     def create_workflow(name: str, description: str = "") -> str:
@@ -26,7 +42,7 @@ class WorkflowPersistence:
         ts = time.strftime("%Y%m%d_%H%M%S")
         short_id = uuid.uuid4().hex[:8]
         workflow_id = f"{name}_{ts}_{short_id}"
-        path = WorkflowPersistence.resolve(workflow_id)
+        path = WorkflowPersistence._path_for(workflow_id)
         with FileWriter.locked(path) as f:
             record = WorkflowRecord(
                 workflow_id=workflow_id,
@@ -39,7 +55,7 @@ class WorkflowPersistence:
 
     @staticmethod
     def exists(workflow_id: str) -> bool:
-        path = WorkflowPersistence.resolve(workflow_id)
+        path = WorkflowPersistence._path_for(workflow_id)
         with FileWriter.locked(path) as f:
             return f.exists()
 
