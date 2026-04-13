@@ -55,9 +55,7 @@ class WorkflowPersistence:
 
     @staticmethod
     def exists(workflow_id: str) -> bool:
-        path = WorkflowPersistence._path_for(workflow_id)
-        with FileWriter.locked(path) as f:
-            return f.exists()
+        return Path(WorkflowPersistence._path_for(workflow_id)).exists()
 
     @staticmethod
     def append_running_execution(

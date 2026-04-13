@@ -1,9 +1,11 @@
 import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from pbridge.shared.file_writer import FileWriter
+from pbridge.shared.workflow_persistence import WorkflowPersistence
 
 
 def test_write_and_read_string(tmp_path: Path) -> None:
@@ -54,6 +56,34 @@ def test_read_nonexistent_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         with FileWriter.locked(tmp_path / "missing.txt") as f:
             f.read()
+
+
+def test_exists_does_not_block_on_held_lock() -> None:
+    """WorkflowPersistence.exists() must not wait for the file lock."""
+    wf_id = WorkflowPersistence.create_workflow("lock-test")
+    path = WorkflowPersistence._path_for(wf_id)
+
+    lock_held = threading.Event()
+    release = threading.Event()
+
+    def _hold_lock() -> None:
+        with FileWriter.locked(path, timeout=30):
+            lock_held.set()
+            release.wait(timeout=5)
+
+    t = threading.Thread(target=_hold_lock, daemon=True)
+    t.start()
+    assert lock_held.wait(timeout=2), "lock thread did not acquire in time"
+
+    start = time.monotonic()
+    result = WorkflowPersistence.exists(wf_id)
+    elapsed = time.monotonic() - start
+
+    release.set()
+    t.join(timeout=5)
+
+    assert result is True
+    assert elapsed < 0.1, f"exists() blocked for {elapsed:.3f}s"
 
 
 # ---------------------------------------------------------------------------
