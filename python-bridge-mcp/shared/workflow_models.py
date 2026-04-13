@@ -28,6 +28,7 @@ class WorkflowRecord(BaseModel):
     name: str
     description: str
     created_at: str
+    schema_version: int = 1
     latest_execution_id: int = 0
     execution_count: int = 0
     instance_ids: List[str] = field(default_factory=list)

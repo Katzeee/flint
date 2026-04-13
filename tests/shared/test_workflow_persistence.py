@@ -173,6 +173,14 @@ def test_updated_at_set_after_update_output() -> None:
     assert "T" in entry.updated_at  # ISO format contains 'T'
 
 
+def test_schema_version_in_json() -> None:
+    wf_id = WorkflowPersistence.create_workflow("test")
+    path = WorkflowPersistence.resolve(wf_id)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    assert data.get("schema_version") == 1
+
+
 def test_multiple_execs_in_one_workflow() -> None:
     wf_id = WorkflowPersistence.create_workflow("test")
     id1 = WorkflowPersistence.append_running_execution(wf_id, "first", "c1", "x = 1")
