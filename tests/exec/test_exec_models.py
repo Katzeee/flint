@@ -57,6 +57,20 @@ def test_exec_status_succeeded_value():
     assert ExecStatus.SUCCEEDED.value == "succeeded"
 
 
+def test_exec_request_execution_name_roundtrip():
+    req = ExecRequest(execution_id="r1", code="print(1)", workflow_id="wf-1", execution_name="step-1")
+    data = req.to_dict()
+    parsed = VersionedWireModel.parse_versioned(data)
+    assert parsed.execution_name == "step-1"
+
+
+def test_exec_request_execution_name_default_none():
+    req = ExecRequest(execution_id="r1", code="print(1)", workflow_id="wf-1")
+    assert req.execution_name is None
+    data = req.to_dict(exclude_none=True)
+    assert "execution_name" not in data
+
+
 def test_exec_status_pending_roundtrip():
     res = ExecResult(
         execution_id="r1", status=ExecStatus.PENDING, stdout="", stderr=""

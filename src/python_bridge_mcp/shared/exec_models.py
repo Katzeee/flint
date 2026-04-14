@@ -27,6 +27,7 @@ class ExecRequest(ExecWireModel):
     execution_id: str
     code: str
     workflow_id: str
+    execution_name: Optional[str] = None
 
 
 @wire_model

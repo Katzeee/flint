@@ -55,6 +55,7 @@ class ControlServer:
             execution_id=execution_id,
             code=code,
             workflow_id=workflow_id,
+            execution_name=name or None,
         )
         await AsyncJsonLineCodec.send(writer, req.to_dict())
 
