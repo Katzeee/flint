@@ -213,3 +213,37 @@ def test_versioned_wire_model_missing_type_raises():
 def test_versioned_wire_model_unknown_type_raises():
     with pytest.raises(WireModelError, match="Unknown type: 'DoesNotExist'"):
         VersionedWireModel.parse_versioned({"type": "DoesNotExist", "version": 1})
+
+
+# ---------------------------------------------------------------------------
+# Protocol validation (Section B)
+# ---------------------------------------------------------------------------
+
+def test_parse_versioned_rejects_far_future_version():
+    @wire_model
+    @dataclass
+    class MsgV1(VersionedWireModel):
+        PROTOCOL_VERSION = 1
+        val: str
+
+    with pytest.raises(WireModelError, match="9999"):
+        VersionedWireModel.parse_versioned({"type": "MsgV1", "version": 9999, "val": "x"})
+
+
+def test_cross_protocol_version_rejected():
+    """exec (v2) and discovery (v1) messages must not be interchangeable."""
+    from python_bridge_mcp.shared.exec_models import ExecRequest
+    from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
+
+    with pytest.raises(WireModelError, match="Version mismatch"):
+        VersionedWireModel.parse_versioned({
+            "type": "ExecRequest", "version": 1,
+            "execution_id": "001", "code": "x", "workflow_id": "wf",
+        })
+
+    with pytest.raises(WireModelError, match="Version mismatch"):
+        VersionedWireModel.parse_versioned({
+            "type": "RegisterDiscovery", "version": 2,
+            "pid": 1, "instance_id": "c1", "instance_name": "t",
+            "exec_host": "h", "exec_port": 1,
+        })
