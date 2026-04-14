@@ -5,7 +5,7 @@ from typing import Optional
 
 import pytest
 
-from shared.model_base import BaseModel, WireModel, VersionedWireModel, WireModelError, wire_model
+from python_bridge_mcp.shared.model_base import BaseModel, WireModel, VersionedWireModel, WireModelError, wire_model
 
 
 @pytest.fixture(autouse=True)

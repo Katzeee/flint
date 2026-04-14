@@ -4,14 +4,14 @@ from typing import Iterator
 
 import pytest
 
-from pbridge.server.app import App
-from pbridge.shared.workflow_persistence import WorkflowRecordUnavailableError
-from pbridge.client.code_executor import CodeExecutor
-from pbridge.client.code_runner import DirectRunner
-from pbridge.client.exec_listener import ExecListener
-from pbridge.shared.discovery_models import RegisterDiscovery
-from pbridge.shared.exec_models import ExecStatus
-from pbridge.shared.jsonline import AsyncJsonLineCodec
+from python_bridge_mcp.server.app import App
+from python_bridge_mcp.shared.workflow_persistence import WorkflowRecordUnavailableError
+from python_bridge_mcp.client.code_executor import CodeExecutor
+from python_bridge_mcp.client.code_runner import DirectRunner
+from python_bridge_mcp.client.exec_listener import ExecListener
+from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
+from python_bridge_mcp.shared.exec_models import ExecStatus
+from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
 
 from conftest import AsyncRunner, free_port
 

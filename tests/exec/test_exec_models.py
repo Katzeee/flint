@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from pbridge.shared.exec_models import ExecRequest, ExecResult, ExecStatus, ExecWireModel
-from pbridge.shared.model_base import VersionedWireModel, WireModelError
+from python_bridge_mcp.shared.exec_models import ExecRequest, ExecResult, ExecStatus, ExecWireModel
+from python_bridge_mcp.shared.model_base import VersionedWireModel, WireModelError
 
 
 def test_exec_request_roundtrip():

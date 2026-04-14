@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from pbridge.shared.workflow_persistence import WorkflowPersistence
+from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
 
 @pytest.fixture(autouse=True)

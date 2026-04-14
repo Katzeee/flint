@@ -5,17 +5,17 @@ from typing import Iterator
 
 import pytest
 
-from pbridge.client.code_executor import CodeExecutor
-from pbridge.client.code_runner import DirectRunner
-from pbridge.client.exec_listener import ExecListener
-from pbridge.server.control_server import ControlServer
-from pbridge.server.registry import ClientEntry, Registry
-from pbridge.shared.discovery_models import RegisterDiscovery
-from pbridge.shared.exec_models import ExecRequest, ExecResult, ExecStatus
-from pbridge.shared.jsonline import AsyncJsonLineCodec
-from pbridge.shared.model_base import VersionedWireModel
-from pbridge.shared.workflow_models import WorkflowRecord
-from pbridge.shared.workflow_persistence import WorkflowPersistence
+from python_bridge_mcp.client.code_executor import CodeExecutor
+from python_bridge_mcp.client.code_runner import DirectRunner
+from python_bridge_mcp.client.exec_listener import ExecListener
+from python_bridge_mcp.server.control_server import ControlServer
+from python_bridge_mcp.server.registry import ClientEntry, Registry
+from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
+from python_bridge_mcp.shared.exec_models import ExecRequest, ExecResult, ExecStatus
+from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
+from python_bridge_mcp.shared.model_base import VersionedWireModel
+from python_bridge_mcp.shared.workflow_models import WorkflowRecord
+from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
 from conftest import AsyncRunner, free_port
 

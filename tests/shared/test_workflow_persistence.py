@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from pbridge.shared.exec_models import ExecStatus
-from pbridge.shared.workflow_models import WorkflowRecord
-from pbridge.shared.workflow_persistence import WorkflowPersistence
+from python_bridge_mcp.shared.exec_models import ExecStatus
+from python_bridge_mcp.shared.workflow_models import WorkflowRecord
+from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
 
 def _read_record(workflow_id: str) -> WorkflowRecord:
@@ -174,7 +174,7 @@ def test_updated_at_set_after_update_output() -> None:
 
 
 def test_resolve_nonexistent_raises() -> None:
-    from pbridge.shared.workflow_persistence import WorkflowRecordUnavailableError
+    from python_bridge_mcp.shared.workflow_persistence import WorkflowRecordUnavailableError
     with pytest.raises(WorkflowRecordUnavailableError):
         WorkflowPersistence.resolve("nonexistent-workflow-id-that-does-not-exist")
 

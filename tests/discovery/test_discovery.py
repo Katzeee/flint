@@ -5,9 +5,9 @@ from typing import Iterator, Optional
 
 import pytest
 
-from pbridge.client.discovery import DiscoveryClient, DiscoveryState
-from pbridge.server.registry import Registry
-from pbridge.shared.discovery_models import RegisterDiscovery
+from python_bridge_mcp.client.discovery import DiscoveryClient, DiscoveryState
+from python_bridge_mcp.server.registry import Registry
+from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
 
 from conftest import AsyncRunner, free_port, wait_for
 
@@ -196,7 +196,7 @@ def test_register_discovery_pid_is_int() -> None:
 
 
 def test_client_entry_pid_equality() -> None:
-    from pbridge.server.registry import ClientEntry
+    from python_bridge_mcp.server.registry import ClientEntry
     import time
     e1 = ClientEntry(pid=42, instance_id="c1", instance_name="t", exec_host="h", exec_port=1, alias=None)
     e2 = ClientEntry(pid=42, instance_id="c2", instance_name="t", exec_host="h", exec_port=1, alias=None)

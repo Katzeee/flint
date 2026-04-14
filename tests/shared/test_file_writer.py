@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from pbridge.shared.file_writer import FileWriter
-from pbridge.shared.workflow_persistence import WorkflowPersistence
+from python_bridge_mcp.shared.file_writer import FileWriter
+from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
 
 def test_write_and_read_string(tmp_path: Path) -> None:

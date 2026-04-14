@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from pbridge.server.control_models import (
+from python_bridge_mcp.server.control_models import (
     GetWorkflowExecutionRequest,
     GetWorkflowExecutionResponse,
     GetWorkflowOverviewRequest,
@@ -15,7 +15,7 @@ from pbridge.server.control_models import (
     StartWorkflowResponse,
     TargetInfo,
 )
-from pbridge.shared.model_base import VersionedWireModel
+from python_bridge_mcp.shared.model_base import VersionedWireModel
 
 
 # ---------------------------------------------------------------------------
