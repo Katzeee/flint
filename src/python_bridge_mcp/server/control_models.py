@@ -59,6 +59,8 @@ class GetWorkflowOverviewResponse(ControlWireModel):
     name: str = ""
     execution_count: int = 0
     created_at: str = ""
+    description: str = ""
+    instance_ids: List[str] = field(default_factory=list)
 
 
 @wire_model
@@ -98,3 +100,5 @@ class SetTargetAliasRequest(ControlWireModel):
 @dataclass
 class SetTargetAliasResponse(ControlWireModel):
     success: bool = False
+    instance_id: str = ""
+    alias: Optional[str] = None

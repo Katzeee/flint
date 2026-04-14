@@ -95,6 +95,8 @@ def test_get_workflow_overview_response_roundtrip() -> None:
         name="my-wf",
         execution_count=3,
         created_at="2024-01-01T00:00:00+00:00",
+        description="a test workflow",
+        instance_ids=["c1", "c2"],
     )
     data = resp.to_dict()
     parsed = VersionedWireModel.parse_versioned(data)
@@ -103,6 +105,8 @@ def test_get_workflow_overview_response_roundtrip() -> None:
     assert parsed.name == "my-wf"
     assert parsed.execution_count == 3
     assert parsed.created_at == "2024-01-01T00:00:00+00:00"
+    assert parsed.description == "a test workflow"
+    assert parsed.instance_ids == ["c1", "c2"]
 
 
 # ---------------------------------------------------------------------------
@@ -177,8 +181,17 @@ def test_set_target_alias_request_clear_alias() -> None:
 
 
 def test_set_target_alias_response_roundtrip() -> None:
-    resp = SetTargetAliasResponse(success=True)
+    resp = SetTargetAliasResponse(success=True, instance_id="c1", alias="my-maya")
     data = resp.to_dict()
     parsed = VersionedWireModel.parse_versioned(data)
     assert isinstance(parsed, SetTargetAliasResponse)
     assert parsed.success is True
+    assert parsed.instance_id == "c1"
+    assert parsed.alias == "my-maya"
+
+
+def test_set_target_alias_response_cleared_alias() -> None:
+    resp = SetTargetAliasResponse(success=True, instance_id="c1", alias=None)
+    data = resp.to_dict(exclude_none=True)
+    parsed = VersionedWireModel.parse_versioned(data)
+    assert parsed.alias is None
