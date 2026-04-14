@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Iterator, Optional
 
 import pytest
@@ -13,6 +14,8 @@ from python_bridge_mcp.client.exec_listener import ExecListener
 from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
 from python_bridge_mcp.shared.exec_models import ExecStatus
 from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
+from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
+from python_bridge_mcp.server.control_models import ListTargetsResponse, SetTargetAliasResponse
 
 from conftest import AsyncRunner, free_port, wait_for
 
@@ -275,3 +278,130 @@ def test_set_alias_whitespace_becomes_none(
     _bg_register(discovery_port, exec_port, alias="initial")
     app.control.set_alias("c1", "  ")
     assert app.control.list_clients()["c1"].alias is None
+
+
+# ---------------------------------------------------------------------------
+# D1 — list_targets
+# ---------------------------------------------------------------------------
+
+def test_list_targets_returns_target_info(
+    app_runner, discovery_port: int, exec_port: int,
+) -> None:
+    app, _ = app_runner
+    _bg_register(discovery_port, exec_port, instance_name="myapp", instance_type="maya")
+
+    response = app.control.list_targets()
+    assert isinstance(response, ListTargetsResponse)
+    assert len(response.targets) == 1
+    t = response.targets[0]
+    assert t.instance_id == "c1"
+    assert t.instance_name == "myapp"
+    assert t.instance_type == "maya"
+    assert t.alias is None
+
+
+def test_list_targets_filters_by_type(
+    app_runner, discovery_port: int,
+) -> None:
+    app, _ = app_runner
+    port_maya = free_port()
+    port_nuke = free_port()
+    _bg_register(discovery_port, port_maya, instance_id="c1", instance_type="maya", pid=1)
+    _bg_register(discovery_port, port_nuke, instance_id="c2", instance_type="nuke", pid=2)
+
+    maya = app.control.list_targets("maya")
+    assert len(maya.targets) == 1
+    assert maya.targets[0].instance_id == "c1"
+
+    nuke = app.control.list_targets("nuke")
+    assert len(nuke.targets) == 1
+    assert nuke.targets[0].instance_id == "c2"
+
+
+# ---------------------------------------------------------------------------
+# D2 — get_workflow_overview
+# ---------------------------------------------------------------------------
+
+def test_get_workflow_overview_existing(app_runner) -> None:
+    app, _ = app_runner
+    wf_id = app.control.start_workflow("my-wf", "some description")
+
+    overview = app.control.get_workflow_overview(wf_id)
+    assert overview.workflow_id == wf_id
+    assert overview.name == "my-wf"
+    assert overview.description == "some description"
+    assert overview.execution_count == 0
+    assert overview.created_at != ""
+    assert overview.instance_ids == []
+
+
+def test_get_workflow_overview_not_found(app_runner) -> None:
+    app, _ = app_runner
+    with pytest.raises(WorkflowRecordUnavailableError):
+        app.control.get_workflow_overview("nonexistent-wf-id")
+
+
+# ---------------------------------------------------------------------------
+# D3 — get_workflow_execution
+# ---------------------------------------------------------------------------
+
+def test_get_workflow_execution_full_view(app_runner) -> None:
+    app, _ = app_runner
+    wf_id = app.control.start_workflow("my-wf")
+    execution_id = WorkflowPersistence.append_running_execution(wf_id, "step-1", "c1", "print(42)")
+    WorkflowPersistence.update_execution_result(
+        wf_id, execution_id, ExecStatus.SUCCEEDED, "42\n", "",
+        datetime.now(timezone.utc).isoformat(),
+    )
+
+    response = app.control.get_workflow_execution(wf_id, execution_id, view="full")
+    assert response.execution_id == execution_id
+    assert response.code == "print(42)"
+    assert response.status == ExecStatus.SUCCEEDED.value
+    assert response.stdout == "42\n"
+
+
+def test_get_workflow_execution_summary_view_no_code(app_runner) -> None:
+    app, _ = app_runner
+    wf_id = app.control.start_workflow("my-wf")
+    execution_id = WorkflowPersistence.append_running_execution(wf_id, "step-1", "c1", "print(42)")
+
+    response = app.control.get_workflow_execution(wf_id, execution_id, view="summary")
+    assert response.code is None
+
+
+def test_get_workflow_execution_not_found(app_runner) -> None:
+    app, _ = app_runner
+    wf_id = app.control.start_workflow("my-wf")
+
+    with pytest.raises(KeyError, match="not found"):
+        app.control.get_workflow_execution(wf_id, "9999", view="summary")
+
+
+# ---------------------------------------------------------------------------
+# D4 — set_alias returns SetTargetAliasResponse
+# ---------------------------------------------------------------------------
+
+def test_set_alias_returns_response_with_normalized_alias(
+    app_runner, discovery_port: int, exec_port: int,
+) -> None:
+    app, _ = app_runner
+    _bg_register(discovery_port, exec_port)
+
+    response = app.control.set_alias("c1", "")
+    assert isinstance(response, SetTargetAliasResponse)
+    assert response.success is True
+    assert response.instance_id == "c1"
+    assert response.alias is None
+
+
+def test_set_alias_returns_response_with_alias_value(
+    app_runner, discovery_port: int, exec_port: int,
+) -> None:
+    app, _ = app_runner
+    _bg_register(discovery_port, exec_port)
+
+    response = app.control.set_alias("c1", "my-alias")
+    assert response.success is True
+    assert response.instance_id == "c1"
+    assert response.alias == "my-alias"

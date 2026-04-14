@@ -3,6 +3,13 @@ from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from .registry import ClientEntry, Registry
+from .control_models import (
+    GetWorkflowExecutionResponse,
+    GetWorkflowOverviewResponse,
+    ListTargetsResponse,
+    SetTargetAliasResponse,
+    TargetInfo,
+)
 from ..shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel
@@ -19,8 +26,66 @@ class ControlServer:
     def list_clients(self, instance_type: Optional[str] = None) -> Dict[str, ClientEntry]:
         return self._discovery.list_clients(instance_type)
 
-    def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
+    def list_targets(self, instance_type: Optional[str] = None) -> ListTargetsResponse:
+        clients = self._discovery.list_clients(instance_type)
+        targets = [
+            TargetInfo(
+                instance_id=e.instance_id,
+                instance_name=e.instance_name,
+                exec_host=e.exec_host,
+                exec_port=e.exec_port,
+                alias=e.alias,
+                instance_type=e.instance_type,
+            )
+            for e in clients.values()
+        ]
+        return ListTargetsResponse(targets=targets)
+
+    def set_alias(self, instance_id: str, alias: Optional[str]) -> SetTargetAliasResponse:
         self._discovery.set_alias(instance_id, alias)
+        entry = self._discovery.get_client(instance_id)
+        return SetTargetAliasResponse(
+            success=True,
+            instance_id=instance_id,
+            alias=entry.alias if entry is not None else None,
+        )
+
+    def get_workflow_overview(self, workflow_id: str) -> GetWorkflowOverviewResponse:
+        record = WorkflowPersistence.load(workflow_id)
+        return GetWorkflowOverviewResponse(
+            workflow_id=record.workflow_id,
+            name=record.name,
+            description=record.description,
+            execution_count=record.execution_count,
+            created_at=record.created_at,
+            instance_ids=list(record.instance_ids),
+        )
+
+    def get_workflow_execution(
+        self,
+        workflow_id: str,
+        execution_id: str,
+        view: str = "summary",
+    ) -> GetWorkflowExecutionResponse:
+        record = WorkflowPersistence.load(workflow_id)
+        for entry in record.execs:
+            if entry.execution_id == execution_id:
+                return GetWorkflowExecutionResponse(
+                    execution_id=entry.execution_id,
+                    workflow_id=entry.workflow_id,
+                    name=entry.name,
+                    instance_id=entry.instance_id,
+                    status=entry.status.value,
+                    stdout=entry.stdout,
+                    stderr=entry.stderr,
+                    started_at=entry.started_at,
+                    finished_at=entry.finished_at,
+                    traceback=entry.traceback,
+                    error=entry.error,
+                    updated_at=entry.updated_at,
+                    code=entry.code if view == "full" else None,
+                )
+        raise KeyError(f"execution not found: {execution_id}")
 
     def start_workflow(self, name: str, description: str = "") -> str:
         return WorkflowPersistence.create_workflow(name, description)

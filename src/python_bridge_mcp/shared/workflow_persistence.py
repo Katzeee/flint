@@ -58,6 +58,16 @@ class WorkflowPersistence:
         return Path(WorkflowPersistence._path_for(workflow_id)).exists()
 
     @staticmethod
+    def load(workflow_id: str) -> "WorkflowRecord":
+        """Read and return the WorkflowRecord for workflow_id.
+
+        Raises WorkflowRecordUnavailableError if the file does not exist.
+        """
+        path = WorkflowPersistence.resolve(workflow_id)
+        with open(path) as f:
+            return WorkflowRecord.from_dict(json.loads(f.read()))
+
+    @staticmethod
     def append_running_execution(
         workflow_id: str,
         name: str,
