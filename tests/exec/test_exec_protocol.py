@@ -152,6 +152,52 @@ def test_exec_concurrent_rejects_busy(listener_runner: AsyncRunner, port: int) -
     assert r2.error == "busy"
 
 
+def _make_disconnect_server(port: int, delay: float = 0) -> AsyncRunner:
+    """Start a TCP server that consumes one message then disconnects."""
+    async def _serve() -> None:
+        async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            try:
+                await AsyncJsonLineCodec.recv(reader)
+                if delay > 0:
+                    await asyncio.sleep(delay)
+            finally:
+                writer.close()
+        server = await asyncio.start_server(_handle, "localhost", port)
+        async with server:
+            await server.serve_forever()
+
+    runner = AsyncRunner()
+    runner.start(_serve)
+    return runner
+
+
+def test_no_unhandled_task_exception_on_early_return_then_disconnect(
+    listener_runner: AsyncRunner,
+) -> None:
+    """After early-return, DCC disconnect must not leave an unhandled task exception."""
+    disconnect_port = free_port()
+    unhandled: list = []
+
+    disc_runner = _make_disconnect_server(disconnect_port, delay=0.3)
+
+    control = _make_control(disconnect_port, instance_id="nodelay")
+    wf_id = WorkflowPersistence.create_workflow("nodelay-test")
+
+    async def _run() -> list:
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(lambda lp, ctx: unhandled.append(ctx))
+        result = await control.execute("nodelay", 'print("x")', wf_id, early_return_window=0.05)
+        assert result.status == ExecStatus.RUNNING
+        await asyncio.sleep(1.0)
+        return unhandled
+
+    try:
+        exceptions = listener_runner.run_async(_run())
+        assert exceptions == [], f"Unhandled task exceptions: {exceptions}"
+    finally:
+        disc_runner.stop()
+
+
 def _read_exec_status(wf_id: str) -> ExecStatus:
     path = WorkflowPersistence.resolve(wf_id)
     with open(path, encoding="utf-8") as f:
@@ -172,7 +218,6 @@ def test_early_return_result_persisted_to_disk(
     )
     assert result.status == ExecStatus.RUNNING
 
-    # Give the background task time to finish (code sleeps 0.3s, allow 1s total)
     deadline = time.monotonic() + 1.0
     while time.monotonic() < deadline:
         time.sleep(0.05)
@@ -187,20 +232,7 @@ def test_dcc_disconnect_marks_execution_failed(
 ) -> None:
     """If the DCC closes the connection before sending a result, status must be FAILED."""
     disconnect_port = free_port()
-
-    async def _disconnect_server() -> None:
-        async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-            try:
-                await AsyncJsonLineCodec.recv(reader)  # consume ExecRequest
-            finally:
-                writer.close()  # disconnect without replying
-
-        server = await asyncio.start_server(_handle, "localhost", disconnect_port)
-        async with server:
-            await server.serve_forever()
-
-    disc_runner = AsyncRunner()
-    disc_runner.start(_disconnect_server)
+    disc_runner = _make_disconnect_server(disconnect_port)
 
     control = _make_control(disconnect_port, instance_id="disc")
     wf_id = WorkflowPersistence.create_workflow("disconnect-test")

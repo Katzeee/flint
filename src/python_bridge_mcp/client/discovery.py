@@ -30,6 +30,7 @@ class DiscoveryClient:
         exec_host: str,
         exec_port: int,
         alias: Optional[str] = None,
+        instance_type: str = "",
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
         heartbeat_interval: float = HEARTBEAT_INTERVAL,
@@ -40,6 +41,7 @@ class DiscoveryClient:
         self._exec_host = exec_host
         self._exec_port = exec_port
         self._alias = alias
+        self._instance_type = instance_type
         self._host = host
         self._port = port
         self._heartbeat_interval = heartbeat_interval
@@ -94,6 +96,7 @@ class DiscoveryClient:
                 exec_host=self._exec_host,
                 exec_port=self._exec_port,
                 alias=self._alias,
+                instance_type=self._instance_type,
             ), "Registration rejected")
             self._set_state(DiscoveryState.CONNECTED)
 

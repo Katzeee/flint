@@ -187,6 +187,27 @@ def test_schema_version_in_json() -> None:
     assert data.get("schema_version") == 1
 
 
+def test_workflow_id_timestamp_is_utc() -> None:
+    """Date embedded in workflow_id must match the UTC date in created_at."""
+    wf_id = WorkflowPersistence.create_workflow("utctest")
+    record = _read_record(wf_id)
+    # workflow_id: utctest_YYYYMMDD_HHMMSS_xxxxxxxx  → parts[-3] is YYYYMMDD
+    id_date = wf_id.split("_")[-3]
+    created_date = record.created_at[:10].replace("-", "")
+    assert id_date == created_date
+
+
+def test_update_execution_result_sets_updated_at() -> None:
+    wf_id = WorkflowPersistence.create_workflow("test")
+    exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
+    finished = "2024-01-01T12:00:00+00:00"
+    WorkflowPersistence.update_execution_result(
+        wf_id, exec_id, ExecStatus.SUCCEEDED, "hello\n", "", finished,
+    )
+    record = _read_record(wf_id)
+    assert record.execs[0].updated_at == finished
+
+
 def test_multiple_execs_in_one_workflow() -> None:
     wf_id = WorkflowPersistence.create_workflow("test")
     id1 = WorkflowPersistence.append_running_execution(wf_id, "first", "c1", "x = 1")

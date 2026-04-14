@@ -36,12 +36,13 @@ class _ClientRunner:
         self._thread.join(timeout=5)
 
 
-def _client(port: int, instance_id: str, instance_name: str = "Test Client", pid: Optional[int] = None) -> DiscoveryClient:
+def _client(port: int, instance_id: str, instance_name: str = "Test Client", pid: Optional[int] = None, instance_type: str = "") -> DiscoveryClient:
     return DiscoveryClient(
         instance_id=instance_id,
         instance_name=instance_name,
         exec_host="localhost",
         exec_port=9000,
+        instance_type=instance_type,
         host="localhost",
         port=port,
         heartbeat_interval=HEARTBEAT,
@@ -201,6 +202,25 @@ def test_client_entry_pid_equality() -> None:
     e1 = ClientEntry(pid=42, instance_id="c1", instance_name="t", exec_host="h", exec_port=1, alias=None)
     e2 = ClientEntry(pid=42, instance_id="c2", instance_name="t", exec_host="h", exec_port=1, alias=None)
     assert e1.pid == e2.pid
+
+
+def test_instance_type_filtering_via_discovery_client(srv, port: int) -> None:
+    server, _ = srv
+    maya = _client(port, "maya1", "Maya 2024", pid=1001, instance_type="maya")
+    blender = _client(port, "blender1", "Blender 4.0", pid=1002, instance_type="blender")
+    rm = _ClientRunner(maya)
+    rb = _ClientRunner(blender)
+    rm.start()
+    rb.start()
+    try:
+        assert _wait_connected(maya)
+        assert _wait_connected(blender)
+        result = server.list_clients("maya")
+        assert "maya1" in result
+        assert "blender1" not in result
+    finally:
+        rm.stop()
+        rb.stop()
 
 
 def test_client_state_sequence(srv, port: int) -> None:

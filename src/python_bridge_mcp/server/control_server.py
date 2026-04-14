@@ -59,6 +59,7 @@ class ControlServer:
         await AsyncJsonLineCodec.send(writer, req.to_dict())
 
         task = asyncio.create_task(self._receive_result(reader, writer, workflow_id, execution_id))
+        task.add_done_callback(ControlServer._consume_task_exception)
 
         try:
             return await asyncio.wait_for(asyncio.shield(task), timeout=early_return_window)
@@ -69,6 +70,12 @@ class ControlServer:
                 stdout="",
                 stderr="",
             )
+
+    @staticmethod
+    def _consume_task_exception(task: asyncio.Task) -> None:
+        """Retrieve exception (if any) so asyncio does not log it as unhandled."""
+        if not task.cancelled():
+            task.exception()
 
     @staticmethod
     async def _receive_result(

@@ -1,5 +1,4 @@
 import json
-import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,7 +38,8 @@ class WorkflowPersistence:
     @staticmethod
     def create_workflow(name: str, description: str = "") -> str:
         """Create a new workflow file. Returns workflow_id."""
-        ts = time.strftime("%Y%m%d_%H%M%S")
+        now = datetime.now(timezone.utc)
+        ts = now.strftime("%Y%m%d_%H%M%S")
         short_id = uuid.uuid4().hex[:8]
         workflow_id = f"{name}_{ts}_{short_id}"
         path = WorkflowPersistence._path_for(workflow_id)
@@ -48,7 +48,7 @@ class WorkflowPersistence:
                 workflow_id=workflow_id,
                 name=name,
                 description=description,
-                created_at=datetime.now(timezone.utc).isoformat(),
+                created_at=now.isoformat(),
             )
             f.write(json.dumps(record.to_dict(), indent=2))
         return workflow_id
@@ -142,5 +142,6 @@ class WorkflowPersistence:
                     entry.finished_at = finished_at
                     entry.traceback = traceback
                     entry.error = error
+                    entry.updated_at = finished_at
                     break
             f.write(json.dumps(record.to_dict(), indent=2))
