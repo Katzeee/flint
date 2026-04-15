@@ -8,6 +8,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from .app import App
 from .control_server import ControlServer
+from ..shared.exec_models import ExecError, ExecResult, ExecStatus
 from ..shared.workflow_persistence import WorkflowRecordUnavailableError
 
 mcp = FastMCP("python-bridge-mcp")
@@ -53,8 +54,14 @@ async def exec_python(instance_id: str, code: str, workflow_id: str, name: str =
     control = _get_control()
     try:
         result = await control.execute(instance_id, code, workflow_id, name)
-    except KeyError as exc:
-        raise ToolError(str(exc)) from exc
+    except KeyError:
+        result = ExecResult(
+            execution_id="",
+            status=ExecStatus.FAILED,
+            stdout="",
+            stderr="",
+            error=ExecError.TARGET_OFFLINE,
+        )
     return json.dumps(result.to_dict(exclude_none=True))
 
 

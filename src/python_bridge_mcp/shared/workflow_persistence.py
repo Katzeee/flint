@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from platformdirs import user_data_dir
 
@@ -73,6 +73,7 @@ class WorkflowPersistence:
         name: str,
         instance_id: str,
         code: str,
+        request_id: Optional[str] = None,
     ) -> str:
         """Server calls this before sending ExecRequest. Appends RUNNING entry.
 
@@ -93,6 +94,7 @@ class WorkflowPersistence:
                 stdout="",
                 stderr="",
                 started_at=datetime.now(timezone.utc).isoformat(),
+                request_id=request_id,
             ))
             record.execution_count = len(record.execs)
             if instance_id not in record.instance_ids:
@@ -155,3 +157,23 @@ class WorkflowPersistence:
                     entry.updated_at = finished_at
                     break
             f.write(json.dumps(record.to_dict(), indent=2))
+
+    @staticmethod
+    def get_target_summaries(record: "WorkflowRecord") -> Dict[str, Dict[str, Any]]:
+        """Return per-instance_id execution summary for a loaded workflow record.
+
+        Returns a dict keyed by instance_id, each value containing:
+            exec_count    - total executions on that target
+            active_count  - currently RUNNING executions
+            latest_status - status of the most recent execution (str or None)
+        """
+        summaries = {}  # type: Dict[str, Dict[str, Any]]
+        for entry in record.execs:
+            iid = entry.instance_id
+            if iid not in summaries:
+                summaries[iid] = {"exec_count": 0, "active_count": 0, "latest_status": None}
+            summaries[iid]["exec_count"] += 1
+            if entry.status == ExecStatus.RUNNING:
+                summaries[iid]["active_count"] += 1
+            summaries[iid]["latest_status"] = entry.status.value
+        return summaries

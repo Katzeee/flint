@@ -20,6 +20,7 @@ class ExecEntry(BaseModel):
     traceback: Optional[str] = None
     error: Optional[str] = None
     updated_at: Optional[str] = None
+    request_id: Optional[str] = None
 
 
 @dataclass

@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Optional
+from uuid import uuid4
 
 from .registry import ClientEntry, Registry
 from .control_models import (
@@ -9,10 +10,11 @@ from .control_models import (
     ListTargetsResponse,
     SetTargetAliasResponse,
     TargetInfo,
+    TargetSummary,
 )
 from ..shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus
 from ..shared.jsonline import AsyncJsonLineCodec
-from ..shared.model_base import VersionedWireModel
+from ..shared.model_base import VersionedWireModel, WireModelError
 from ..shared.workflow_persistence import WorkflowPersistence
 
 
@@ -52,6 +54,16 @@ class ControlServer:
 
     def get_workflow_overview(self, workflow_id: str) -> GetWorkflowOverviewResponse:
         record = WorkflowPersistence.load(workflow_id)
+        raw_summaries = WorkflowPersistence.get_target_summaries(record)
+        target_summaries = [
+            TargetSummary(
+                instance_id=iid,
+                exec_count=s["exec_count"],
+                active_count=s["active_count"],
+                latest_status=s["latest_status"],
+            )
+            for iid, s in raw_summaries.items()
+        ]
         return GetWorkflowOverviewResponse(
             workflow_id=record.workflow_id,
             name=record.name,
@@ -59,6 +71,7 @@ class ControlServer:
             execution_count=record.execution_count,
             created_at=record.created_at,
             instance_ids=list(record.instance_ids),
+            target_summaries=target_summaries,
         )
 
     def get_workflow_execution(
@@ -104,27 +117,48 @@ class ControlServer:
         if entry is None:
             raise KeyError(f"unknown client: {instance_id}")
 
+        request_id = uuid4().hex
+
         execution_id = WorkflowPersistence.append_running_execution(
             workflow_id,
             name,
             instance_id,
             code,
+            request_id=request_id,
         )
 
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(entry.exec_host, entry.exec_port),
-            timeout=connect_timeout,
-        )
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(
+                    entry.exec_host,
+                    entry.exec_port,
+                    limit=AsyncJsonLineCodec.READER_LIMIT,
+                ),
+                timeout=connect_timeout,
+            )
+        except (asyncio.TimeoutError, OSError):
+            ControlServer._fail_execution(workflow_id, execution_id, ExecError.CONNECTION_FAILED)
+            return ExecResult(
+                execution_id=execution_id,
+                status=ExecStatus.FAILED,
+                stdout="",
+                stderr="",
+                error=ExecError.CONNECTION_FAILED,
+                request_id=request_id,
+            )
 
         req = ExecRequest(
             execution_id=execution_id,
             code=code,
             workflow_id=workflow_id,
             execution_name=name or None,
+            request_id=request_id,
         )
         await AsyncJsonLineCodec.send(writer, req.to_dict())
 
-        task = asyncio.create_task(self._receive_result(reader, writer, workflow_id, execution_id))
+        task = asyncio.create_task(
+            self._receive_result(reader, writer, workflow_id, execution_id)
+        )
         task.add_done_callback(ControlServer._consume_task_exception)
 
         try:
@@ -133,9 +167,19 @@ class ControlServer:
             return ExecResult(
                 execution_id=execution_id,
                 status=ExecStatus.RUNNING,
-                stdout="",
-                stderr="",
+                request_id=request_id,
             )
+
+    @staticmethod
+    def _fail_execution(workflow_id: str, execution_id: str, error: ExecError) -> None:
+        WorkflowPersistence.update_execution_result(
+            workflow_id,
+            execution_id,
+            ExecStatus.FAILED,
+            "", "",
+            datetime.now(timezone.utc).isoformat(),
+            error=error,
+        )
 
     @staticmethod
     def _consume_task_exception(task: asyncio.Task) -> None:
@@ -154,7 +198,7 @@ class ControlServer:
             data = await AsyncJsonLineCodec.recv(reader)
             result = VersionedWireModel.parse_versioned(data)
             if not isinstance(result, ExecResult):
-                raise RuntimeError(f"unexpected response: {type(result).__name__}")
+                raise WireModelError(f"unexpected response: {type(result).__name__}")
             if result.error == ExecError.BUSY:
                 WorkflowPersistence.remove_execution(workflow_id, execution_id)
             else:
@@ -162,22 +206,18 @@ class ControlServer:
                     workflow_id,
                     execution_id,
                     result.status,
-                    result.stdout,
-                    result.stderr,
+                    result.stdout or "",
+                    result.stderr or "",
                     datetime.now(timezone.utc).isoformat(),
                     result.traceback,
                     result.error,
                 )
             return result
+        except WireModelError:
+            ControlServer._fail_execution(workflow_id, execution_id, ExecError.PROTOCOL_ERROR)
+            raise
         except Exception:
-            WorkflowPersistence.update_execution_result(
-                workflow_id,
-                execution_id,
-                ExecStatus.FAILED,
-                "", "",
-                datetime.now(timezone.utc).isoformat(),
-                error="connection lost",
-            )
+            ControlServer._fail_execution(workflow_id, execution_id, ExecError.CONNECTION_FAILED)
             raise
         finally:
             writer.close()

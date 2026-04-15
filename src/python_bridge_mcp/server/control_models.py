@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from ..shared.model_base import BaseModel, VersionedWireModel, wire_model
 
@@ -19,6 +19,14 @@ class TargetInfo(BaseModel):
     exec_port: int
     alias: Optional[str] = None
     instance_type: str = ""
+
+
+@dataclass
+class TargetSummary(BaseModel):
+    instance_id: str
+    exec_count: int
+    active_count: int
+    latest_status: Optional[str] = None
 
 
 @wire_model
@@ -61,6 +69,7 @@ class GetWorkflowOverviewResponse(ControlWireModel):
     created_at: str = ""
     description: str = ""
     instance_ids: List[str] = field(default_factory=list)
+    target_summaries: List[TargetSummary] = field(default_factory=list)
 
 
 @wire_model

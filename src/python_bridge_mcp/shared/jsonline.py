@@ -21,6 +21,8 @@ class JsonLineCodec:
 class SyncJsonLineCodec:
     """Framed JSON-line read/write over a blocking socket."""
 
+    SYNC_READER_LIMIT = 100 * 1024 * 1024  # 100 MB
+
     @staticmethod
     def send(conn: socket.socket, data: Dict[str, Any]) -> None:
         conn.sendall(JsonLineCodec.encode(data))
@@ -33,12 +35,18 @@ class SyncJsonLineCodec:
             if not chunk:
                 raise ConnectionError("Connection closed by peer")
             buf += chunk
+            if len(buf) > SyncJsonLineCodec.SYNC_READER_LIMIT:
+                raise ConnectionError(
+                    f"Incoming message exceeds {SyncJsonLineCodec.SYNC_READER_LIMIT} bytes"
+                )
         line = buf.split(b"\n", 1)[0]
         return JsonLineCodec.decode(line)
 
 
 class AsyncJsonLineCodec:
     """Framed JSON-line read/write over asyncio streams."""
+
+    READER_LIMIT = 100 * 1024 * 1024  # 100 MB
 
     @staticmethod
     async def send(writer: asyncio.StreamWriter, data: Dict[str, Any]) -> None:

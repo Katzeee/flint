@@ -30,7 +30,12 @@ class ExecListener:
         self._execution_lock = asyncio.Lock()
 
     async def run(self) -> None:
-        self._server = await asyncio.start_server(self._handle_connection, self._host, self._port)
+        self._server = await asyncio.start_server(
+            self._handle_connection,
+            self._host,
+            self._port,
+            limit=AsyncJsonLineCodec.READER_LIMIT,
+        )
         async with self._server:
             await self._server.serve_forever()
 
@@ -84,6 +89,8 @@ class ExecListener:
                         )
                     finally:
                         flusher.stop()
+                if result is not None and msg.request_id:
+                    result.request_id = msg.request_id
         except (asyncio.TimeoutError, ConnectionError, WireModelError, ValueError) as exc:
             result = ExecResult(
                 execution_id="",

@@ -61,9 +61,13 @@ class Registry:
             self._clients = {iid: e for iid, e in self._clients.items() if e.pid != entry.pid}
             self._clients[entry.instance_id] = entry
 
-    def unregister(self, instance_id: str) -> None:
+    def unregister(self, instance_id: str, pid: Optional[int] = None) -> None:
         with self._lock:
             self._evict_stale()
+            if pid is not None:
+                entry = self._clients.get(instance_id)
+                if entry is None or entry.pid != pid:
+                    return
             self._clients.pop(instance_id, None)
 
     def heartbeat(self, instance_id: str) -> bool:
@@ -117,6 +121,7 @@ class Registry:
         writer: asyncio.StreamWriter,
     ) -> None:
         instance_id: Optional[str] = None
+        registered_pid: Optional[int] = None
         try:
             while True:
                 try:
@@ -130,6 +135,7 @@ class Registry:
 
                 if isinstance(msg, RegisterDiscovery):
                     instance_id = msg.instance_id
+                    registered_pid = msg.pid
                     self.register(ClientEntry(
                         pid=msg.pid,
                         instance_id=msg.instance_id,
@@ -152,5 +158,8 @@ class Registry:
                     return
         finally:
             if instance_id is not None:
-                self.unregister(instance_id)
+                # Only unregister if this connection's PID still owns the entry.
+                # A re-registration with a new PID must not be evicted by the
+                # stale connection's close.
+                self.unregister(instance_id, pid=registered_pid)
             writer.close()

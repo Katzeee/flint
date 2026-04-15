@@ -196,16 +196,18 @@ def test_exec_python_success(
 def test_exec_python_target_not_found(
     app_runner, monkeypatch,
 ) -> None:
-    """exec_python raises ToolError when instance_id is unknown."""
+    """exec_python returns ExecResult with TARGET_OFFLINE error for unknown instance_id."""
     app, _ = app_runner
     monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
 
-    with pytest.raises(ToolError):
-        asyncio.run(shim_mcp.call_tool("exec_python", {
-            "instance_id": "nonexistent",
-            "code": "print(1)",
-            "workflow_id": "dummy",
-        }))
+    content, _raw = asyncio.run(shim_mcp.call_tool("exec_python", {
+        "instance_id": "nonexistent",
+        "code": "print(1)",
+        "workflow_id": "dummy",
+    }))
+    data = json.loads(content[0].text)
+    assert data["status"] == "failed"
+    assert data["error"] == "target_offline"
 
 
 # ---------------------------------------------------------------------------
