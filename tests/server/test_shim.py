@@ -4,11 +4,18 @@ import threading
 from typing import Iterator, Optional
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
+from python_bridge_mcp.client.code_executor import CodeExecutor
+from python_bridge_mcp.client.code_runner import DirectRunner
+from python_bridge_mcp.client.exec_listener import ExecListener
 from python_bridge_mcp.server.app import App
+from python_bridge_mcp.server.control_server import ControlServer
+from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.server.shim import mcp as shim_mcp
 from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
 from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
+from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
 from conftest import AsyncRunner, free_port
 
@@ -134,3 +141,95 @@ def test_list_dcc_targets_filters_by_type(
     data = json.loads(content[0].text)
     assert len(data) == 1
     assert data[0]["instance_id"] == "c1"
+
+
+# ---------------------------------------------------------------------------
+# E3 — exec_python tool
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def listener_port() -> int:
+    return free_port()
+
+
+@pytest.fixture
+def listener_runner(listener_port: int) -> Iterator[AsyncRunner]:
+    executor = CodeExecutor()
+    code_runner = DirectRunner(executor)
+    listener = ExecListener("localhost", listener_port, code_runner)
+    lr = AsyncRunner()
+    lr.start(listener.run)
+    yield lr
+    listener.stop()
+    lr.stop()
+
+
+def _make_exec_control(exec_port: int, instance_id: str = "c1") -> ControlServer:
+    registry = Registry()
+    registry.register(ClientEntry(
+        pid=1, instance_id=instance_id, instance_name="test",
+        exec_host="localhost", exec_port=exec_port, alias=None,
+    ))
+    return ControlServer(registry)
+
+
+def test_exec_python_success(
+    listener_runner, listener_port: int, monkeypatch,
+) -> None:
+    """exec_python returns status and stdout for a valid target."""
+    control = _make_exec_control(listener_port)
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: control)
+    workflow_id = WorkflowPersistence.create_workflow("test_wf")
+
+    content, _raw = asyncio.run(shim_mcp.call_tool("exec_python", {
+        "instance_id": "c1",
+        "code": 'print("hello")',
+        "workflow_id": workflow_id,
+    }))
+    data = json.loads(content[0].text)
+    assert "status" in data
+    assert "stdout" in data
+
+
+def test_exec_python_target_not_found(
+    app_runner, monkeypatch,
+) -> None:
+    """exec_python raises ToolError when instance_id is unknown."""
+    app, _ = app_runner
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
+
+    with pytest.raises(ToolError):
+        asyncio.run(shim_mcp.call_tool("exec_python", {
+            "instance_id": "nonexistent",
+            "code": "print(1)",
+            "workflow_id": "dummy",
+        }))
+
+
+# ---------------------------------------------------------------------------
+# E4 — start_workflow tool
+# ---------------------------------------------------------------------------
+
+def test_start_workflow_returns_workflow_id(
+    app_runner, monkeypatch,
+) -> None:
+    """start_workflow returns a non-empty workflow_id."""
+    app, _ = app_runner
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
+
+    content, _raw = asyncio.run(shim_mcp.call_tool("start_workflow", {"name": "my-wf"}))
+    data = json.loads(content[0].text)
+    assert "workflow_id" in data
+    assert data["workflow_id"]
+
+
+def test_start_workflow_creates_file(
+    app_runner, monkeypatch,
+) -> None:
+    """start_workflow creates the corresponding JSON file on disk."""
+    app, _ = app_runner
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
+
+    content, _raw = asyncio.run(shim_mcp.call_tool("start_workflow", {"name": "disk-test"}))
+    workflow_id = json.loads(content[0].text)["workflow_id"]
+    assert WorkflowPersistence.exists(workflow_id)

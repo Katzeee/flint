@@ -4,6 +4,7 @@ import json
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 
 from .app import App
 from .control_server import ControlServer
@@ -49,7 +50,10 @@ async def exec_python(instance_id: str, code: str, workflow_id: str, name: str =
         name: Optional execution name.
     """
     control = _get_control()
-    result = await control.execute(instance_id, code, workflow_id, name)
+    try:
+        result = await control.execute(instance_id, code, workflow_id, name)
+    except KeyError as exc:
+        raise ToolError(str(exc)) from exc
     return json.dumps(result.to_dict(exclude_none=True))
 
 
