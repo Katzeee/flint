@@ -8,6 +8,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from .app import App
 from .control_server import ControlServer
+from ..shared.workflow_persistence import WorkflowRecordUnavailableError
 
 mcp = FastMCP("python-bridge-mcp")
 
@@ -78,7 +79,10 @@ def get_workflow_overview(workflow_id: str) -> str:
         workflow_id: The workflow ID to look up.
     """
     control = _get_control()
-    overview = control.get_workflow_overview(workflow_id)
+    try:
+        overview = control.get_workflow_overview(workflow_id)
+    except WorkflowRecordUnavailableError as exc:
+        raise ToolError(str(exc)) from exc
     return json.dumps(overview.to_dict(exclude_none=True))
 
 
@@ -92,7 +96,10 @@ def get_workflow_execution(workflow_id: str, execution_id: str, view: str = "sum
         view: "summary" (default) omits code, "full" includes code.
     """
     control = _get_control()
-    response = control.get_workflow_execution(workflow_id, execution_id, view)
+    try:
+        response = control.get_workflow_execution(workflow_id, execution_id, view)
+    except (KeyError, WorkflowRecordUnavailableError) as exc:
+        raise ToolError(str(exc)) from exc
     return json.dumps(response.to_dict(exclude_none=True))
 
 
@@ -106,4 +113,4 @@ def set_target_alias(instance_id: str, alias: Optional[str] = None) -> str:
     """
     control = _get_control()
     response = control.set_alias(instance_id, alias)
-    return json.dumps(response.to_dict(exclude_none=True))
+    return json.dumps(response.to_dict())

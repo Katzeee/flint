@@ -1,6 +1,7 @@
 import asyncio
 import json
 import threading
+from datetime import datetime, timezone
 from typing import Iterator, Optional
 
 import pytest
@@ -14,6 +15,7 @@ from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.server.shim import mcp as shim_mcp
 from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
+from python_bridge_mcp.shared.exec_models import ExecStatus
 from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
@@ -233,3 +235,129 @@ def test_start_workflow_creates_file(
     content, _raw = asyncio.run(shim_mcp.call_tool("start_workflow", {"name": "disk-test"}))
     workflow_id = json.loads(content[0].text)["workflow_id"]
     assert WorkflowPersistence.exists(workflow_id)
+
+
+# ---------------------------------------------------------------------------
+# E5 — get_workflow_overview tool
+# ---------------------------------------------------------------------------
+
+def test_get_workflow_overview_existing(app_runner, monkeypatch) -> None:
+    """get_workflow_overview returns summary for an existing workflow."""
+    app, _ = app_runner
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
+    workflow_id = WorkflowPersistence.create_workflow("my-wf", "desc")
+
+    content, _raw = asyncio.run(shim_mcp.call_tool("get_workflow_overview", {
+        "workflow_id": workflow_id,
+    }))
+    data = json.loads(content[0].text)
+    assert data["workflow_id"] == workflow_id
+    assert data["name"] == "my-wf"
+
+
+def test_get_workflow_overview_not_found(app_runner, monkeypatch) -> None:
+    """get_workflow_overview raises ToolError for unknown workflow_id."""
+    app, _ = app_runner
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
+
+    with pytest.raises(ToolError):
+        asyncio.run(shim_mcp.call_tool("get_workflow_overview", {
+            "workflow_id": "nonexistent",
+        }))
+
+
+# ---------------------------------------------------------------------------
+# E6 — get_workflow_execution tool
+# ---------------------------------------------------------------------------
+
+def _setup_workflow_with_execution(control: ControlServer) -> tuple:
+    """Create a workflow and append a completed execution. Returns (workflow_id, execution_id)."""
+    workflow_id = WorkflowPersistence.create_workflow("wf")
+    execution_id = WorkflowPersistence.append_running_execution(workflow_id, "run1", "c1", "print(1)")
+    WorkflowPersistence.update_execution_result(
+        workflow_id, execution_id, ExecStatus.SUCCEEDED,
+        "1\n", "", datetime.now(timezone.utc).isoformat(),
+    )
+    return workflow_id, execution_id
+
+
+def test_get_workflow_execution_full_view(app_runner, monkeypatch) -> None:
+    """view='full' includes the code field."""
+    app, _ = app_runner
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
+    workflow_id, execution_id = _setup_workflow_with_execution(app.control)
+
+    content, _raw = asyncio.run(shim_mcp.call_tool("get_workflow_execution", {
+        "workflow_id": workflow_id,
+        "execution_id": execution_id,
+        "view": "full",
+    }))
+    data = json.loads(content[0].text)
+    assert "code" in data
+    assert data["code"] == "print(1)"
+
+
+def test_get_workflow_execution_summary_no_code(app_runner, monkeypatch) -> None:
+    """view='summary' omits the code field."""
+    app, _ = app_runner
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
+    workflow_id, execution_id = _setup_workflow_with_execution(app.control)
+
+    content, _raw = asyncio.run(shim_mcp.call_tool("get_workflow_execution", {
+        "workflow_id": workflow_id,
+        "execution_id": execution_id,
+        "view": "summary",
+    }))
+    data = json.loads(content[0].text)
+    assert "code" not in data
+
+
+def test_get_workflow_execution_not_found(app_runner, monkeypatch) -> None:
+    """get_workflow_execution raises ToolError for unknown execution_id."""
+    app, _ = app_runner
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
+    workflow_id = WorkflowPersistence.create_workflow("wf")
+
+    with pytest.raises(ToolError):
+        asyncio.run(shim_mcp.call_tool("get_workflow_execution", {
+            "workflow_id": workflow_id,
+            "execution_id": "9999",
+        }))
+
+
+# ---------------------------------------------------------------------------
+# E7 — set_target_alias tool
+# ---------------------------------------------------------------------------
+
+def test_set_target_alias_updates_list(
+    app_runner, discovery_port: int, exec_port: int, monkeypatch,
+) -> None:
+    """After set_target_alias, list_dcc_targets returns the updated alias."""
+    app, _ = app_runner
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
+    _bg_register(discovery_port, exec_port, instance_id="c1")
+
+    asyncio.run(shim_mcp.call_tool("set_target_alias", {
+        "instance_id": "c1",
+        "alias": "my-alias",
+    }))
+
+    content, _raw = asyncio.run(shim_mcp.call_tool("list_dcc_targets", {}))
+    data = json.loads(content[0].text)
+    assert data[0]["alias"] == "my-alias"
+
+
+def test_set_target_alias_empty_string_becomes_none(
+    app_runner, discovery_port: int, exec_port: int, monkeypatch,
+) -> None:
+    """set_target_alias with empty string returns alias=None."""
+    app, _ = app_runner
+    monkeypatch.setattr("python_bridge_mcp.server.shim._get_control", lambda: app.control)
+    _bg_register(discovery_port, exec_port, instance_id="c1")
+
+    content, _raw = asyncio.run(shim_mcp.call_tool("set_target_alias", {
+        "instance_id": "c1",
+        "alias": "",
+    }))
+    data = json.loads(content[0].text)
+    assert data["alias"] is None
