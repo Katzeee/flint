@@ -111,3 +111,19 @@ class SetTargetAliasResponse(ControlWireModel):
     success: bool = False
     instance_id: str = ""
     alias: Optional[str] = None
+
+
+@wire_model
+@dataclass
+class ControlExecuteRequest(ControlWireModel):
+    instance_id: str = ""
+    code: str = ""
+    workflow_id: str = ""
+    name: str = ""
+
+
+@wire_model
+@dataclass
+class ErrorResponse(ControlWireModel):
+    error_code: str = ""
+    message: str = ""

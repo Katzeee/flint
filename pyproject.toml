@@ -2,7 +2,10 @@
 name = "python-bridge-mcp"
 version = "0.0.1"
 requires-python = ">=3.7"
-dependencies = ["mcp>=1.12.4", "dacite>=1.8", "filelock>=3.12"]
+dependencies = ["mcp>=1.12.4", "dacite>=1.8", "filelock>=3.12", "platformdirs>=3"]
+
+[project.scripts]
+python-bridge-backend = "python_bridge_mcp.server.backend:_cli"
 
 [project.optional-dependencies]
 build = ["pyinstaller>=6"]
