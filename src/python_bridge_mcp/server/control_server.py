@@ -5,25 +5,117 @@ from uuid import uuid4
 
 from .registry import ClientEntry, Registry
 from .control_models import (
+    ControlExecuteRequest,
+    ErrorResponse,
+    GetWorkflowExecutionRequest,
     GetWorkflowExecutionResponse,
+    GetWorkflowOverviewRequest,
     GetWorkflowOverviewResponse,
+    ListTargetsRequest,
     ListTargetsResponse,
+    SetTargetAliasRequest,
     SetTargetAliasResponse,
+    StartWorkflowRequest,
+    StartWorkflowResponse,
     TargetInfo,
     TargetSummary,
 )
 from ..shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
-from ..shared.workflow_persistence import WorkflowPersistence
+from ..shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
 
 
 class ControlServer:
+    DEFAULT_HOST: str = "localhost"
+    DEFAULT_PORT: int = 6322
     DEFAULT_CONNECT_TIMEOUT: float = 10.0
     DEFAULT_EARLY_RETURN_WINDOW: float = 5.0
 
-    def __init__(self, discovery: Registry) -> None:
+    def __init__(
+        self,
+        discovery: Registry,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+    ) -> None:
         self._discovery = discovery
+        self._host = host
+        self._port = port
+        self._server: Optional[asyncio.AbstractServer] = None
+
+    async def run(self) -> None:
+        self._server = await asyncio.start_server(
+            self._handle_connection,
+            self._host,
+            self._port,
+            limit=AsyncJsonLineCodec.READER_LIMIT,
+        )
+        async with self._server:
+            await self._server.serve_forever()
+
+    def stop(self) -> None:
+        if self._server is not None:
+            self._server.close()
+
+    async def _handle_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        response: Optional[VersionedWireModel] = None
+        try:
+            data = await AsyncJsonLineCodec.recv(reader)
+            request = VersionedWireModel.parse_versioned(data)
+            response = await self._dispatch(request)
+        except ConnectionError:
+            pass
+        except WireModelError as exc:
+            response = ErrorResponse(error_code="protocol_error", message=str(exc))
+        except Exception as exc:
+            response = ErrorResponse(error_code="internal_error", message=str(exc))
+        finally:
+            if response is not None:
+                await AsyncJsonLineCodec.send(writer, response.to_dict())
+            writer.close()
+
+    async def _dispatch(self, request: VersionedWireModel) -> VersionedWireModel:
+        if isinstance(request, ListTargetsRequest):
+            return self.list_targets(request.instance_type)
+
+        if isinstance(request, StartWorkflowRequest):
+            wf_id = self.start_workflow(request.name, request.description)
+            return StartWorkflowResponse(workflow_id=wf_id)
+
+        if isinstance(request, ControlExecuteRequest):
+            try:
+                return await self.execute(request.instance_id, request.code, request.workflow_id, request.name)
+            except KeyError as exc:
+                return ErrorResponse(error_code="unknown_client", message=str(exc))
+
+        if isinstance(request, GetWorkflowOverviewRequest):
+            try:
+                return self.get_workflow_overview(request.workflow_id)
+            except WorkflowRecordUnavailableError as exc:
+                return ErrorResponse(error_code="workflow_not_found", message=str(exc))
+
+        if isinstance(request, GetWorkflowExecutionRequest):
+            try:
+                return self.get_workflow_execution(request.workflow_id, request.execution_id, request.view)
+            except WorkflowRecordUnavailableError as exc:
+                return ErrorResponse(error_code="workflow_not_found", message=str(exc))
+            except KeyError as exc:
+                return ErrorResponse(error_code="execution_not_found", message=str(exc))
+
+        if isinstance(request, SetTargetAliasRequest):
+            try:
+                return self.set_alias(request.instance_id, request.alias)
+            except KeyError as exc:
+                return ErrorResponse(error_code="unknown_client", message=str(exc))
+
+        return ErrorResponse(
+            error_code="unknown_request",
+            message=f"unhandled request type: {type(request).__name__}",
+        )
 
     def list_clients(self, instance_type: Optional[str] = None) -> Dict[str, ClientEntry]:
         return self._discovery.list_clients(instance_type)

@@ -1,4 +1,4 @@
-"""Tests for ControlApi and BackendClient using an in-process backend."""
+"""Tests for ControlServer (TCP API) and BackendClient using an in-process backend."""
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +12,6 @@ from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.exec_listener import ExecListener
 from python_bridge_mcp.server.backend_client import BackendClient, BackendError
-from python_bridge_mcp.server.control_api import ControlApi
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
@@ -47,15 +46,14 @@ def exec_port() -> int:
 
 @pytest.fixture
 def backend(discovery_port: int, api_port: int) -> Iterator[tuple]:
-    """Start Registry + ControlServer + ControlApi in a background thread."""
+    """Start Registry + ControlServer in a background thread."""
     registry = Registry(host="localhost", port=discovery_port)
-    control = ControlServer(registry)
-    api = ControlApi(control, host="localhost", port=api_port)
+    control = ControlServer(registry, host="localhost", port=api_port)
     runner = AsyncRunner()
-    runner.start(lambda: asyncio.gather(registry.run(), api.run()))
-    yield registry, control, api
+    runner.start(lambda: asyncio.gather(registry.run(), control.run()))
+    yield registry, control
     registry.stop()
-    api.stop()
+    control.stop()
     runner.stop()
 
 

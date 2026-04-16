@@ -11,7 +11,6 @@ from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.exec_listener import ExecListener
 from python_bridge_mcp.server.backend_client import BackendClient
-from python_bridge_mcp.server.control_api import ControlApi
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import Registry
 from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
@@ -46,13 +45,12 @@ def exec_port() -> int:
 @pytest.fixture
 def backend(discovery_port: int, api_port: int) -> Iterator[tuple]:
     registry = Registry(host="localhost", port=discovery_port)
-    control = ControlServer(registry)
-    api = ControlApi(control, host="localhost", port=api_port)
+    control = ControlServer(registry, host="localhost", port=api_port)
     runner = AsyncRunner()
-    runner.start(lambda: asyncio.gather(registry.run(), api.run()))
-    yield registry, control, api
+    runner.start(lambda: asyncio.gather(registry.run(), control.run()))
+    yield registry, control
     registry.stop()
-    api.stop()
+    control.stop()
     runner.stop()
 
 

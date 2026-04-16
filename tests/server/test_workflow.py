@@ -4,7 +4,6 @@ from typing import Iterator
 
 import pytest
 
-from python_bridge_mcp.server.app import App
 from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
@@ -67,11 +66,12 @@ def exec_port() -> int:
 
 @pytest.fixture
 def app_runner(discovery_port: int) -> Iterator[tuple]:
-    app = App(discovery_host="localhost", discovery_port=discovery_port)
+    registry = Registry(host="localhost", port=discovery_port)
+    control = ControlServer(registry)
     runner = AsyncRunner()
-    runner.start(app.run)
-    yield app, runner
-    app.stop()
+    runner.start(registry.run)
+    yield registry, control, runner
+    registry.stop()
     runner.stop()
 
 
@@ -92,27 +92,27 @@ def listener_runner(exec_port: int) -> Iterator[AsyncRunner]:
 # ---------------------------------------------------------------------------
 
 def test_start_workflow_returns_id_with_name(app_runner) -> None:
-    app, runner = app_runner
-    wf_id = app.control.start_workflow("my-workflow")
+    registry, control, runner = app_runner
+    wf_id = control.start_workflow("my-workflow")
     assert isinstance(wf_id, str)
     assert "my-workflow" in wf_id
 
 
 def test_start_workflow_ids_are_unique(app_runner) -> None:
-    app, runner = app_runner
-    wf1 = app.control.start_workflow("wf")
-    wf2 = app.control.start_workflow("wf")
+    registry, control, runner = app_runner
+    wf1 = control.start_workflow("wf")
+    wf2 = control.start_workflow("wf")
     assert wf1 != wf2
 
 
 def test_execute_with_workflow_id(
     app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    app, app_run = app_runner
+    registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port)
-    wf_id = app.control.start_workflow("test")
+    wf_id = control.start_workflow("test")
 
-    result = app_run.run_async(app.control.execute("c1", 'print("hello")', wf_id))
+    result = app_run.run_async(control.execute("c1", 'print("hello")', wf_id))
     assert result.status == ExecStatus.SUCCEEDED
     assert result.stdout == "hello\n"
 
@@ -120,11 +120,11 @@ def test_execute_with_workflow_id(
 def test_execute_rejects_missing_workflow(
     app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    app, app_run = app_runner
+    registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port)
 
     with pytest.raises(WorkflowRecordUnavailableError, match="workflow not found"):
-        app_run.run_async(app.control.execute("c1", 'print("ok")', "nonexistent"))
+        app_run.run_async(control.execute("c1", 'print("ok")', "nonexistent"))
 
 
 # ---------------------------------------------------------------------------
@@ -133,17 +133,16 @@ def test_execute_rejects_missing_workflow(
 
 def test_execute_connection_failed_records_failed_execution(app_runner) -> None:
     """When open_connection fails, execution is written as FAILED with CONNECTION_FAILED."""
-    app, app_run = app_runner
+    registry, control, app_run = app_runner
     # Register a target on a port that is not listening (port 1 is privileged/closed)
-    registry = app.control._discovery
     registry.register(ClientEntry(
         pid=1, instance_id="dead", instance_name="dead",
         exec_host="127.0.0.1", exec_port=1, alias=None,
     ))
-    wf_id = app.control.start_workflow("conn-fail-test")
+    wf_id = control.start_workflow("conn-fail-test")
 
     result = app_run.run_async(
-        app.control.execute("dead", "print(1)", wf_id, connect_timeout=2.0)
+        control.execute("dead", "print(1)", wf_id, connect_timeout=2.0)
     )
 
     assert result.status == ExecStatus.FAILED
@@ -246,11 +245,11 @@ def test_request_id_present_in_result(
     app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
     """execute() generates a request_id that appears in the returned ExecResult."""
-    app, app_run = app_runner
+    registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port)
-    wf_id = app.control.start_workflow("reqid-test")
+    wf_id = control.start_workflow("reqid-test")
 
-    result = app_run.run_async(app.control.execute("c1", 'print("hi")', wf_id))
+    result = app_run.run_async(control.execute("c1", 'print("hi")', wf_id))
     assert result.request_id is not None
     assert len(result.request_id) > 0
 
@@ -259,11 +258,11 @@ def test_request_id_persisted_in_exec_entry(
     app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
     """The request_id used for the ExecRequest is stored in the ExecEntry on disk."""
-    app, app_run = app_runner
+    registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port)
-    wf_id = app.control.start_workflow("reqid-persist-test")
+    wf_id = control.start_workflow("reqid-persist-test")
 
-    result = app_run.run_async(app.control.execute("c1", 'print("hi")', wf_id))
+    result = app_run.run_async(control.execute("c1", 'print("hi")', wf_id))
     record = WorkflowPersistence.load(wf_id)
     assert len(record.execs) == 1
     entry = record.execs[0]
@@ -279,14 +278,14 @@ def test_get_workflow_overview_target_summaries(
     app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
     """get_workflow_overview includes per-target exec_count and latest_status."""
-    app, app_run = app_runner
+    registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port)
-    wf_id = app.control.start_workflow("overview-test")
+    wf_id = control.start_workflow("overview-test")
 
-    app_run.run_async(app.control.execute("c1", 'print("a")', wf_id))
-    app_run.run_async(app.control.execute("c1", 'print("b")', wf_id))
+    app_run.run_async(control.execute("c1", 'print("a")', wf_id))
+    app_run.run_async(control.execute("c1", 'print("b")', wf_id))
 
-    overview = app.control.get_workflow_overview(wf_id)
+    overview = control.get_workflow_overview(wf_id)
     assert len(overview.target_summaries) == 1
     summary = overview.target_summaries[0]
     assert summary.instance_id == "c1"
@@ -297,9 +296,9 @@ def test_get_workflow_overview_target_summaries(
 
 def test_get_workflow_overview_target_summaries_in_dict(app_runner) -> None:
     """target_summaries appears in the serialized overview dict."""
-    app, _ = app_runner
-    wf_id = app.control.start_workflow("overview-dict-test")
-    overview = app.control.get_workflow_overview(wf_id)
+    registry, control, _ = app_runner
+    wf_id = control.start_workflow("overview-dict-test")
+    overview = control.get_workflow_overview(wf_id)
     data = overview.to_dict(exclude_none=True)
     assert "target_summaries" in data
     assert data["target_summaries"] == []
