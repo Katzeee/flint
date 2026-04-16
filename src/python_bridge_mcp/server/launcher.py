@@ -40,6 +40,7 @@ class BackendLauncher:
                 timeout=0.5,
             )
             writer.close()
+            await writer.wait_closed()
             return True
         except (OSError, asyncio.TimeoutError):
             return False

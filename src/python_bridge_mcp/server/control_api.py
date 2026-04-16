@@ -56,6 +56,8 @@ class ControlApi:
             data = await AsyncJsonLineCodec.recv(reader)
             request = VersionedWireModel.parse_versioned(data)
             response = await self._dispatch(request)
+        except ConnectionError:
+            pass
         except WireModelError as exc:
             response = ErrorResponse(error_code="protocol_error", message=str(exc))
         except Exception as exc:
@@ -75,9 +77,7 @@ class ControlApi:
 
         if isinstance(request, ControlExecuteRequest):
             try:
-                return await self._control.execute(
-                    request.instance_id, request.code, request.workflow_id, request.name
-                )
+                return await self._control.execute(request.instance_id, request.code, request.workflow_id, request.name)
             except KeyError as exc:
                 return ErrorResponse(error_code="unknown_client", message=str(exc))
 
@@ -89,9 +89,7 @@ class ControlApi:
 
         if isinstance(request, GetWorkflowExecutionRequest):
             try:
-                return self._control.get_workflow_execution(
-                    request.workflow_id, request.execution_id, request.view
-                )
+                return self._control.get_workflow_execution(request.workflow_id, request.execution_id, request.view)
             except WorkflowRecordUnavailableError as exc:
                 return ErrorResponse(error_code="workflow_not_found", message=str(exc))
             except KeyError as exc:

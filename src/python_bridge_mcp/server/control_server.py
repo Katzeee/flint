@@ -154,7 +154,20 @@ class ControlServer:
             execution_name=name or None,
             request_id=request_id,
         )
-        await AsyncJsonLineCodec.send(writer, req.to_dict())
+        try:
+            await AsyncJsonLineCodec.send(writer, req.to_dict())
+        except Exception:
+            writer.close()
+            await writer.wait_closed()
+            ControlServer._fail_execution(workflow_id, execution_id, ExecError.CONNECTION_FAILED)
+            return ExecResult(
+                execution_id=execution_id,
+                status=ExecStatus.FAILED,
+                stdout="",
+                stderr="",
+                error=ExecError.CONNECTION_FAILED,
+                request_id=request_id,
+            )
 
         task = asyncio.create_task(
             self._receive_result(reader, writer, workflow_id, execution_id)
@@ -221,3 +234,4 @@ class ControlServer:
             raise
         finally:
             writer.close()
+            await writer.wait_closed()

@@ -11,7 +11,7 @@ from python_bridge_mcp.client.exec_listener import ExecListener
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
-from python_bridge_mcp.shared.exec_models import ExecRequest, ExecResult, ExecStatus
+from python_bridge_mcp.shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus
 from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
 from python_bridge_mcp.shared.model_base import VersionedWireModel
 from python_bridge_mcp.shared.workflow_models import WorkflowRecord
@@ -132,8 +132,7 @@ def test_exec_wrong_message_type(listener_runner: AsyncRunner, port: int) -> Non
 
     result = asyncio.run(_send_wrong())
     assert result.status == ExecStatus.FAILED
-    assert result.error is not None
-    assert "unexpected" in result.error.lower() or "RegisterDiscovery" in result.error
+    assert result.error == ExecError.PROTOCOL_ERROR
 
 
 def test_exec_concurrent_rejects_busy(listener_runner: AsyncRunner, port: int) -> None:

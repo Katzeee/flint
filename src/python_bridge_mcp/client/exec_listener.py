@@ -58,7 +58,7 @@ class ExecListener:
                     status=ExecStatus.FAILED,
                     stdout="",
                     stderr="",
-                    error=f"unexpected message: {type(msg).__name__}",
+                    error=ExecError.PROTOCOL_ERROR,
                 )
             elif self._execution_lock.locked():
                 result = ExecResult(

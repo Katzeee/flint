@@ -39,16 +39,23 @@ class BackendClient:
         self._host = host
         self._port = port
 
-    async def _roundtrip(self, request: VersionedWireModel) -> VersionedWireModel:
+    ROUNDTRIP_TIMEOUT: float = 30.0
+
+    async def _roundtrip(
+        self,
+        request: VersionedWireModel,
+        timeout: Optional[float] = ROUNDTRIP_TIMEOUT,
+    ) -> VersionedWireModel:
         reader, writer = await asyncio.open_connection(
             self._host, self._port, limit=AsyncJsonLineCodec.READER_LIMIT
         )
         try:
             await AsyncJsonLineCodec.send(writer, request.to_dict())
-            data = await AsyncJsonLineCodec.recv(reader)
+            data = await AsyncJsonLineCodec.recv(reader, timeout=timeout)
             return VersionedWireModel.parse_versioned(data)
         finally:
             writer.close()
+            await writer.wait_closed()
 
     def _raise_if_error(self, response: VersionedWireModel) -> None:
         if not isinstance(response, ErrorResponse):

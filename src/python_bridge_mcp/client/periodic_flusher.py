@@ -32,9 +32,12 @@ class PeriodicFlusher:
 
     def _run(self) -> None:
         while not self._stop_event.wait(self._interval):
-            WorkflowPersistence.update_execution_output(
-                self._workflow_id,
-                self._execution_id,
-                self._out.getvalue(),
-                self._err.getvalue(),
-            )
+            try:
+                WorkflowPersistence.update_execution_output(
+                    self._workflow_id,
+                    self._execution_id,
+                    self._out.getvalue(),
+                    self._err.getvalue(),
+                )
+            except Exception:
+                pass
