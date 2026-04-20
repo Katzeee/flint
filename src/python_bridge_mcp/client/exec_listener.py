@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Optional
 
 from ..shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus
@@ -7,6 +8,8 @@ from ..shared.model_base import VersionedWireModel, WireModelError
 from ..shared.text_buffer import ThreadSafeTextBuffer
 from .code_runner import CodeRunner
 from .periodic_flusher import PeriodicFlusher
+
+log = logging.getLogger(__name__)
 
 
 class ExecListener:
@@ -61,6 +64,7 @@ class ExecListener:
                     error=ExecError.PROTOCOL_ERROR,
                 )
             elif self._execution_lock.locked():
+                log.warning("Rejecting execution %s: BUSY", msg.execution_id)
                 result = ExecResult(
                     execution_id=msg.execution_id,
                     status=ExecStatus.FAILED,
@@ -69,6 +73,10 @@ class ExecListener:
                     error=ExecError.BUSY,
                 )
             else:
+                log.info(
+                    "Execution %s start (workflow %s)",
+                    msg.execution_id, msg.workflow_id,
+                )
                 async with self._execution_lock:
                     out = ThreadSafeTextBuffer()
                     err = ThreadSafeTextBuffer()
@@ -89,9 +97,14 @@ class ExecListener:
                         )
                     finally:
                         flusher.stop()
+                log.info(
+                    "Execution %s finished status=%s",
+                    msg.execution_id, result.status if result else None,
+                )
                 if result is not None and msg.request_id:
                     result.request_id = msg.request_id
         except (asyncio.TimeoutError, ConnectionError, WireModelError, ValueError) as exc:
+            log.warning("ExecListener connection error: %s", exc)
             result = ExecResult(
                 execution_id="",
                 status=ExecStatus.FAILED,

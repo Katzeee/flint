@@ -1,8 +1,11 @@
 import argparse
 import asyncio
+import logging
 
 from .control_server import ControlServer
 from .registry import Registry
+
+log = logging.getLogger(__name__)
 
 
 async def main(
@@ -14,6 +17,10 @@ async def main(
 ) -> None:
     registry = Registry(host=registry_host, port=registry_port)
     control = ControlServer(registry, host=api_host, port=api_port)
+    log.info(
+        "Backend starting (registry=%s:%d, control=%s:%d)",
+        registry_host, registry_port, api_host, api_port,
+    )
     await asyncio.gather(registry.run(), control.run())
 
 
@@ -22,6 +29,10 @@ def _cli() -> None:
     parser.add_argument("--registry-port", type=int, default=Registry.DEFAULT_PORT)
     parser.add_argument("--api-port", type=int, default=ControlServer.DEFAULT_PORT)
     args = parser.parse_args()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+    )
     asyncio.run(main(registry_port=args.registry_port, api_port=args.api_port))
 
 

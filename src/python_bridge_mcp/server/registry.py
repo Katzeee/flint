@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
@@ -7,6 +8,8 @@ from typing import Dict, List, Optional
 from ..shared.discovery_models import AckDiscovery, HeartbeatDiscovery, RegisterDiscovery
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -60,20 +63,28 @@ class Registry:
             self._evict_stale()
             self._clients = {iid: e for iid, e in self._clients.items() if e.pid != entry.pid}
             self._clients[entry.instance_id] = entry
+        log.info(
+            "Registered client %s (pid=%d, type=%s, exec=%s:%d)",
+            entry.instance_id, entry.pid, entry.instance_type, entry.exec_host, entry.exec_port,
+        )
 
     def unregister(self, instance_id: str, pid: Optional[int] = None) -> None:
+        removed = False
         with self._lock:
             self._evict_stale()
             if pid is not None:
                 entry = self._clients.get(instance_id)
                 if entry is None or entry.pid != pid:
                     return
-            self._clients.pop(instance_id, None)
+            removed = self._clients.pop(instance_id, None) is not None
+        if removed:
+            log.info("Unregistered client %s", instance_id)
 
     def heartbeat(self, instance_id: str) -> bool:
         with self._lock:
             self._evict_stale()
             if instance_id not in self._clients:
+                log.debug("Heartbeat from unregistered client %s", instance_id)
                 return False
             self._clients[instance_id].last_heartbeat = time.monotonic()
             return True
@@ -104,8 +115,27 @@ class Registry:
         self._server = await asyncio.start_server(
             self._handle_client, self._host, self._port
         )
+        log.info("Registry listening on %s:%d", self._host, self._port)
         async with self._server:
-            await self._server.serve_forever()
+            evict_task = asyncio.create_task(self._evict_periodically())
+            try:
+                await self._server.serve_forever()
+            finally:
+                evict_task.cancel()
+                try:
+                    await evict_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def _evict_periodically(self) -> None:
+        """Background task: evict stale entries every stale_timeout/2 seconds."""
+        interval = max(self._stale_timeout / 2, 1.0)
+        while True:
+            await asyncio.sleep(interval)
+            with self._lock:
+                evicted = self._evict_stale()
+            if evicted:
+                log.info("Evicted %d stale client(s): %s", len(evicted), evicted)
 
     def stop(self) -> None:
         if self._server is not None:

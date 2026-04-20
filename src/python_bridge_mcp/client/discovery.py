@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import socket
 import threading
@@ -9,6 +10,8 @@ from typing import Optional
 from ..shared.discovery_models import AckDiscovery, HeartbeatDiscovery, RegisterDiscovery
 from ..shared.jsonline import SyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel
+
+log = logging.getLogger(__name__)
 
 
 class DiscoveryState(Enum):
@@ -69,10 +72,11 @@ class DiscoveryClient:
             try:
                 self._connect_and_heartbeat()
                 backoff = 0
-            except Exception:
+            except Exception as exc:
                 if self._stop_event.is_set():
                     break
                 backoff = min(backoff * 2 + 1, self.MAX_BACKOFF)
+                log.debug("Discovery disconnected (%s); retrying in %ds", exc, backoff)
                 self._stop_event.wait(backoff)
 
     def stop(self) -> None:
@@ -99,6 +103,10 @@ class DiscoveryClient:
                 instance_type=self._instance_type,
             ), "Registration rejected")
             self._set_state(DiscoveryState.CONNECTED)
+            log.info(
+                "Discovery connected to %s:%d as %s",
+                self._host, self._port, self._instance_id,
+            )
 
             # Heartbeat loop
             while not self._stop_event.is_set():

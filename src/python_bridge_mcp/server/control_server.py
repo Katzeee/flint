@@ -1,7 +1,10 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
 from uuid import uuid4
+
+log = logging.getLogger(__name__)
 
 from .registry import ClientEntry, Registry
 from .control_models import (
@@ -31,6 +34,7 @@ class ControlServer:
     DEFAULT_PORT: int = 6322
     DEFAULT_CONNECT_TIMEOUT: float = 10.0
     DEFAULT_EARLY_RETURN_WINDOW: float = 5.0
+    BACKGROUND_EXEC_TIMEOUT: float = 600.0
 
     def __init__(
         self,
@@ -50,6 +54,7 @@ class ControlServer:
             self._port,
             limit=AsyncJsonLineCodec.READER_LIMIT,
         )
+        log.info("ControlServer listening on %s:%d", self._host, self._port)
         async with self._server:
             await self._server.serve_forever()
 
@@ -218,6 +223,10 @@ class ControlServer:
             code,
             request_id=request_id,
         )
+        log.info(
+            "Execute start: instance=%s workflow=%s execution=%s",
+            instance_id, workflow_id, execution_id,
+        )
 
         try:
             reader, writer = await asyncio.wait_for(
@@ -228,7 +237,12 @@ class ControlServer:
                 ),
                 timeout=connect_timeout,
             )
-        except (asyncio.TimeoutError, OSError):
+        except (asyncio.TimeoutError, OSError) as exc:
+            log.warning(
+                "Connection to %s (%s:%d) failed: %s - unregistering",
+                instance_id, entry.exec_host, entry.exec_port, exc,
+            )
+            self._discovery.unregister(instance_id)
             ControlServer._fail_execution(workflow_id, execution_id, ExecError.CONNECTION_FAILED)
             return ExecResult(
                 execution_id=execution_id,
@@ -300,7 +314,10 @@ class ControlServer:
         execution_id: str,
     ) -> ExecResult:
         try:
-            data = await AsyncJsonLineCodec.recv(reader)
+            data = await asyncio.wait_for(
+                AsyncJsonLineCodec.recv(reader),
+                timeout=ControlServer.BACKGROUND_EXEC_TIMEOUT,
+            )
             result = VersionedWireModel.parse_versioned(data)
             if not isinstance(result, ExecResult):
                 raise WireModelError(f"unexpected response: {type(result).__name__}")
@@ -317,7 +334,18 @@ class ControlServer:
                     result.traceback,
                     result.error,
                 )
+            log.info(
+                "Execute finished: workflow=%s execution=%s status=%s error=%s",
+                workflow_id, execution_id, result.status, result.error,
+            )
             return result
+        except asyncio.TimeoutError:
+            log.warning(
+                "Execution %s (workflow %s) timed out after %.0fs",
+                execution_id, workflow_id, ControlServer.BACKGROUND_EXEC_TIMEOUT,
+            )
+            ControlServer._fail_execution(workflow_id, execution_id, ExecError.EXECUTION_TIMEOUT)
+            raise
         except WireModelError:
             ControlServer._fail_execution(workflow_id, execution_id, ExecError.PROTOCOL_ERROR)
             raise

@@ -1,7 +1,10 @@
+import logging
 import threading
 
 from ..shared.text_buffer import ThreadSafeTextBuffer
 from ..shared.workflow_persistence import WorkflowPersistence
+
+log = logging.getLogger(__name__)
 
 
 class PeriodicFlusher:
@@ -40,4 +43,9 @@ class PeriodicFlusher:
                     self._err.getvalue(),
                 )
             except Exception:
-                pass
+                log.warning(
+                    "Failed to flush output for execution %s (workflow %s)",
+                    self._execution_id,
+                    self._workflow_id,
+                    exc_info=True,
+                )

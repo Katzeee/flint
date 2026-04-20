@@ -1,7 +1,10 @@
 import asyncio
+import logging
 import os
 import subprocess
 import sys
+
+log = logging.getLogger(__name__)
 
 
 class BackendLauncher:
@@ -28,6 +31,10 @@ class BackendLauncher:
             await asyncio.sleep(self.POLL_INTERVAL)
             if await self._is_running():
                 return
+        log.error(
+            "Backend failed to start within %.1fs (host=%r, port=%d)",
+            self.START_TIMEOUT, self._host, self._port,
+        )
         raise RuntimeError(
             f"Backend failed to start within {self.START_TIMEOUT}s "
             f"(host={self._host!r}, port={self._port})"
@@ -54,4 +61,8 @@ class BackendLauncher:
                 sys.executable, "-m", "python_bridge_mcp.server.backend",
                 "--api-port", str(self._port),
             ]
-        subprocess.Popen(args, start_new_session=True)
+        log.info("Starting backend subprocess: %s", args)
+        try:
+            subprocess.Popen(args, start_new_session=True)
+        except OSError as exc:
+            raise RuntimeError(f"Failed to launch backend process {args!r}: {exc}") from exc
