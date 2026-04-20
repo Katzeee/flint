@@ -5,9 +5,9 @@ import json
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import CallToolResult, TextContent
 
-from .backend_client import BackendClient
+from .backend_client import BackendClient, BackendError
 from .launcher import BackendLauncher
 from ..shared.exec_models import ExecError, ExecResult, ExecStatus
 from ..shared.workflow_persistence import WorkflowRecordUnavailableError
@@ -29,13 +29,29 @@ async def _get_backend_client() -> BackendClient:
     return _backend_client
 
 
+def _tool_ok(payload: dict) -> CallToolResult:
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(payload, ensure_ascii=False, indent=2))],
+        structuredContent=payload,
+        isError=False,
+    )
+
+
+def _tool_error(error_code: str, message: str) -> CallToolResult:
+    return CallToolResult(
+        content=[TextContent(type="text", text=message)],
+        structuredContent={"error_code": error_code, "message": message},
+        isError=True,
+    )
+
+
 # ------------------------------------------------------------------
 # Tools
 # ------------------------------------------------------------------
 
 
 @mcp.tool()
-async def list_dcc_targets(dcc_type: Optional[str] = None) -> str:
+async def list_dcc_targets(dcc_type: Optional[str] = None):
     """List currently registered DCC targets.
 
     Args:
@@ -43,11 +59,11 @@ async def list_dcc_targets(dcc_type: Optional[str] = None) -> str:
     """
     client = await _get_backend_client()
     response = await client.list_targets(dcc_type)
-    return json.dumps([t.to_dict() for t in response.targets])
+    return _tool_ok({"targets": [t.to_dict() for t in response.targets]})
 
 
 @mcp.tool()
-async def exec_python(instance_id: str, code: str, workflow_id: str, name: str = "") -> str:
+async def exec_python(instance_id: str, code: str, workflow_id: str, name: str = ""):
     """Execute Python code on a remote DCC target.
 
     Args:
@@ -59,19 +75,13 @@ async def exec_python(instance_id: str, code: str, workflow_id: str, name: str =
     client = await _get_backend_client()
     try:
         result = await client.execute(instance_id, code, workflow_id, name)
-    except KeyError:
-        result = ExecResult(
-            execution_id="",
-            status=ExecStatus.FAILED,
-            stdout="",
-            stderr="",
-            error=ExecError.TARGET_OFFLINE,
-        )
-    return json.dumps(result.to_dict(exclude_none=True))
+    except KeyError as exc:
+        return _tool_error("target_offline", str(exc))
+    return _tool_ok(result.to_dict(exclude_none=True))
 
 
 @mcp.tool()
-async def start_workflow(name: str, description: str = "") -> str:
+async def start_workflow(name: str, description: str = ""):
     """Create a new workflow and return its ID.
 
     Args:
@@ -80,11 +90,11 @@ async def start_workflow(name: str, description: str = "") -> str:
     """
     client = await _get_backend_client()
     workflow_id = await client.start_workflow(name, description)
-    return json.dumps({"workflow_id": workflow_id})
+    return _tool_ok({"workflow_id": workflow_id})
 
 
 @mcp.tool()
-async def get_workflow_overview(workflow_id: str) -> str:
+async def get_workflow_overview(workflow_id: str):
     """Get overview of a workflow (name, description, execution count, etc.).
 
     Args:
@@ -94,12 +104,12 @@ async def get_workflow_overview(workflow_id: str) -> str:
     try:
         overview = await client.get_workflow_overview(workflow_id)
     except WorkflowRecordUnavailableError as exc:
-        raise ToolError(str(exc)) from exc
-    return json.dumps(overview.to_dict(exclude_none=True))
+        return _tool_error("workflow_not_found", str(exc))
+    return _tool_ok(overview.to_dict(exclude_none=True))
 
 
 @mcp.tool()
-async def get_workflow_execution(workflow_id: str, execution_id: str, view: str = "summary") -> str:
+async def get_workflow_execution(workflow_id: str, execution_id: str, view: str = "summary"):
     """Get details of a specific execution within a workflow.
 
     Args:
@@ -110,13 +120,15 @@ async def get_workflow_execution(workflow_id: str, execution_id: str, view: str 
     client = await _get_backend_client()
     try:
         response = await client.get_workflow_execution(workflow_id, execution_id, view)
-    except (KeyError, WorkflowRecordUnavailableError) as exc:
-        raise ToolError(str(exc)) from exc
-    return json.dumps(response.to_dict(exclude_none=True))
+    except WorkflowRecordUnavailableError as exc:
+        return _tool_error("workflow_not_found", str(exc))
+    except KeyError as exc:
+        return _tool_error("target_offline", str(exc))
+    return _tool_ok(response.to_dict(exclude_none=True))
 
 
 @mcp.tool()
-async def set_target_alias(instance_id: str, alias: Optional[str] = None) -> str:
+async def set_target_alias(instance_id: str, alias: Optional[str] = None):
     """Set or clear the alias for a registered target.
 
     Args:
@@ -124,5 +136,10 @@ async def set_target_alias(instance_id: str, alias: Optional[str] = None) -> str
         alias: New alias value, or None/empty to clear.
     """
     client = await _get_backend_client()
-    response = await client.set_alias(instance_id, alias)
-    return json.dumps(response.to_dict())
+    try:
+        response = await client.set_alias(instance_id, alias)
+    except KeyError as exc:
+        return _tool_error("target_offline", str(exc))
+    except BackendError as exc:
+        return _tool_error(exc.error_code, str(exc))
+    return _tool_ok(response.to_dict())

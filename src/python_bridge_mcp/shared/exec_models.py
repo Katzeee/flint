@@ -37,6 +37,19 @@ class ExecRequest(ExecWireModel):
 
 @wire_model
 @dataclass
+class SetAliasRequest(ExecWireModel):
+    alias: Optional[str] = None
+
+
+@wire_model
+@dataclass
+class SetAliasResult(ExecWireModel):
+    success: bool = False
+    alias: Optional[str] = None
+
+
+@wire_model
+@dataclass
 class ExecResult(ExecWireModel):
     execution_id: str
     status: ExecStatus

@@ -234,11 +234,15 @@ def test_get_workflow_execution_not_found(backend, client) -> None:
 # set_alias
 # ---------------------------------------------------------------------------
 
-def test_set_alias(backend, client, discovery_port: int, exec_port: int) -> None:
+def test_set_alias(backend, client, listener_runner, discovery_port: int, exec_port: int) -> None:
     _bg_register(discovery_port, exec_port, instance_id="c1")
     resp = asyncio.run(client.set_alias("c1", "my-alias"))
     assert resp.success is True
     assert resp.alias == "my-alias"
+
+
+def test_backend_client_ping(backend, client) -> None:
+    assert asyncio.run(client.ping()) is True
 
 
 def test_set_alias_unknown_target(backend, client) -> None:

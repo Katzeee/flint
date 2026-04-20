@@ -9,6 +9,8 @@ from python_bridge_mcp.server.control_models import (
     GetWorkflowOverviewResponse,
     ListTargetsRequest,
     ListTargetsResponse,
+    PingRequest,
+    PingResponse,
     SetTargetAliasRequest,
     SetTargetAliasResponse,
     StartWorkflowRequest,
@@ -188,6 +190,19 @@ def test_set_target_alias_response_roundtrip() -> None:
     assert parsed.success is True
     assert parsed.instance_id == "c1"
     assert parsed.alias == "my-maya"
+
+
+def test_ping_roundtrip() -> None:
+    payload = PingRequest().to_dict()
+    parsed = VersionedWireModel.parse_versioned(payload)
+    assert isinstance(parsed, PingRequest)
+
+
+def test_pong_contains_backend_identity() -> None:
+    payload = PingResponse(ok=True, service="python-bridge-backend", ready=True).to_dict()
+    parsed = VersionedWireModel.parse_versioned(payload)
+    assert isinstance(parsed, PingResponse)
+    assert parsed.service == "python-bridge-backend"
 
 
 def test_set_target_alias_response_cleared_alias() -> None:

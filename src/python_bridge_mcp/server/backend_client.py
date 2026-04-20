@@ -10,6 +10,8 @@ from .control_models import (
     GetWorkflowOverviewResponse,
     ListTargetsRequest,
     ListTargetsResponse,
+    PingRequest,
+    PingResponse,
     SetTargetAliasRequest,
     SetTargetAliasResponse,
     StartWorkflowRequest,
@@ -65,6 +67,15 @@ class BackendClient:
         if response.error_code in ("unknown_client", "execution_not_found"):
             raise KeyError(response.message)
         raise BackendError(response.error_code, response.message)
+
+    async def ping(self) -> bool:
+        resp = await self._roundtrip(PingRequest())
+        return (
+            isinstance(resp, PingResponse)
+            and resp.ok is True
+            and resp.service == "python-bridge-backend"
+            and resp.ready is True
+        )
 
     async def list_targets(self, dcc_type: Optional[str] = None) -> ListTargetsResponse:
         resp = await self._roundtrip(ListTargetsRequest(instance_type=dcc_type))

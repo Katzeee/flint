@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock
 from datetime import datetime, timezone
 
 import pytest
-from mcp.server.fastmcp.exceptions import ToolError
 
 from python_bridge_mcp.server.backend_client import BackendClient
 from python_bridge_mcp.server.control_models import (
@@ -77,13 +76,41 @@ def test_list_dcc_targets_returns_targets(monkeypatch) -> None:
     client = _mock_client(list_targets=ListTargetsResponse(targets=targets))
     _patch(monkeypatch, client)
 
-    content, _raw = asyncio.run(shim_mcp.call_tool("list_dcc_targets", {}))
-    data = json.loads(content[0].text)
-    assert len(data) == 1
-    assert data[0]["instance_id"] == "c1"
-    assert data[0]["instance_name"] == "myapp"
-    assert data[0]["instance_type"] == "maya"
+    result = asyncio.run(shim_mcp.call_tool("list_dcc_targets", {}))
+    data = json.loads(result.content[0].text)
+    assert len(data["targets"]) == 1
+    assert data["targets"][0]["instance_id"] == "c1"
+    assert data["targets"][0]["instance_name"] == "myapp"
+    assert data["targets"][0]["instance_type"] == "maya"
     client.list_targets.assert_called_once_with(None)
+
+
+def test_list_dcc_targets_returns_structured_content(monkeypatch) -> None:
+    targets = [
+        TargetInfo(
+            instance_id="c1",
+            instance_name="myapp",
+            exec_host="localhost",
+            exec_port=1234,
+            instance_type="maya",
+        )
+    ]
+    client = _mock_client(list_targets=ListTargetsResponse(targets=targets))
+    _patch(monkeypatch, client)
+
+    result = asyncio.run(shim_mcp.call_tool("list_dcc_targets", {}))
+    assert result.structuredContent == {
+        "targets": [
+            {
+                "instance_id": "c1",
+                "instance_name": "myapp",
+                "exec_host": "localhost",
+                "exec_port": 1234,
+                "alias": None,
+                "instance_type": "maya",
+            }
+        ]
+    }
 
 
 def test_list_dcc_targets_filters_by_type(monkeypatch) -> None:
@@ -99,24 +126,24 @@ def test_list_dcc_targets_filters_by_type(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 def test_exec_python_success(monkeypatch) -> None:
-    result = ExecResult(
+    result_obj = ExecResult(
         execution_id="0001",
         status=ExecStatus.SUCCEEDED,
         stdout="hello\n",
         stderr="",
     )
-    client = _mock_client(execute=result)
+    client = _mock_client(execute=result_obj)
     _patch(monkeypatch, client)
     wf_id = WorkflowPersistence.create_workflow("test_wf")
 
-    content, _raw = asyncio.run(shim_mcp.call_tool("exec_python", {
+    result = asyncio.run(shim_mcp.call_tool("exec_python", {
         "instance_id": "c1",
         "code": 'print("hello")',
         "workflow_id": wf_id,
     }))
-    data = json.loads(content[0].text)
-    assert data["status"] == "succeeded"
-    assert data["stdout"] == "hello\n"
+    assert result.isError is False
+    assert result.structuredContent["status"] == "succeeded"
+    assert result.structuredContent["stdout"] == "hello\n"
 
 
 def test_exec_python_target_not_found(monkeypatch) -> None:
@@ -124,14 +151,13 @@ def test_exec_python_target_not_found(monkeypatch) -> None:
     client.execute.side_effect = KeyError("unknown client: nonexistent")
     _patch(monkeypatch, client)
 
-    content, _raw = asyncio.run(shim_mcp.call_tool("exec_python", {
+    result = asyncio.run(shim_mcp.call_tool("exec_python", {
         "instance_id": "nonexistent",
         "code": "print(1)",
         "workflow_id": "dummy",
     }))
-    data = json.loads(content[0].text)
-    assert data["status"] == "failed"
-    assert data["error"] == "target_offline"
+    assert result.isError is True
+    assert result.structuredContent["error_code"] == "target_offline"
 
 
 # ---------------------------------------------------------------------------
@@ -142,9 +168,8 @@ def test_start_workflow_returns_workflow_id(monkeypatch) -> None:
     client = _mock_client(start_workflow="wf-abc123")
     _patch(monkeypatch, client)
 
-    content, _raw = asyncio.run(shim_mcp.call_tool("start_workflow", {"name": "my-wf"}))
-    data = json.loads(content[0].text)
-    assert data["workflow_id"] == "wf-abc123"
+    result = asyncio.run(shim_mcp.call_tool("start_workflow", {"name": "my-wf"}))
+    assert result.structuredContent["workflow_id"] == "wf-abc123"
     client.start_workflow.assert_called_once_with("my-wf", "")
 
 
@@ -153,8 +178,8 @@ def test_start_workflow_creates_file(monkeypatch) -> None:
     client = _mock_client(start_workflow=wf_id)
     _patch(monkeypatch, client)
 
-    content, _raw = asyncio.run(shim_mcp.call_tool("start_workflow", {"name": "disk-test"}))
-    returned_id = json.loads(content[0].text)["workflow_id"]
+    result = asyncio.run(shim_mcp.call_tool("start_workflow", {"name": "disk-test"}))
+    returned_id = result.structuredContent["workflow_id"]
     assert WorkflowPersistence.exists(returned_id)
 
 
@@ -170,12 +195,12 @@ def test_get_workflow_overview_existing(monkeypatch) -> None:
     client = _mock_client(get_workflow_overview=overview)
     _patch(monkeypatch, client)
 
-    content, _raw = asyncio.run(shim_mcp.call_tool("get_workflow_overview", {
+    result = asyncio.run(shim_mcp.call_tool("get_workflow_overview", {
         "workflow_id": "wf-1",
     }))
-    data = json.loads(content[0].text)
-    assert data["workflow_id"] == "wf-1"
-    assert data["name"] == "my-wf"
+    assert result.isError is False
+    assert result.structuredContent["workflow_id"] == "wf-1"
+    assert result.structuredContent["name"] == "my-wf"
 
 
 def test_get_workflow_overview_not_found(monkeypatch) -> None:
@@ -183,10 +208,24 @@ def test_get_workflow_overview_not_found(monkeypatch) -> None:
     client.get_workflow_overview.side_effect = WorkflowRecordUnavailableError("not found")
     _patch(monkeypatch, client)
 
-    with pytest.raises(ToolError):
-        asyncio.run(shim_mcp.call_tool("get_workflow_overview", {
-            "workflow_id": "nonexistent",
-        }))
+    result = asyncio.run(shim_mcp.call_tool("get_workflow_overview", {
+        "workflow_id": "nonexistent",
+    }))
+    assert result.isError is True
+    assert result.structuredContent["error_code"] == "workflow_not_found"
+
+
+def test_get_workflow_overview_returns_structured_error(monkeypatch) -> None:
+    client = AsyncMock(spec=BackendClient)
+    client.get_workflow_overview.side_effect = WorkflowRecordUnavailableError("not found")
+    _patch(monkeypatch, client)
+
+    result = asyncio.run(shim_mcp.call_tool("get_workflow_overview", {"workflow_id": "wf-missing"}))
+    assert result.isError is True
+    assert result.structuredContent == {
+        "error_code": "workflow_not_found",
+        "message": "not found",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -202,13 +241,12 @@ def test_get_workflow_execution_full_view(monkeypatch) -> None:
     client = _mock_client(get_workflow_execution=resp)
     _patch(monkeypatch, client)
 
-    content, _raw = asyncio.run(shim_mcp.call_tool("get_workflow_execution", {
+    result = asyncio.run(shim_mcp.call_tool("get_workflow_execution", {
         "workflow_id": "wf-1",
         "execution_id": "0001",
         "view": "full",
     }))
-    data = json.loads(content[0].text)
-    assert data["code"] == "print(1)"
+    assert result.structuredContent["code"] == "print(1)"
 
 
 def test_get_workflow_execution_summary_no_code(monkeypatch) -> None:
@@ -220,13 +258,12 @@ def test_get_workflow_execution_summary_no_code(monkeypatch) -> None:
     client = _mock_client(get_workflow_execution=resp)
     _patch(monkeypatch, client)
 
-    content, _raw = asyncio.run(shim_mcp.call_tool("get_workflow_execution", {
+    result = asyncio.run(shim_mcp.call_tool("get_workflow_execution", {
         "workflow_id": "wf-1",
         "execution_id": "0001",
         "view": "summary",
     }))
-    data = json.loads(content[0].text)
-    assert "code" not in data
+    assert "code" not in result.structuredContent
 
 
 def test_get_workflow_execution_not_found(monkeypatch) -> None:
@@ -234,11 +271,12 @@ def test_get_workflow_execution_not_found(monkeypatch) -> None:
     client.get_workflow_execution.side_effect = KeyError("execution not found: 9999")
     _patch(monkeypatch, client)
 
-    with pytest.raises(ToolError):
-        asyncio.run(shim_mcp.call_tool("get_workflow_execution", {
-            "workflow_id": "wf-1",
-            "execution_id": "9999",
-        }))
+    result = asyncio.run(shim_mcp.call_tool("get_workflow_execution", {
+        "workflow_id": "wf-1",
+        "execution_id": "9999",
+    }))
+    assert result.isError is True
+    assert result.structuredContent["error_code"] == "target_offline"
 
 
 # ---------------------------------------------------------------------------
@@ -250,12 +288,11 @@ def test_set_target_alias_updates_alias(monkeypatch) -> None:
     client = _mock_client(set_alias=resp)
     _patch(monkeypatch, client)
 
-    content, _raw = asyncio.run(shim_mcp.call_tool("set_target_alias", {
+    result = asyncio.run(shim_mcp.call_tool("set_target_alias", {
         "instance_id": "c1",
         "alias": "my-alias",
     }))
-    data = json.loads(content[0].text)
-    assert data["alias"] == "my-alias"
+    assert result.structuredContent["alias"] == "my-alias"
     client.set_alias.assert_called_once_with("c1", "my-alias")
 
 
@@ -264,9 +301,8 @@ def test_set_target_alias_none(monkeypatch) -> None:
     client = _mock_client(set_alias=resp)
     _patch(monkeypatch, client)
 
-    content, _raw = asyncio.run(shim_mcp.call_tool("set_target_alias", {
+    result = asyncio.run(shim_mcp.call_tool("set_target_alias", {
         "instance_id": "c1",
         "alias": None,
     }))
-    data = json.loads(content[0].text)
-    assert data["alias"] is None
+    assert result.structuredContent["alias"] is None

@@ -11,7 +11,7 @@ from python_bridge_mcp.client.exec_listener import ExecListener
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
-from python_bridge_mcp.shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus
+from python_bridge_mcp.shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus, SetAliasRequest, SetAliasResult
 from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
 from python_bridge_mcp.shared.model_base import VersionedWireModel
 from python_bridge_mcp.shared.workflow_models import WorkflowRecord
@@ -224,6 +224,31 @@ def test_early_return_result_persisted_to_disk(
             break
 
     assert _read_exec_status(wf_id) == ExecStatus.SUCCEEDED
+
+
+async def _alias_call(host: str, port: int, alias) -> SetAliasResult:
+    reader, writer = await asyncio.open_connection(host, port)
+    try:
+        await AsyncJsonLineCodec.send(writer, SetAliasRequest(alias=alias).to_dict())
+        data = await AsyncJsonLineCodec.recv(reader)
+        result = VersionedWireModel.parse_versioned(data)
+        assert isinstance(result, SetAliasResult)
+        return result
+    finally:
+        writer.close()
+
+
+def test_listener_alias_roundtrip(listener_runner: AsyncRunner, port: int) -> None:
+    result = asyncio.run(_alias_call("localhost", port, "lighting"))
+    assert result.success is True
+    assert result.alias == "lighting"
+
+
+def test_listener_alias_clear(listener_runner: AsyncRunner, port: int) -> None:
+    asyncio.run(_alias_call("localhost", port, "lighting"))
+    result = asyncio.run(_alias_call("localhost", port, ""))
+    assert result.success is True
+    assert result.alias is None
 
 
 def test_dcc_disconnect_marks_execution_failed(

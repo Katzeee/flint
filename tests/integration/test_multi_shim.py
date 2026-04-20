@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from typing import Iterator
+import time
+from typing import Iterator, Optional
 
 import pytest
 
@@ -65,18 +66,24 @@ def client_b(api_port: int) -> BackendClient:
 
 
 @pytest.fixture
-def listener_runner(exec_port: int) -> Iterator[AsyncRunner]:
+def listener_runner(exec_port: int) -> Iterator[tuple]:
     executor = CodeExecutor()
     runner_obj = DirectRunner(executor)
     listener = ExecListener("localhost", exec_port, runner_obj)
     runner = AsyncRunner()
     runner.start(listener.run)
-    yield runner
+    yield runner, listener
     listener.stop()
     runner.stop()
 
 
-def _bg_register(discovery_port: int, exec_port: int, instance_id: str = "c1") -> None:
+def _bg_register(
+    discovery_port: int,
+    exec_port: int,
+    instance_id: str = "c1",
+    alias: Optional[str] = None,
+    disconnect_event: Optional[threading.Event] = None,
+) -> None:
     done = threading.Event()
 
     def _run() -> None:
@@ -85,12 +92,17 @@ def _bg_register(discovery_port: int, exec_port: int, instance_id: str = "c1") -
             try:
                 msg = RegisterDiscovery(
                     pid=1, instance_id=instance_id, instance_name="test",
-                    exec_host="localhost", exec_port=exec_port,
+                    exec_host="localhost", exec_port=exec_port, alias=alias,
                 )
                 await AsyncJsonLineCodec.send(writer, msg.to_dict())
                 await AsyncJsonLineCodec.recv(reader)
                 done.set()
-                await asyncio.sleep(10)
+                if disconnect_event is not None:
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, disconnect_event.wait,
+                    )
+                else:
+                    await asyncio.sleep(10)
             finally:
                 writer.close()
         asyncio.run(_do())
@@ -146,7 +158,8 @@ def test_workflow_created_by_a_readable_by_b(
 
 
 def test_alias_set_by_a_visible_via_b(
-    backend, client_a, client_b, discovery_port: int, exec_port: int,
+    backend, client_a, client_b,
+    listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
     """Alias set via client A is reflected when client B lists targets."""
     _bg_register(discovery_port, exec_port, instance_id="dcc1")
@@ -155,3 +168,28 @@ def test_alias_set_by_a_visible_via_b(
 
     targets = asyncio.run(client_b.list_targets())
     assert targets.targets[0].alias == "my-maya"
+
+
+def test_alias_survives_re_registration_via_listener_state(
+    backend, client_a, client_b,
+    listener_runner, discovery_port: int, exec_port: int,
+) -> None:
+    """After re-registration, alias from listener state is preserved."""
+    _runner, listener = listener_runner
+
+    disconnect = threading.Event()
+    _bg_register(discovery_port, exec_port, instance_id="dcc1", disconnect_event=disconnect)
+
+    asyncio.run(client_a.set_alias("dcc1", "lighting"))
+    assert asyncio.run(client_b.list_targets()).targets[0].alias == "lighting"
+
+    # Disconnect first registration
+    disconnect.set()
+    time.sleep(0.2)
+
+    # Re-register: read alias from the live listener state
+    _bg_register(discovery_port, exec_port, instance_id="dcc1", alias=listener.get_alias())
+
+    targets = asyncio.run(client_b.list_targets())
+    assert len(targets.targets) > 0
+    assert targets.targets[0].alias == "lighting"

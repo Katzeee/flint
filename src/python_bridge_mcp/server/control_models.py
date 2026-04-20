@@ -127,3 +127,17 @@ class ControlExecuteRequest(ControlWireModel):
 class ErrorResponse(ControlWireModel):
     error_code: str = ""
     message: str = ""
+
+
+@wire_model
+@dataclass
+class PingRequest(ControlWireModel):
+    pass
+
+
+@wire_model
+@dataclass
+class PingResponse(ControlWireModel):
+    ok: bool = True
+    service: str = "python-bridge-backend"
+    ready: bool = True

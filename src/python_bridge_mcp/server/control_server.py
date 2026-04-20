@@ -16,6 +16,8 @@ from .control_models import (
     GetWorkflowOverviewResponse,
     ListTargetsRequest,
     ListTargetsResponse,
+    PingRequest,
+    PingResponse,
     SetTargetAliasRequest,
     SetTargetAliasResponse,
     StartWorkflowRequest,
@@ -23,7 +25,7 @@ from .control_models import (
     TargetInfo,
     TargetSummary,
 )
-from ..shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus
+from ..shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus, SetAliasRequest, SetAliasResult
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
 from ..shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
@@ -113,9 +115,12 @@ class ControlServer:
 
         if isinstance(request, SetTargetAliasRequest):
             try:
-                return self.set_alias(request.instance_id, request.alias)
+                return await self.set_alias(request.instance_id, request.alias)
             except KeyError as exc:
                 return ErrorResponse(error_code="unknown_client", message=str(exc))
+
+        if isinstance(request, PingRequest):
+            return PingResponse()
 
         return ErrorResponse(
             error_code="unknown_request",
@@ -140,14 +145,39 @@ class ControlServer:
         ]
         return ListTargetsResponse(targets=targets)
 
-    def set_alias(self, instance_id: str, alias: Optional[str]) -> SetTargetAliasResponse:
-        self._discovery.set_alias(instance_id, alias)
+    async def set_alias(self, instance_id: str, alias: Optional[str]) -> SetTargetAliasResponse:
+        return await self._set_alias_remote(instance_id, alias)
+
+    async def _set_alias_remote(
+        self,
+        instance_id: str,
+        alias: Optional[str],
+        *,
+        connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
+    ) -> SetTargetAliasResponse:
         entry = self._discovery.get_client(instance_id)
-        return SetTargetAliasResponse(
-            success=True,
-            instance_id=instance_id,
-            alias=entry.alias if entry is not None else None,
+        if entry is None:
+            raise KeyError(f"unknown client: {instance_id}")
+
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(
+                entry.exec_host,
+                entry.exec_port,
+                limit=AsyncJsonLineCodec.READER_LIMIT,
+            ),
+            timeout=connect_timeout,
         )
+        try:
+            await AsyncJsonLineCodec.send(writer, SetAliasRequest(alias=alias).to_dict())
+            data = await AsyncJsonLineCodec.recv(reader)
+            result = VersionedWireModel.parse_versioned(data)
+            if not isinstance(result, SetAliasResult):
+                raise WireModelError(f"unexpected response: {type(result).__name__}")
+            self._discovery.set_alias(instance_id, result.alias)
+            return SetTargetAliasResponse(success=True, instance_id=instance_id, alias=result.alias)
+        finally:
+            writer.close()
+            await writer.wait_closed()
 
     def get_workflow_overview(self, workflow_id: str) -> GetWorkflowOverviewResponse:
         record = WorkflowPersistence.load(workflow_id)

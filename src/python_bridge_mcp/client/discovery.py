@@ -5,7 +5,7 @@ import os
 import socket
 import threading
 from enum import Enum
-from typing import Optional
+from typing import Callable, Optional
 
 from ..shared.discovery_models import AckDiscovery, HeartbeatDiscovery, RegisterDiscovery
 from ..shared.jsonline import SyncJsonLineCodec
@@ -33,6 +33,7 @@ class DiscoveryClient:
         exec_host: str,
         exec_port: int,
         alias: Optional[str] = None,
+        alias_getter: Optional[Callable[[], Optional[str]]] = None,
         instance_type: str = "",
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
@@ -44,6 +45,7 @@ class DiscoveryClient:
         self._exec_host = exec_host
         self._exec_port = exec_port
         self._alias = alias
+        self._alias_getter = alias_getter
         self._instance_type = instance_type
         self._host = host
         self._port = port
@@ -88,6 +90,14 @@ class DiscoveryClient:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _current_alias(self) -> Optional[str]:
+        if self._alias_getter is not None:
+            alias = self._alias_getter()
+        else:
+            alias = self._alias
+        alias = alias.strip() if alias is not None else None
+        return alias or None
+
     def _connect_and_heartbeat(self) -> None:
         with socket.create_connection((self._host, self._port), timeout=10) as conn:
             conn.settimeout(self._heartbeat_interval + 5)
@@ -99,7 +109,7 @@ class DiscoveryClient:
                 instance_name=self._instance_name,
                 exec_host=self._exec_host,
                 exec_port=self._exec_port,
-                alias=self._alias,
+                alias=self._current_alias(),
                 instance_type=self._instance_type,
             ), "Registration rejected")
             self._set_state(DiscoveryState.CONNECTED)

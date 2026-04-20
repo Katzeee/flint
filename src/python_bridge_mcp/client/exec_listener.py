@@ -1,8 +1,16 @@
 import asyncio
 import logging
+import threading
 from typing import Optional
 
-from ..shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus
+from ..shared.exec_models import (
+    ExecError,
+    ExecRequest,
+    ExecResult,
+    ExecStatus,
+    SetAliasRequest,
+    SetAliasResult,
+)
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
 from ..shared.text_buffer import ThreadSafeTextBuffer
@@ -31,6 +39,19 @@ class ExecListener:
         self._conn_timeout = conn_timeout
         self._server: Optional[asyncio.AbstractServer] = None
         self._execution_lock = asyncio.Lock()
+        self._alias: Optional[str] = None
+        self._alias_lock = threading.Lock()
+
+    def get_alias(self) -> Optional[str]:
+        with self._alias_lock:
+            return self._alias
+
+    def set_alias(self, alias: Optional[str]) -> Optional[str]:
+        normalized = alias.strip() if alias is not None else None
+        normalized = normalized or None
+        with self._alias_lock:
+            self._alias = normalized
+            return self._alias
 
     async def run(self) -> None:
         self._server = await asyncio.start_server(
@@ -51,11 +72,13 @@ class ExecListener:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
-        result: Optional[ExecResult] = None
+        result: Optional[VersionedWireModel] = None
         try:
             data = await asyncio.wait_for(AsyncJsonLineCodec.recv(reader), timeout=self._conn_timeout)
             msg = VersionedWireModel.parse_versioned(data)
-            if not isinstance(msg, ExecRequest):
+            if isinstance(msg, SetAliasRequest):
+                result = SetAliasResult(success=True, alias=self.set_alias(msg.alias))
+            elif not isinstance(msg, ExecRequest):
                 result = ExecResult(
                     execution_id="",
                     status=ExecStatus.FAILED,

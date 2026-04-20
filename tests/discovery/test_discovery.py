@@ -223,6 +223,29 @@ def test_instance_type_filtering_via_discovery_client(srv, port: int) -> None:
         rb.stop()
 
 
+def test_register_uses_live_alias_getter(srv, port: int) -> None:
+    server, srv_runner = srv
+    alias_box = {"value": "lookdev"}
+    client = DiscoveryClient(
+        instance_id="c1",
+        instance_name="Test Client",
+        exec_host="localhost",
+        exec_port=9000,
+        host="localhost",
+        port=port,
+        heartbeat_interval=0.1,
+        alias_getter=lambda: alias_box["value"],
+    )
+    r = _ClientRunner(client)
+    r.start()
+    try:
+        assert _wait_connected(client)
+        clients = server.list_clients()
+        assert clients["c1"].alias == "lookdev"
+    finally:
+        r.stop()
+
+
 def test_client_state_sequence(srv, port: int) -> None:
     c = _client(port, "c1")
     r = _ClientRunner(c)

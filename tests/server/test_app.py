@@ -160,30 +160,30 @@ def test_alias_from_registration(
 
 
 def test_set_alias(
-    app_runner, discovery_port: int, exec_port: int,
+    app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    registry, control, app_run = app_runner
+    registry, control, runner = app_runner
     _bg_register(discovery_port, exec_port)
 
     assert control.list_clients()["c1"].alias is None
-    control.set_alias("c1", "new-alias")
+    runner.run_async(control.set_alias("c1", "new-alias"))
     assert control.list_clients()["c1"].alias == "new-alias"
 
 
 def test_set_alias_clear(
-    app_runner, discovery_port: int, exec_port: int,
+    app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    registry, control, app_run = app_runner
+    registry, control, runner = app_runner
     _bg_register(discovery_port, exec_port, alias="old")
 
-    control.set_alias("c1", None)
+    runner.run_async(control.set_alias("c1", None))
     assert control.list_clients()["c1"].alias is None
 
 
 def test_set_alias_unknown_client(app_runner) -> None:
     registry, control, runner = app_runner
     with pytest.raises(KeyError, match="unknown client"):
-        control.set_alias("nonexistent", "alias")
+        runner.run_async(control.set_alias("nonexistent", "alias"))
 
 
 def test_client_disconnect_removes_entry(
@@ -264,20 +264,20 @@ def test_same_pid_deduplication(
 
 
 def test_set_alias_empty_string_becomes_none(
-    app_runner, discovery_port: int, exec_port: int,
+    app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    registry, control, app_run = app_runner
+    registry, control, runner = app_runner
     _bg_register(discovery_port, exec_port, alias="initial")
-    control.set_alias("c1", "")
+    runner.run_async(control.set_alias("c1", ""))
     assert control.list_clients()["c1"].alias is None
 
 
 def test_set_alias_whitespace_becomes_none(
-    app_runner, discovery_port: int, exec_port: int,
+    app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    registry, control, app_run = app_runner
+    registry, control, runner = app_runner
     _bg_register(discovery_port, exec_port, alias="initial")
-    control.set_alias("c1", "  ")
+    runner.run_async(control.set_alias("c1", "  "))
     assert control.list_clients()["c1"].alias is None
 
 
@@ -384,12 +384,12 @@ def test_get_workflow_execution_not_found(app_runner) -> None:
 # ---------------------------------------------------------------------------
 
 def test_set_alias_returns_response_with_normalized_alias(
-    app_runner, discovery_port: int, exec_port: int,
+    app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    registry, control, _ = app_runner
+    registry, control, runner = app_runner
     _bg_register(discovery_port, exec_port)
 
-    response = control.set_alias("c1", "")
+    response = runner.run_async(control.set_alias("c1", ""))
     assert isinstance(response, SetTargetAliasResponse)
     assert response.success is True
     assert response.instance_id == "c1"
@@ -397,12 +397,24 @@ def test_set_alias_returns_response_with_normalized_alias(
 
 
 def test_set_alias_returns_response_with_alias_value(
-    app_runner, discovery_port: int, exec_port: int,
+    app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    registry, control, _ = app_runner
+    registry, control, runner = app_runner
     _bg_register(discovery_port, exec_port)
 
-    response = control.set_alias("c1", "my-alias")
+    response = runner.run_async(control.set_alias("c1", "my-alias"))
     assert response.success is True
     assert response.instance_id == "c1"
     assert response.alias == "my-alias"
+
+
+def test_set_alias_updates_listener_then_registry(
+    app_runner, listener_runner, discovery_port: int, exec_port: int,
+) -> None:
+    registry, control, runner = app_runner
+    _bg_register(discovery_port, exec_port, instance_id="c1")
+
+    response = runner.run_async(control.set_alias("c1", "lighting"))
+    assert response.success is True
+    assert response.alias == "lighting"
+    assert control.list_clients()["c1"].alias == "lighting"

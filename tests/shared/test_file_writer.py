@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from pathlib import Path
@@ -84,6 +85,32 @@ def test_exists_does_not_block_on_held_lock() -> None:
 
     assert result is True
     assert elapsed < 0.1, f"exists() blocked for {elapsed:.3f}s"
+
+
+def test_write_fsyncs_temp_file_before_replace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list = []
+    real_fsync = os.fsync
+
+    def _fsync(fd: int) -> None:
+        calls.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", _fsync)
+
+    with FileWriter.locked(tmp_path / "f.txt") as f:
+        f.write("hello")
+
+    assert calls, "expected FileWriter.write() to call os.fsync()"
+
+
+def test_write_keeps_atomic_replace_behavior(tmp_path: Path) -> None:
+    p = tmp_path / "f.txt"
+    with FileWriter.locked(p) as f:
+        f.write("v1")
+    with FileWriter.locked(p) as f:
+        f.write("v2")
+    with FileWriter.locked(p) as f:
+        assert f.read() == "v2"
 
 
 # ---------------------------------------------------------------------------

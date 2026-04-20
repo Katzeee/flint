@@ -1,3 +1,4 @@
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Union
@@ -29,7 +30,10 @@ class FileWriter:
         """Write string to file. Atomic: writes .tmp then replaces."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".tmp")
-        tmp.write_text(data, encoding="utf-8")
+        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
         tmp.replace(self._path)
 
     def read(self) -> str:

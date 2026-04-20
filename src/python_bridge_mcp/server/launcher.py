@@ -41,15 +41,11 @@ class BackendLauncher:
         )
 
     async def _is_running(self) -> bool:
+        from .backend_client import BackendClient
         try:
-            _, writer = await asyncio.wait_for(
-                asyncio.open_connection(self._host, self._port),
-                timeout=0.5,
-            )
-            writer.close()
-            await writer.wait_closed()
-            return True
-        except (OSError, asyncio.TimeoutError):
+            client = BackendClient(host=self._host, port=self._port)
+            return await asyncio.wait_for(client.ping(), timeout=1.0)
+        except Exception:
             return False
 
     def _start_subprocess(self) -> None:
