@@ -142,7 +142,7 @@ def test_list_clients_after_register(
     registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port, instance_name="myapp")
 
-    clients = control.list_clients()
+    clients = registry.list_clients()
     assert "c1" in clients
     assert clients["c1"].instance_name == "myapp"
     assert clients["c1"].exec_host == "localhost"
@@ -155,7 +155,7 @@ def test_alias_from_registration(
     registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port, alias="my-alias")
 
-    clients = control.list_clients()
+    clients = registry.list_clients()
     assert clients["c1"].alias == "my-alias"
 
 
@@ -165,9 +165,9 @@ def test_set_alias(
     registry, control, runner = app_runner
     _bg_register(discovery_port, exec_port)
 
-    assert control.list_clients()["c1"].alias is None
+    assert registry.list_clients()["c1"].alias is None
     runner.run_async(control.set_alias("c1", "new-alias"))
-    assert control.list_clients()["c1"].alias == "new-alias"
+    assert registry.list_clients()["c1"].alias == "new-alias"
 
 
 def test_set_alias_clear(
@@ -177,7 +177,7 @@ def test_set_alias_clear(
     _bg_register(discovery_port, exec_port, alias="old")
 
     runner.run_async(control.set_alias("c1", None))
-    assert control.list_clients()["c1"].alias is None
+    assert registry.list_clients()["c1"].alias is None
 
 
 def test_set_alias_unknown_client(app_runner) -> None:
@@ -193,9 +193,9 @@ def test_client_disconnect_removes_entry(
     disconnect = threading.Event()
     _bg_register(discovery_port, exec_port, disconnect_event=disconnect)
 
-    assert "c1" in control.list_clients()
+    assert "c1" in registry.list_clients()
     disconnect.set()
-    assert wait_for(lambda: "c1" not in control.list_clients()), \
+    assert wait_for(lambda: "c1" not in registry.list_clients()), \
         "client entry not removed after disconnect"
 
 
@@ -213,7 +213,7 @@ def test_evict_stale_on_register(
 
     # Register a new client — should evict the stale one
     _bg_register(discovery_port, exec_port)
-    clients = control.list_clients()
+    clients = registry.list_clients()
     assert "c1" in clients
     assert "stale-1" not in clients
 
@@ -223,7 +223,7 @@ def test_instance_type_stored_on_registration(
 ) -> None:
     registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port, instance_type="maya")
-    clients = control.list_clients()
+    clients = registry.list_clients()
     assert clients["c1"].instance_type == "maya"
 
 
@@ -236,15 +236,15 @@ def test_list_clients_filters_by_instance_type(
     _bg_register(discovery_port, port_maya, instance_id="c1", instance_type="maya", pid=1)
     _bg_register(discovery_port, port_nuke, instance_id="c2", instance_type="nuke", pid=2)
 
-    maya_clients = control.list_clients("maya")
+    maya_clients = registry.list_clients("maya")
     assert "c1" in maya_clients
     assert "c2" not in maya_clients
 
-    nuke_clients = control.list_clients("nuke")
+    nuke_clients = registry.list_clients("nuke")
     assert "c2" in nuke_clients
     assert "c1" not in nuke_clients
 
-    all_clients = control.list_clients()
+    all_clients = registry.list_clients()
     assert "c1" in all_clients and "c2" in all_clients
 
 
@@ -258,7 +258,7 @@ def test_same_pid_deduplication(
     _bg_register(discovery_port, port_a, instance_id="old", pid=99)
     _bg_register(discovery_port, port_b, instance_id="new", pid=99)
     # "new" registers with the same pid — "old" must be evicted
-    clients = control.list_clients()
+    clients = registry.list_clients()
     assert "new" in clients
     assert "old" not in clients
 
@@ -269,7 +269,7 @@ def test_set_alias_empty_string_becomes_none(
     registry, control, runner = app_runner
     _bg_register(discovery_port, exec_port, alias="initial")
     runner.run_async(control.set_alias("c1", ""))
-    assert control.list_clients()["c1"].alias is None
+    assert registry.list_clients()["c1"].alias is None
 
 
 def test_set_alias_whitespace_becomes_none(
@@ -278,7 +278,7 @@ def test_set_alias_whitespace_becomes_none(
     registry, control, runner = app_runner
     _bg_register(discovery_port, exec_port, alias="initial")
     runner.run_async(control.set_alias("c1", "  "))
-    assert control.list_clients()["c1"].alias is None
+    assert registry.list_clients()["c1"].alias is None
 
 
 # ---------------------------------------------------------------------------
@@ -417,4 +417,4 @@ def test_set_alias_updates_listener_then_registry(
     response = runner.run_async(control.set_alias("c1", "lighting"))
     assert response.success is True
     assert response.alias == "lighting"
-    assert control.list_clients()["c1"].alias == "lighting"
+    assert registry.list_clients()["c1"].alias == "lighting"

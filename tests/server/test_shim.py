@@ -1,5 +1,4 @@
 import asyncio
-import json
 from unittest.mock import AsyncMock
 from datetime import datetime, timezone
 
@@ -77,7 +76,7 @@ def test_list_dcc_targets_returns_targets(monkeypatch) -> None:
     _patch(monkeypatch, client)
 
     result = asyncio.run(shim_mcp.call_tool("list_dcc_targets", {}))
-    data = json.loads(result.content[0].text)
+    data = result.structuredContent
     assert len(data["targets"]) == 1
     assert data["targets"][0]["instance_id"] == "c1"
     assert data["targets"][0]["instance_name"] == "myapp"
@@ -276,7 +275,7 @@ def test_get_workflow_execution_not_found(monkeypatch) -> None:
         "execution_id": "9999",
     }))
     assert result.isError is True
-    assert result.structuredContent["error_code"] == "target_offline"
+    assert result.structuredContent["error_code"] == "execution_not_found"
 
 
 # ---------------------------------------------------------------------------

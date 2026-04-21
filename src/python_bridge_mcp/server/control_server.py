@@ -1,12 +1,12 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Optional
 from uuid import uuid4
 
 log = logging.getLogger(__name__)
 
-from .registry import ClientEntry, Registry
+from .registry import Registry
 from .control_models import (
     ControlExecuteRequest,
     ErrorResponse,
@@ -126,9 +126,6 @@ class ControlServer:
             error_code="unknown_request",
             message=f"unhandled request type: {type(request).__name__}",
         )
-
-    def list_clients(self, instance_type: Optional[str] = None) -> Dict[str, ClientEntry]:
-        return self._discovery.list_clients(instance_type)
 
     def list_targets(self, instance_type: Optional[str] = None) -> ListTargetsResponse:
         clients = self._discovery.list_clients(instance_type)

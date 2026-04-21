@@ -1,7 +1,6 @@
 """MCP shim — exposes BackendClient methods as FastMCP tools."""
 
 import asyncio
-import json
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -31,7 +30,7 @@ async def _get_backend_client() -> BackendClient:
 
 def _tool_ok(payload: dict) -> CallToolResult:
     return CallToolResult(
-        content=[TextContent(type="text", text=json.dumps(payload, ensure_ascii=False, indent=2))],
+        content=[TextContent(type="text", text="ok")],
         structuredContent=payload,
         isError=False,
     )
@@ -123,7 +122,7 @@ async def get_workflow_execution(workflow_id: str, execution_id: str, view: str 
     except WorkflowRecordUnavailableError as exc:
         return _tool_error("workflow_not_found", str(exc))
     except KeyError as exc:
-        return _tool_error("target_offline", str(exc))
+        return _tool_error("execution_not_found", str(exc))
     return _tool_ok(response.to_dict(exclude_none=True))
 
 

@@ -43,13 +43,17 @@ class WireModel(BaseModel):
         return d
 
     @classmethod
-    def parse(cls: Type[_W], data: Dict[str, Any]) -> _W:
+    def _resolve_type(cls, data: Dict[str, Any]) -> Type["WireModel"]:
         if "type" not in data:
             raise WireModelError("Missing 'type' field")
         type_name = data["type"]
         if type_name not in cls._registry:
             raise WireModelError(f"Unknown type: '{type_name}'")
-        target_cls = cls._registry[type_name]
+        return cls._registry[type_name]
+
+    @classmethod
+    def parse(cls: Type[_W], data: Dict[str, Any]) -> _W:
+        target_cls = cls._resolve_type(data)
         stripped = {k: v for k, v in data.items() if k != "type"}
         return target_cls.from_dict(stripped)  # type: ignore[return-value]
 
@@ -65,21 +69,15 @@ class VersionedWireModel(WireModel):
 
     @classmethod
     def parse_versioned(cls: Type[_VW], data: Dict[str, Any]) -> _VW:
-        if "type" not in data:
-            raise WireModelError("Missing 'type' field")
         if "version" not in data:
             raise WireModelError("Missing 'version' field")
-        type_name = data["type"]
-        if type_name not in cls._registry:
-            raise WireModelError(f"Unknown type: '{type_name}'")
-        target_cls = cls._registry[type_name]
+        target_cls = cls._resolve_type(data)
         assert issubclass(target_cls, VersionedWireModel)
         actual = data["version"]
         expected = target_cls.PROTOCOL_VERSION
         if actual != expected:
             raise WireModelError(f"Version mismatch: expected {expected}, got {actual}")
-        stripped = {k: v for k, v in data.items() if k not in ("type", "version")}
-        return target_cls.from_dict(stripped)  # type: ignore[return-value]
+        return cls.parse({k: v for k, v in data.items() if k != "version"})  # type: ignore[return-value]
 
 
 def wire_model(cls: Type[_W]) -> Type[_W]:
