@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -54,11 +55,18 @@ class BackendLauncher:
             args = custom.split()
         else:
             args = [
-                sys.executable, "-m", "python_bridge_mcp.server.backend",
+                sys.executable, "-X", "utf8", "-m", "python_bridge_mcp.server.backend",
                 "--api-port", str(self._port),
             ]
         log.info("Starting backend subprocess: %s", args)
         try:
-            subprocess.Popen(args, start_new_session=True)
+            subprocess.Popen(
+                args,
+                cwd=str(Path(__file__).resolve().parents[3]),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
         except OSError as exc:
             raise RuntimeError(f"Failed to launch backend process {args!r}: {exc}") from exc

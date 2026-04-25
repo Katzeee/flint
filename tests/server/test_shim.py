@@ -1,4 +1,5 @@
 import asyncio
+import json
 from unittest.mock import AsyncMock
 from datetime import datetime, timezone
 
@@ -80,6 +81,7 @@ def test_list_dcc_targets_returns_targets(monkeypatch) -> None:
     assert data["targets"][0]["instance_id"] == "c1"
     assert data["targets"][0]["instance_name"] == "myapp"
     assert data["targets"][0]["instance_type"] == "maya"
+    assert json.loads(result.content[0].text) == data
     client.list_targets.assert_called_once_with(None)
 
 

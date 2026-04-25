@@ -1,6 +1,8 @@
 """MCP shim — exposes BackendClient methods as FastMCP tools."""
 
 import asyncio
+import json
+import logging
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -12,6 +14,7 @@ from ..shared.exec_models import ExecError, ExecResult, ExecStatus
 from ..shared.workflow_persistence import WorkflowRecordUnavailableError
 
 mcp = FastMCP("python-bridge-mcp")
+log = logging.getLogger(__name__)
 
 _backend_client: Optional[BackendClient] = None
 _client_lock: Optional[asyncio.Lock] = None
@@ -30,7 +33,7 @@ async def _get_backend_client() -> BackendClient:
 
 def _tool_ok(payload: dict) -> CallToolResult:
     return CallToolResult(
-        content=[TextContent(type="text", text="ok")],
+        content=[TextContent(type="text", text=json.dumps(payload, ensure_ascii=False, indent=2))],
         structuredContent=payload,
         isError=False,
     )
@@ -142,3 +145,12 @@ async def set_target_alias(instance_id: str, alias: Optional[str] = None):
     except BackendError as exc:
         return _tool_error(exc.error_code, str(exc))
     return _tool_ok(response.to_dict())
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+    )
+    asyncio.run(BackendLauncher().ensure_running())
+    mcp.run()
