@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 import time
 from typing import Iterator
 
@@ -7,194 +8,60 @@ import pytest
 
 from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
-from python_bridge_mcp.client.exec_listener import ExecListener
+from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.server.control_server import ControlServer
-from python_bridge_mcp.server.registry import ClientEntry, Registry
-from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
-from python_bridge_mcp.shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus, SetAliasRequest, SetAliasResult
-from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
-from python_bridge_mcp.shared.model_base import VersionedWireModel
+from python_bridge_mcp.server.registry import Registry
+from python_bridge_mcp.shared.exec_models import ExecStatus
 from python_bridge_mcp.shared.workflow_models import WorkflowRecord
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
-from conftest import AsyncRunner, free_port
+from conftest import AsyncRunner, free_port, wait_for
 
-
-def _make_control(exec_port: int, instance_id: str = "c1") -> ControlServer:
-    registry = Registry()
-    registry.register(ClientEntry(
-        pid=1, instance_id=instance_id, instance_name="test",
-        exec_host="localhost", exec_port=exec_port, alias=None,
-    ))
-    return ControlServer(registry)
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def port() -> int:
     return free_port()
 
 
+class _ClientRunner:
+    def __init__(self, client: DiscoveryClient) -> None:
+        self.client = client
+        self._thread = threading.Thread(target=client.run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self.client.stop()
+        self._thread.join(timeout=5)
+
+
 @pytest.fixture
-def listener_runner(port: int) -> Iterator[AsyncRunner]:
-    executor = CodeExecutor()
-    code_runner = DirectRunner(executor)
-    listener = ExecListener("localhost", port, code_runner)
-    lr = AsyncRunner()
-    lr.start(listener.run)
-    yield lr
-    listener.stop()
-    lr.stop()
+def connected_system(port: int) -> Iterator[tuple]:
+    registry = Registry(host="localhost", port=port)
+    control = ControlServer(registry)
+    server = AsyncRunner()
+    server.start(registry.run)
 
-
-async def _exec_call(host: str, port: int, code: str, connect_timeout: float = 10.0) -> ExecResult:
-    execution_id = "test"
-    reader, writer = await asyncio.wait_for(
-        asyncio.open_connection(host, port), timeout=connect_timeout,
+    client = DiscoveryClient(
+        instance_id="c1",
+        instance_name="test",
+        runner=DirectRunner(CodeExecutor()),
+        host="localhost",
+        port=port,
+        heartbeat_interval=0.1,
+        pid=1001,
     )
-    try:
-        await AsyncJsonLineCodec.send(writer, ExecRequest(execution_id=execution_id, code=code, workflow_id="test-wf").to_dict())
-        data = await AsyncJsonLineCodec.recv(reader)
-        result = VersionedWireModel.parse_versioned(data)
-        if not isinstance(result, ExecResult):
-            raise RuntimeError(f"unexpected response: {type(result).__name__}")
-        return result
-    finally:
-        writer.close()
-
-
-def _call(port: int, code: str) -> ExecResult:
-    return asyncio.run(_exec_call("localhost", port, code))
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-def test_exec_hello_world(listener_runner: AsyncRunner, port: int) -> None:
-    result = _call(port, 'print("hello")')
-    assert result.status == ExecStatus.SUCCEEDED
-    assert result.stdout == "hello\n"
-    assert result.stderr == ""
-    assert result.traceback is None
-
-
-def test_exec_exception(listener_runner: AsyncRunner, port: int) -> None:
-    result = _call(port, "raise ValueError('boom')")
-    assert result.status == ExecStatus.FAILED
-    assert result.traceback is not None
-    assert "ValueError" in result.traceback
-    assert "boom" in result.traceback
-
-
-def test_exec_stderr(listener_runner: AsyncRunner, port: int) -> None:
-    result = _call(port, 'import sys; sys.stderr.write("err\\n")')
-    assert result.status == ExecStatus.SUCCEEDED
-    assert "err" in result.stderr
-
-
-def test_exec_namespace_persists(port: int) -> None:
-    """Two sequential calls share the same executor namespace."""
-    executor = CodeExecutor()
-    code_runner = DirectRunner(executor)
-    listener = ExecListener("localhost", port, code_runner)
-    lr = AsyncRunner()
-    lr.start(listener.run)
-    try:
-        r1 = _call(port, "x = 42")
-        assert r1.status == ExecStatus.SUCCEEDED
-
-        r2 = _call(port, "print(x)")
-        assert r2.status == ExecStatus.SUCCEEDED
-        assert r2.stdout == "42\n"
-    finally:
-        listener.stop()
-        lr.stop()
-
-
-def test_exec_wrong_message_type(listener_runner: AsyncRunner, port: int) -> None:
-    """Sending a non-ExecRequest returns an error result."""
-    async def _send_wrong():
-        reader, writer = await asyncio.open_connection("localhost", port)
-        try:
-            msg = RegisterDiscovery(
-                pid=1, instance_id="x", instance_name="x",
-                exec_host="localhost", exec_port=0,
-            )
-            await AsyncJsonLineCodec.send(writer, msg.to_dict())
-            data = await AsyncJsonLineCodec.recv(reader)
-            return VersionedWireModel.parse_versioned(data)
-        finally:
-            writer.close()
-
-    result = asyncio.run(_send_wrong())
-    assert result.status == ExecStatus.FAILED
-    assert result.error == ExecError.PROTOCOL_ERROR
-
-
-def test_exec_concurrent_rejects_busy(listener_runner: AsyncRunner, port: int) -> None:
-    """Second concurrent request is rejected with BUSY error."""
-    async def _run():
-        t1 = asyncio.create_task(_exec_call("localhost", port, 'import time; time.sleep(0.3); print("a")'))
-        await asyncio.sleep(0.05)
-        t2 = asyncio.create_task(_exec_call("localhost", port, 'print("b")'))
-        r1, r2 = await asyncio.gather(t1, t2)
-        return r1, r2
-
-    r1, r2 = asyncio.run(_run())
-    assert r1.status == ExecStatus.SUCCEEDED
-    assert r1.stdout.strip() == "a"
-    assert r2.status == ExecStatus.FAILED
-    assert r2.error == "busy"
-
-
-def _make_disconnect_server(port: int, delay: float = 0) -> AsyncRunner:
-    """Start a TCP server that consumes one message then disconnects."""
-    async def _serve() -> None:
-        async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-            try:
-                await AsyncJsonLineCodec.recv(reader)
-                if delay > 0:
-                    await asyncio.sleep(delay)
-            finally:
-                writer.close()
-        server = await asyncio.start_server(_handle, "localhost", port)
-        async with server:
-            await server.serve_forever()
-
-    runner = AsyncRunner()
-    runner.start(_serve)
-    return runner
-
-
-def test_no_unhandled_task_exception_on_early_return_then_disconnect(
-    listener_runner: AsyncRunner,
-) -> None:
-    """After early-return, DCC disconnect must not leave an unhandled task exception."""
-    disconnect_port = free_port()
-    unhandled: list = []
-
-    disc_runner = _make_disconnect_server(disconnect_port, delay=0.3)
-
-    control = _make_control(disconnect_port, instance_id="nodelay")
-    wf_id = WorkflowPersistence.create_workflow("nodelay-test")
-
-    async def _run() -> list:
-        loop = asyncio.get_running_loop()
-        loop.set_exception_handler(lambda lp, ctx: unhandled.append(ctx))
-        result = await control.execute("nodelay", 'print("x")', wf_id, early_return_window=0.05)
-        assert result.status == ExecStatus.RUNNING
-        await asyncio.sleep(1.0)
-        return unhandled
+    client_runner = _ClientRunner(client)
+    client_runner.start()
+    assert client.wait_until_registered(timeout=3)
 
     try:
-        exceptions = listener_runner.run_async(_run())
-        assert exceptions == [], f"Unhandled task exceptions: {exceptions}"
+        yield server, registry, control, client
     finally:
-        disc_runner.stop()
+        client_runner.stop()
+        registry.stop()
+        server.stop()
 
 
 def _read_exec_status(wf_id: str) -> ExecStatus:
@@ -204,71 +71,105 @@ def _read_exec_status(wf_id: str) -> ExecStatus:
     return record.execs[0].status
 
 
-def test_early_return_result_persisted_to_disk(
-    listener_runner: AsyncRunner, port: int,
-) -> None:
-    """After early-return (RUNNING), the background task must still write the final status."""
-    control = _make_control(port)
+def test_exec_hello_world(connected_system) -> None:
+    server, _, control, _ = connected_system
+    wf_id = WorkflowPersistence.create_workflow("exec-test")
+
+    result = server.run_async(control.execute("c1", 'print("hello")', wf_id))
+
+    assert result.status == ExecStatus.SUCCEEDED
+    assert result.stdout == "hello\n"
+    assert result.stderr == ""
+    assert result.traceback is None
+
+
+def test_exec_exception(connected_system) -> None:
+    server, _, control, _ = connected_system
+    wf_id = WorkflowPersistence.create_workflow("exec-error-test")
+
+    result = server.run_async(control.execute("c1", "raise ValueError('boom')", wf_id))
+
+    assert result.status == ExecStatus.FAILED
+    assert result.traceback is not None
+    assert "ValueError" in result.traceback
+    assert "boom" in result.traceback
+
+
+def test_exec_namespace_persists(connected_system) -> None:
+    server, _, control, _ = connected_system
+    wf_id = WorkflowPersistence.create_workflow("namespace-test")
+
+    first = server.run_async(control.execute("c1", "x = 42", wf_id))
+    second = server.run_async(control.execute("c1", "print(x)", wf_id))
+
+    assert first.status == ExecStatus.SUCCEEDED
+    assert second.status == ExecStatus.SUCCEEDED
+    assert second.stdout == "42\n"
+
+
+def test_exec_concurrent_rejects_busy(connected_system) -> None:
+    server, _, control, _ = connected_system
+    wf_id = WorkflowPersistence.create_workflow("busy-test")
+
+    async def _run():
+        first = asyncio.create_task(
+            control.execute("c1", 'import time; time.sleep(0.3); print("a")', wf_id)
+        )
+        await asyncio.sleep(0.05)
+        second = asyncio.create_task(control.execute("c1", 'print("b")', wf_id))
+        return await asyncio.gather(first, second)
+
+    first, second = server.run_async(_run())
+
+    assert first.status == ExecStatus.SUCCEEDED
+    assert first.stdout.strip() == "a"
+    assert second.status == ExecStatus.FAILED
+    assert second.error == "busy"
+
+
+def test_early_return_result_persisted_to_disk(connected_system) -> None:
+    server, _, control, _ = connected_system
     wf_id = WorkflowPersistence.create_workflow("early-return-test")
 
-    result = listener_runner.run_async(
-        control.execute("c1", 'import time; time.sleep(0.3); print("done")', wf_id,
-                        early_return_window=0.05)
+    result = server.run_async(
+        control.execute(
+            "c1",
+            'import time; time.sleep(0.3); print("done")',
+            wf_id,
+            early_return_window=0.05,
+        )
+    )
+
+    assert result.status == ExecStatus.RUNNING
+    assert wait_for(lambda: _read_exec_status(wf_id) == ExecStatus.SUCCEEDED)
+
+
+def test_set_alias_roundtrip(connected_system) -> None:
+    server, registry, control, client = connected_system
+
+    result = server.run_async(control.set_alias("c1", "lighting"))
+
+    assert result.success is True
+    assert result.alias == "lighting"
+    assert client._current_alias() == "lighting"
+    assert registry.list_clients()["c1"].alias == "lighting"
+
+
+def test_disconnect_marks_running_execution_failed(connected_system) -> None:
+    server, registry, control, client = connected_system
+    wf_id = WorkflowPersistence.create_workflow("disconnect-test")
+
+    result = server.run_async(
+        control.execute(
+            "c1",
+            'import time; time.sleep(1.0); print("late")',
+            wf_id,
+            early_return_window=0.05,
+        )
     )
     assert result.status == ExecStatus.RUNNING
 
-    deadline = time.monotonic() + 1.0
-    while time.monotonic() < deadline:
-        time.sleep(0.05)
-        if _read_exec_status(wf_id) != ExecStatus.RUNNING:
-            break
+    client.stop()
 
-    assert _read_exec_status(wf_id) == ExecStatus.SUCCEEDED
-
-
-async def _alias_call(host: str, port: int, alias) -> SetAliasResult:
-    reader, writer = await asyncio.open_connection(host, port)
-    try:
-        await AsyncJsonLineCodec.send(writer, SetAliasRequest(alias=alias).to_dict())
-        data = await AsyncJsonLineCodec.recv(reader)
-        result = VersionedWireModel.parse_versioned(data)
-        assert isinstance(result, SetAliasResult)
-        return result
-    finally:
-        writer.close()
-
-
-def test_listener_alias_roundtrip(listener_runner: AsyncRunner, port: int) -> None:
-    result = asyncio.run(_alias_call("localhost", port, "lighting"))
-    assert result.success is True
-    assert result.alias == "lighting"
-
-
-def test_listener_alias_clear(listener_runner: AsyncRunner, port: int) -> None:
-    asyncio.run(_alias_call("localhost", port, "lighting"))
-    result = asyncio.run(_alias_call("localhost", port, ""))
-    assert result.success is True
-    assert result.alias is None
-
-
-def test_dcc_disconnect_marks_execution_failed(
-    listener_runner: AsyncRunner,
-) -> None:
-    """If the DCC closes the connection before sending a result, status must be FAILED."""
-    disconnect_port = free_port()
-    disc_runner = _make_disconnect_server(disconnect_port)
-
-    control = _make_control(disconnect_port, instance_id="disc")
-    wf_id = WorkflowPersistence.create_workflow("disconnect-test")
-
-    try:
-        listener_runner.run_async(
-            control.execute("disc", 'print("x")', wf_id)
-        )
-    except Exception:
-        pass  # connection error is expected
-
-    time.sleep(0.2)
-    assert _read_exec_status(wf_id) == ExecStatus.FAILED
-
-    disc_runner.stop()
+    assert wait_for(lambda: _read_exec_status(wf_id) == ExecStatus.FAILED)
+    assert wait_for(lambda: "c1" not in registry.list_clients())

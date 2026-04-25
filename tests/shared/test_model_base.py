@@ -245,5 +245,4 @@ def test_cross_protocol_version_rejected():
         VersionedWireModel.parse_versioned({
             "type": "RegisterDiscovery", "version": 2,
             "pid": 1, "instance_id": "c1", "instance_name": "t",
-            "exec_host": "h", "exec_port": 1,
         })

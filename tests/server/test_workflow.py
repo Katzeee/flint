@@ -9,7 +9,7 @@ from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
 from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
-from python_bridge_mcp.client.exec_listener import ExecListener
+from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
 from python_bridge_mcp.shared.exec_models import ExecError, ExecStatus
 from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
@@ -23,31 +23,35 @@ from conftest import AsyncRunner, free_port
 
 def _bg_register(
     discovery_port: int,
-    exec_port: int,
+    exec_port: int = 0,
     instance_id: str = "c1",
-) -> threading.Event:
-    done = threading.Event()
+) -> "DccRunner":
+    client = DiscoveryClient(
+        instance_id=instance_id,
+        instance_name="test",
+        runner=DirectRunner(CodeExecutor()),
+        host="localhost",
+        port=discovery_port,
+        heartbeat_interval=0.1,
+        pid=1,
+    )
+    runner = DccRunner(client)
+    runner.start()
+    assert client.wait_until_registered(timeout=3), "registration failed"
+    return runner
 
-    def _run() -> None:
-        async def _do() -> None:
-            reader, writer = await asyncio.open_connection("localhost", discovery_port)
-            try:
-                msg = RegisterDiscovery(
-                    pid=1, instance_id=instance_id, instance_name="test",
-                    exec_host="localhost", exec_port=exec_port,
-                )
-                await AsyncJsonLineCodec.send(writer, msg.to_dict())
-                await AsyncJsonLineCodec.recv(reader)
-                done.set()
-                await asyncio.sleep(5)
-            finally:
-                writer.close()
 
-        asyncio.run(_do())
+class DccRunner:
+    def __init__(self, client: DiscoveryClient) -> None:
+        self.client = client
+        self._thread = threading.Thread(target=client.run, daemon=True)
 
-    threading.Thread(target=_run, daemon=True).start()
-    assert done.wait(timeout=3), "registration failed"
-    return done
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self.client.stop()
+        self._thread.join(timeout=5)
 
 
 # ---------------------------------------------------------------------------
@@ -76,15 +80,8 @@ def app_runner(discovery_port: int) -> Iterator[tuple]:
 
 
 @pytest.fixture
-def listener_runner(exec_port: int) -> Iterator[AsyncRunner]:
-    executor = CodeExecutor()
-    code_runner = DirectRunner(executor)
-    listener = ExecListener("localhost", exec_port, code_runner)
-    runner = AsyncRunner()
-    runner.start(listener.run)
-    yield runner
-    listener.stop()
-    runner.stop()
+def listener_runner() -> None:
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +134,7 @@ def test_execute_connection_failed_records_failed_execution(app_runner) -> None:
     # Register a target on a port that is not listening (port 1 is privileged/closed)
     registry.register(ClientEntry(
         pid=1, instance_id="dead", instance_name="dead",
-        exec_host="127.0.0.1", exec_port=1, alias=None,
+        alias=None,
     ))
     wf_id = control.start_workflow("conn-fail-test")
 
@@ -165,14 +162,14 @@ def test_registry_unregister_pid_guard_unit() -> None:
     registry = Registry()
     old_entry = ClientEntry(
         pid=10, instance_id="shared", instance_name="t",
-        exec_host="localhost", exec_port=1, alias=None,
+        alias=None,
     )
     registry.register(old_entry)
 
     # Simulate re-registration with a new PID
     new_entry = ClientEntry(
         pid=20, instance_id="shared", instance_name="t",
-        exec_host="localhost", exec_port=1, alias=None,
+        alias=None,
     )
     registry.register(new_entry)
 
@@ -204,7 +201,6 @@ def test_registry_reconnect_does_not_evict_new_entry(discovery_port) -> None:
             try:
                 msg = RegisterDiscovery(
                     pid=pid, instance_id="shared", instance_name="test",
-                    exec_host="localhost", exec_port=9999,
                 )
                 await AsyncJsonLineCodec.send(writer, msg.to_dict())
                 await AsyncJsonLineCodec.recv(reader)

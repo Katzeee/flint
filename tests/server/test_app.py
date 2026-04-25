@@ -10,10 +10,8 @@ from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
-from python_bridge_mcp.client.exec_listener import ExecListener
-from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
+from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.shared.exec_models import ExecStatus
-from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
 from python_bridge_mcp.server.control_models import ListTargetsResponse, SetTargetAliasResponse
 
@@ -24,49 +22,53 @@ from conftest import AsyncRunner, free_port, wait_for
 # Helpers
 # ---------------------------------------------------------------------------
 
+class _DccRunner:
+    def __init__(self, client: DiscoveryClient) -> None:
+        self.client = client
+        self._thread = threading.Thread(target=client.run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self.client.stop()
+        self._thread.join(timeout=5)
+
+
 def _bg_register(
     discovery_port: int,
-    exec_port: int,
+    exec_port: int = 0,
     instance_id: str = "c1",
     instance_name: str = "test",
     alias: Optional[str] = None,
     disconnect_event: Optional[threading.Event] = None,
     instance_type: str = "",
     pid: int = 1,
-) -> threading.Event:
-    """Register a client in a background thread, return event that fires when done.
+) -> _DccRunner:
+    client = DiscoveryClient(
+        instance_id=instance_id,
+        instance_name=instance_name,
+        runner=DirectRunner(CodeExecutor()),
+        alias=alias,
+        instance_type=instance_type,
+        host="localhost",
+        port=discovery_port,
+        heartbeat_interval=0.1,
+        pid=pid,
+    )
+    runner = _DccRunner(client)
+    runner.start()
+    assert client.wait_until_registered(timeout=3), "registration failed"
 
-    If disconnect_event is provided, the connection closes when it is set.
-    Otherwise the connection stays alive for 5 seconds.
-    """
-    done = threading.Event()
+    def _auto_stop() -> None:
+        if disconnect_event is not None:
+            disconnect_event.wait()
+        else:
+            time.sleep(5)
+        runner.stop()
 
-    def _run() -> None:
-        async def _do() -> None:
-            reader, writer = await asyncio.open_connection("localhost", discovery_port)
-            try:
-                msg = RegisterDiscovery(
-                    pid=pid, instance_id=instance_id, instance_name=instance_name,
-                    exec_host="localhost", exec_port=exec_port, alias=alias,
-                    instance_type=instance_type,
-                )
-                await AsyncJsonLineCodec.send(writer, msg.to_dict())
-                await AsyncJsonLineCodec.recv(reader)
-                done.set()
-                if disconnect_event is not None:
-                    await asyncio.get_event_loop().run_in_executor(
-                        None, disconnect_event.wait,
-                    )
-                else:
-                    await asyncio.sleep(5)
-            finally:
-                writer.close()
-
-        asyncio.run(_do())
-
-    threading.Thread(target=_run, daemon=True).start()
-    assert done.wait(timeout=3), "registration failed"
-    return done
+    threading.Thread(target=_auto_stop, daemon=True).start()
+    return runner
 
 
 # ---------------------------------------------------------------------------
@@ -95,15 +97,8 @@ def app_runner(discovery_port: int) -> Iterator[tuple]:
 
 
 @pytest.fixture
-def listener_runner(exec_port: int) -> Iterator[AsyncRunner]:
-    executor = CodeExecutor()
-    code_runner = DirectRunner(executor)
-    listener = ExecListener("localhost", exec_port, code_runner)
-    runner = AsyncRunner()
-    runner.start(listener.run)
-    yield runner
-    listener.stop()
-    runner.stop()
+def listener_runner() -> None:
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -145,8 +140,6 @@ def test_list_clients_after_register(
     clients = registry.list_clients()
     assert "c1" in clients
     assert clients["c1"].instance_name == "myapp"
-    assert clients["c1"].exec_host == "localhost"
-    assert clients["c1"].exec_port == exec_port
 
 
 def test_alias_from_registration(
@@ -206,7 +199,7 @@ def test_evict_stale_on_register(
 
     stale = ClientEntry(
         pid=0, instance_id="stale-1", instance_name="stale",
-        exec_host="localhost", exec_port=0, alias=None,
+        alias=None,
         last_heartbeat=time.monotonic() - 9999,
     )
     registry.register(stale)

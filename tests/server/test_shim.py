@@ -69,8 +69,7 @@ def test_shim_has_all_tools() -> None:
 
 def test_list_dcc_targets_returns_targets(monkeypatch) -> None:
     targets = [
-        TargetInfo(instance_id="c1", instance_name="myapp",
-                   exec_host="localhost", exec_port=1234, instance_type="maya")
+        TargetInfo(instance_id="c1", instance_name="myapp", instance_type="maya")
     ]
     client = _mock_client(list_targets=ListTargetsResponse(targets=targets))
     _patch(monkeypatch, client)
@@ -89,8 +88,6 @@ def test_list_dcc_targets_returns_structured_content(monkeypatch) -> None:
         TargetInfo(
             instance_id="c1",
             instance_name="myapp",
-            exec_host="localhost",
-            exec_port=1234,
             instance_type="maya",
         )
     ]
@@ -103,8 +100,6 @@ def test_list_dcc_targets_returns_structured_content(monkeypatch) -> None:
             {
                 "instance_id": "c1",
                 "instance_name": "myapp",
-                "exec_host": "localhost",
-                "exec_port": 1234,
                 "alias": None,
                 "instance_type": "maya",
             }

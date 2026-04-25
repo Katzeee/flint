@@ -42,8 +42,7 @@ def test_list_targets_request_no_filter() -> None:
 
 def test_list_targets_response_roundtrip() -> None:
     resp = ListTargetsResponse(targets=[
-        TargetInfo(instance_id="c1", instance_name="Maya 2024",
-                   exec_host="localhost", exec_port=8001, instance_type="maya"),
+        TargetInfo(instance_id="c1", instance_name="Maya 2024", instance_type="maya"),
     ])
     data = resp.to_dict()
     parsed = VersionedWireModel.parse_versioned(data)

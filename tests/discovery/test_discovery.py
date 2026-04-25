@@ -5,6 +5,8 @@ from typing import Iterator, Optional
 
 import pytest
 
+from python_bridge_mcp.client.code_executor import CodeExecutor
+from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.discovery import DiscoveryClient, DiscoveryState
 from python_bridge_mcp.server.registry import Registry
 from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
@@ -40,8 +42,7 @@ def _client(port: int, instance_id: str, instance_name: str = "Test Client", pid
     return DiscoveryClient(
         instance_id=instance_id,
         instance_name=instance_name,
-        exec_host="localhost",
-        exec_port=9000,
+        runner=DirectRunner(CodeExecutor()),
         instance_type=instance_type,
         host="localhost",
         port=port,
@@ -84,8 +85,6 @@ def test_client_connects_and_is_registered(srv, port: int) -> None:
         clients = server.list_clients()
         entry = clients["c1"]
         assert entry.instance_name == "Test Client"
-        assert entry.exec_host == "localhost"
-        assert entry.exec_port == 9000
     finally:
         r.stop()
 
@@ -189,7 +188,6 @@ def test_server_stop_with_no_clients(port: int) -> None:
 def test_register_discovery_pid_is_int() -> None:
     msg = RegisterDiscovery(
         pid=1234, instance_id="c1", instance_name="test",
-        exec_host="localhost", exec_port=9000,
     )
     data = msg.to_dict()
     assert isinstance(data["pid"], int)
@@ -198,9 +196,8 @@ def test_register_discovery_pid_is_int() -> None:
 
 def test_client_entry_pid_equality() -> None:
     from python_bridge_mcp.server.registry import ClientEntry
-    import time
-    e1 = ClientEntry(pid=42, instance_id="c1", instance_name="t", exec_host="h", exec_port=1, alias=None)
-    e2 = ClientEntry(pid=42, instance_id="c2", instance_name="t", exec_host="h", exec_port=1, alias=None)
+    e1 = ClientEntry(pid=42, instance_id="c1", instance_name="t", alias=None)
+    e2 = ClientEntry(pid=42, instance_id="c2", instance_name="t", alias=None)
     assert e1.pid == e2.pid
 
 
@@ -229,8 +226,7 @@ def test_register_uses_live_alias_getter(srv, port: int) -> None:
     client = DiscoveryClient(
         instance_id="c1",
         instance_name="Test Client",
-        exec_host="localhost",
-        exec_port=9000,
+        runner=DirectRunner(CodeExecutor()),
         host="localhost",
         port=port,
         heartbeat_interval=0.1,

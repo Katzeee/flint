@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Iterator
 
@@ -10,13 +11,11 @@ import pytest
 
 from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
-from python_bridge_mcp.client.exec_listener import ExecListener
+from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.server.backend_client import BackendClient, BackendError
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import ClientEntry, Registry
-from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
 from python_bridge_mcp.shared.exec_models import ExecStatus
-from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
 from python_bridge_mcp.shared.workflow_persistence import (
     WorkflowPersistence,
     WorkflowRecordUnavailableError,
@@ -63,44 +62,48 @@ def client(api_port: int) -> BackendClient:
 
 
 @pytest.fixture
-def listener_runner(exec_port: int) -> Iterator[AsyncRunner]:
-    executor = CodeExecutor()
-    runner_obj = DirectRunner(executor)
-    listener = ExecListener("localhost", exec_port, runner_obj)
-    runner = AsyncRunner()
-    runner.start(listener.run)
-    yield runner
-    listener.stop()
-    runner.stop()
+def listener_runner() -> None:
+    return None
+
+
+class _DccRunner:
+    def __init__(self, client: DiscoveryClient) -> None:
+        self.client = client
+        self._thread = threading.Thread(target=client.run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self.client.stop()
+        self._thread.join(timeout=5)
 
 
 def _bg_register(
     discovery_port: int,
-    exec_port: int,
+    exec_port: int = 0,
     instance_id: str = "c1",
     pid: int = 1,
-) -> threading.Event:
-    done = threading.Event()
+) -> _DccRunner:
+    client = DiscoveryClient(
+        instance_id=instance_id,
+        instance_name="test",
+        runner=DirectRunner(CodeExecutor()),
+        host="localhost",
+        port=discovery_port,
+        heartbeat_interval=0.1,
+        pid=pid,
+    )
+    runner = _DccRunner(client)
+    runner.start()
+    assert client.wait_until_registered(timeout=3), "registration failed"
 
-    def _run() -> None:
-        async def _do() -> None:
-            reader, writer = await asyncio.open_connection("localhost", discovery_port)
-            try:
-                msg = RegisterDiscovery(
-                    pid=pid, instance_id=instance_id, instance_name="test",
-                    exec_host="localhost", exec_port=exec_port,
-                )
-                await AsyncJsonLineCodec.send(writer, msg.to_dict())
-                await AsyncJsonLineCodec.recv(reader)
-                done.set()
-                await asyncio.sleep(10)
-            finally:
-                writer.close()
-        asyncio.run(_do())
+    def _auto_stop() -> None:
+        time.sleep(5)
+        runner.stop()
 
-    threading.Thread(target=_run, daemon=True).start()
-    assert done.wait(timeout=3), "registration failed"
-    return done
+    threading.Thread(target=_auto_stop, daemon=True).start()
+    return runner
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +132,7 @@ def test_list_targets_filter_by_type(
     def _reg(iid: str, itype: str, pid: int, port: int) -> None:
         registry.register(ClientEntry(
             pid=pid, instance_id=iid, instance_name=iid,
-            exec_host="localhost", exec_port=port, alias=None, instance_type=itype,
+            alias=None, instance_type=itype,
         ))
 
     _reg("maya1", "maya", 1, 1001)

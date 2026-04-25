@@ -3,25 +3,21 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
 from typing import Iterator, Optional
 
 import pytest
 
 from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
-from python_bridge_mcp.client.exec_listener import ExecListener
+from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.server.backend_client import BackendClient
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import Registry
-from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
 from python_bridge_mcp.shared.exec_models import ExecStatus
-from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
-from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from conftest import AsyncRunner, free_port  # noqa: E402
+from conftest import AsyncRunner, free_port, wait_for  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -35,11 +31,6 @@ def discovery_port() -> int:
 
 @pytest.fixture
 def api_port() -> int:
-    return free_port()
-
-
-@pytest.fixture
-def exec_port() -> int:
     return free_port()
 
 
@@ -65,50 +56,38 @@ def client_b(api_port: int) -> BackendClient:
     return BackendClient(host="localhost", port=api_port)
 
 
-@pytest.fixture
-def listener_runner(exec_port: int) -> Iterator[tuple]:
-    executor = CodeExecutor()
-    runner_obj = DirectRunner(executor)
-    listener = ExecListener("localhost", exec_port, runner_obj)
-    runner = AsyncRunner()
-    runner.start(listener.run)
-    yield runner, listener
-    listener.stop()
-    runner.stop()
+class _DccRunner:
+    def __init__(self, client: DiscoveryClient) -> None:
+        self.client = client
+        self._thread = threading.Thread(target=client.run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self.client.stop()
+        self._thread.join(timeout=5)
 
 
-def _bg_register(
+def _start_dcc(
     discovery_port: int,
-    exec_port: int,
     instance_id: str = "c1",
     alias: Optional[str] = None,
-    disconnect_event: Optional[threading.Event] = None,
-) -> None:
-    done = threading.Event()
-
-    def _run() -> None:
-        async def _do() -> None:
-            reader, writer = await asyncio.open_connection("localhost", discovery_port)
-            try:
-                msg = RegisterDiscovery(
-                    pid=1, instance_id=instance_id, instance_name="test",
-                    exec_host="localhost", exec_port=exec_port, alias=alias,
-                )
-                await AsyncJsonLineCodec.send(writer, msg.to_dict())
-                await AsyncJsonLineCodec.recv(reader)
-                done.set()
-                if disconnect_event is not None:
-                    await asyncio.get_event_loop().run_in_executor(
-                        None, disconnect_event.wait,
-                    )
-                else:
-                    await asyncio.sleep(10)
-            finally:
-                writer.close()
-        asyncio.run(_do())
-
-    threading.Thread(target=_run, daemon=True).start()
-    assert done.wait(timeout=3), "registration failed"
+) -> _DccRunner:
+    client = DiscoveryClient(
+        instance_id=instance_id,
+        instance_name="test",
+        runner=DirectRunner(CodeExecutor()),
+        alias=alias,
+        host="localhost",
+        port=discovery_port,
+        heartbeat_interval=0.1,
+        pid=1,
+    )
+    runner = _DccRunner(client)
+    runner.start()
+    assert client.wait_until_registered(timeout=3), "registration failed"
+    return runner
 
 
 # ---------------------------------------------------------------------------
@@ -116,35 +95,39 @@ def _bg_register(
 # ---------------------------------------------------------------------------
 
 def test_both_clients_see_same_dcc(
-    backend, client_a, client_b, discovery_port: int, exec_port: int,
+    backend, client_a, client_b, discovery_port: int,
 ) -> None:
     """Two BackendClients connected to the same backend both see the registered DCC."""
-    _bg_register(discovery_port, exec_port, instance_id="dcc1")
+    dcc = _start_dcc(discovery_port, instance_id="dcc1")
+    try:
+        targets_a = asyncio.run(client_a.list_targets())
+        targets_b = asyncio.run(client_b.list_targets())
 
-    targets_a = asyncio.run(client_a.list_targets())
-    targets_b = asyncio.run(client_b.list_targets())
-
-    assert len(targets_a.targets) == 1
-    assert len(targets_b.targets) == 1
-    assert targets_a.targets[0].instance_id == targets_b.targets[0].instance_id == "dcc1"
+        assert len(targets_a.targets) == 1
+        assert len(targets_b.targets) == 1
+        assert targets_a.targets[0].instance_id == targets_b.targets[0].instance_id == "dcc1"
+    finally:
+        dcc.stop()
 
 
 def test_execution_visible_to_second_client(
     backend, client_a, client_b,
-    listener_runner, discovery_port: int, exec_port: int,
+    discovery_port: int,
 ) -> None:
     """Client A executes code; Client B can see the execution in the workflow overview."""
-    _bg_register(discovery_port, exec_port, instance_id="dcc1")
+    dcc = _start_dcc(discovery_port, instance_id="dcc1")
+    try:
+        wf_id = asyncio.run(client_a.start_workflow("shared-wf"))
 
-    wf_id = asyncio.run(client_a.start_workflow("shared-wf"))
+        result = asyncio.run(client_a.execute("dcc1", 'print("hi")', wf_id))
+        assert result.status == ExecStatus.SUCCEEDED
 
-    result = asyncio.run(client_a.execute("dcc1", 'print("hi")', wf_id))
-    assert result.status == ExecStatus.SUCCEEDED
-
-    overview = asyncio.run(client_b.get_workflow_overview(wf_id))
-    assert overview.execution_count == 1
-    assert len(overview.target_summaries) == 1
-    assert overview.target_summaries[0].instance_id == "dcc1"
+        overview = asyncio.run(client_b.get_workflow_overview(wf_id))
+        assert overview.execution_count == 1
+        assert len(overview.target_summaries) == 1
+        assert overview.target_summaries[0].instance_id == "dcc1"
+    finally:
+        dcc.stop()
 
 
 def test_workflow_created_by_a_readable_by_b(
@@ -159,37 +142,39 @@ def test_workflow_created_by_a_readable_by_b(
 
 def test_alias_set_by_a_visible_via_b(
     backend, client_a, client_b,
-    listener_runner, discovery_port: int, exec_port: int,
+    discovery_port: int,
 ) -> None:
     """Alias set via client A is reflected when client B lists targets."""
-    _bg_register(discovery_port, exec_port, instance_id="dcc1")
+    dcc = _start_dcc(discovery_port, instance_id="dcc1")
+    try:
+        asyncio.run(client_a.set_alias("dcc1", "my-maya"))
 
-    asyncio.run(client_a.set_alias("dcc1", "my-maya"))
-
-    targets = asyncio.run(client_b.list_targets())
-    assert targets.targets[0].alias == "my-maya"
+        targets = asyncio.run(client_b.list_targets())
+        assert targets.targets[0].alias == "my-maya"
+    finally:
+        dcc.stop()
 
 
 def test_alias_survives_re_registration_via_listener_state(
     backend, client_a, client_b,
-    listener_runner, discovery_port: int, exec_port: int,
+    discovery_port: int,
 ) -> None:
-    """After re-registration, alias from listener state is preserved."""
-    _runner, listener = listener_runner
+    """After re-registration, alias from client state is preserved."""
+    dcc = _start_dcc(discovery_port, instance_id="dcc1")
+    try:
+        asyncio.run(client_a.set_alias("dcc1", "lighting"))
+        assert asyncio.run(client_b.list_targets()).targets[0].alias == "lighting"
 
-    disconnect = threading.Event()
-    _bg_register(discovery_port, exec_port, instance_id="dcc1", disconnect_event=disconnect)
+        alias = dcc.client._current_alias()
+    finally:
+        dcc.stop()
 
-    asyncio.run(client_a.set_alias("dcc1", "lighting"))
-    assert asyncio.run(client_b.list_targets()).targets[0].alias == "lighting"
+    assert wait_for(lambda: asyncio.run(client_b.list_targets()).targets == [])
 
-    # Disconnect first registration
-    disconnect.set()
-    time.sleep(0.2)
-
-    # Re-register: read alias from the live listener state
-    _bg_register(discovery_port, exec_port, instance_id="dcc1", alias=listener.get_alias())
-
-    targets = asyncio.run(client_b.list_targets())
-    assert len(targets.targets) > 0
-    assert targets.targets[0].alias == "lighting"
+    dcc2 = _start_dcc(discovery_port, instance_id="dcc1", alias=alias)
+    try:
+        targets = asyncio.run(client_b.list_targets())
+        assert len(targets.targets) > 0
+        assert targets.targets[0].alias == "lighting"
+    finally:
+        dcc2.stop()

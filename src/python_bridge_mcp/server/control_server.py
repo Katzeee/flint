@@ -133,8 +133,6 @@ class ControlServer:
             TargetInfo(
                 instance_id=e.instance_id,
                 instance_name=e.instance_name,
-                exec_host=e.exec_host,
-                exec_port=e.exec_port,
                 alias=e.alias,
                 instance_type=e.instance_type,
             )
@@ -156,25 +154,15 @@ class ControlServer:
         if entry is None:
             raise KeyError(f"unknown client: {instance_id}")
 
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(
-                entry.exec_host,
-                entry.exec_port,
-                limit=AsyncJsonLineCodec.READER_LIMIT,
-            ),
+        result = await self._discovery.request(
+            instance_id,
+            SetAliasRequest(alias=alias),
             timeout=connect_timeout,
         )
-        try:
-            await AsyncJsonLineCodec.send(writer, SetAliasRequest(alias=alias).to_dict())
-            data = await AsyncJsonLineCodec.recv(reader)
-            result = VersionedWireModel.parse_versioned(data)
-            if not isinstance(result, SetAliasResult):
-                raise WireModelError(f"unexpected response: {type(result).__name__}")
-            self._discovery.set_alias(instance_id, result.alias)
-            return SetTargetAliasResponse(success=True, instance_id=instance_id, alias=result.alias)
-        finally:
-            writer.close()
-            await writer.wait_closed()
+        if not isinstance(result, SetAliasResult):
+            raise WireModelError(f"unexpected response: {type(result).__name__}")
+        self._discovery.set_alias(instance_id, result.alias)
+        return SetTargetAliasResponse(success=True, instance_id=instance_id, alias=result.alias)
 
     def get_workflow_overview(self, workflow_id: str) -> GetWorkflowOverviewResponse:
         record = WorkflowPersistence.load(workflow_id)
@@ -255,31 +243,6 @@ class ControlServer:
             instance_id, workflow_id, execution_id,
         )
 
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(
-                    entry.exec_host,
-                    entry.exec_port,
-                    limit=AsyncJsonLineCodec.READER_LIMIT,
-                ),
-                timeout=connect_timeout,
-            )
-        except (asyncio.TimeoutError, OSError) as exc:
-            log.warning(
-                "Connection to %s (%s:%d) failed: %s - unregistering",
-                instance_id, entry.exec_host, entry.exec_port, exc,
-            )
-            self._discovery.unregister(instance_id)
-            ControlServer._fail_execution(workflow_id, execution_id, ExecError.CONNECTION_FAILED)
-            return ExecResult(
-                execution_id=execution_id,
-                status=ExecStatus.FAILED,
-                stdout="",
-                stderr="",
-                error=ExecError.CONNECTION_FAILED,
-                request_id=request_id,
-            )
-
         req = ExecRequest(
             execution_id=execution_id,
             code=code,
@@ -287,23 +250,9 @@ class ControlServer:
             execution_name=name or None,
             request_id=request_id,
         )
-        try:
-            await AsyncJsonLineCodec.send(writer, req.to_dict())
-        except Exception:
-            writer.close()
-            await writer.wait_closed()
-            ControlServer._fail_execution(workflow_id, execution_id, ExecError.CONNECTION_FAILED)
-            return ExecResult(
-                execution_id=execution_id,
-                status=ExecStatus.FAILED,
-                stdout="",
-                stderr="",
-                error=ExecError.CONNECTION_FAILED,
-                request_id=request_id,
-            )
 
         task = asyncio.create_task(
-            self._receive_result(reader, writer, workflow_id, execution_id)
+            self._receive_result(instance_id, req, workflow_id, execution_id)
         )
         task.add_done_callback(ControlServer._consume_task_exception)
 
@@ -313,6 +262,15 @@ class ControlServer:
             return ExecResult(
                 execution_id=execution_id,
                 status=ExecStatus.RUNNING,
+                request_id=request_id,
+            )
+        except Exception:
+            return ExecResult(
+                execution_id=execution_id,
+                status=ExecStatus.FAILED,
+                stdout="",
+                stderr="",
+                error=ExecError.CONNECTION_FAILED,
                 request_id=request_id,
             )
 
@@ -333,19 +291,19 @@ class ControlServer:
         if not task.cancelled():
             task.exception()
 
-    @staticmethod
     async def _receive_result(
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
+        self,
+        instance_id: str,
+        request: ExecRequest,
         workflow_id: str,
         execution_id: str,
     ) -> ExecResult:
         try:
-            data = await asyncio.wait_for(
-                AsyncJsonLineCodec.recv(reader),
+            result = await self._discovery.request(
+                instance_id,
+                request,
                 timeout=ControlServer.BACKGROUND_EXEC_TIMEOUT,
             )
-            result = VersionedWireModel.parse_versioned(data)
             if not isinstance(result, ExecResult):
                 raise WireModelError(f"unexpected response: {type(result).__name__}")
             if result.error == ExecError.BUSY:
@@ -379,6 +337,3 @@ class ControlServer:
         except Exception:
             ControlServer._fail_execution(workflow_id, execution_id, ExecError.CONNECTION_FAILED)
             raise
-        finally:
-            writer.close()
-            await writer.wait_closed()

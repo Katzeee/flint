@@ -15,8 +15,6 @@ class ControlWireModel(VersionedWireModel):
 class TargetInfo(BaseModel):
     instance_id: str
     instance_name: str
-    exec_host: str
-    exec_port: int
     alias: Optional[str] = None
     instance_type: str = ""
 

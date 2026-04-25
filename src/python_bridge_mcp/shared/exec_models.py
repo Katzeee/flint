@@ -39,6 +39,7 @@ class ExecRequest(ExecWireModel):
 @dataclass
 class SetAliasRequest(ExecWireModel):
     alias: Optional[str] = None
+    request_id: Optional[str] = None
 
 
 @wire_model
@@ -46,6 +47,7 @@ class SetAliasRequest(ExecWireModel):
 class SetAliasResult(ExecWireModel):
     success: bool = False
     alias: Optional[str] = None
+    request_id: Optional[str] = None
 
 
 @wire_model
