@@ -41,6 +41,17 @@ class ExecListener:
         self._execution_lock = asyncio.Lock()
         self._alias: Optional[str] = None
         self._alias_lock = threading.Lock()
+        self._started_event = threading.Event()
+
+    @property
+    def port(self) -> int:
+        """Bound port. Valid only after the server has started listening."""
+        if self._server is None:
+            return self._port
+        return self._server.sockets[0].getsockname()[1]
+
+    def wait_started(self, timeout: Optional[float] = None) -> bool:
+        return self._started_event.wait(timeout)
 
     def get_alias(self) -> Optional[str]:
         with self._alias_lock:
@@ -60,6 +71,7 @@ class ExecListener:
             self._port,
             limit=AsyncJsonLineCodec.READER_LIMIT,
         )
+        self._started_event.set()
         async with self._server:
             await self._server.serve_forever()
 
