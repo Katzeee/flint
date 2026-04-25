@@ -72,8 +72,13 @@ class ExecListener:
             limit=AsyncJsonLineCodec.READER_LIMIT,
         )
         self._started_event.set()
-        async with self._server:
-            await self._server.serve_forever()
+        try:
+            async with self._server:
+                await self._server.serve_forever()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._started_event.clear()
 
     def stop(self) -> None:
         if self._server is not None:

@@ -4,8 +4,7 @@ import threading
 from dataclasses import dataclass
 from typing import Callable, Optional, cast
 
-from .code_executor import CodeExecutor
-from .code_runner import CodeRunner, DirectRunner
+from .code_runner import CodeRunner
 from .discovery import DiscoveryClient
 from .exec_listener import ExecListener
 
@@ -54,7 +53,7 @@ def start_listener_service(
         current.stop()
 
     if runner is None:
-        runner = DirectRunner(CodeExecutor())
+        runner = CodeRunner.create_default()
 
     listener = ExecListener(exec_host, exec_port, runner)
     if alias is not None:

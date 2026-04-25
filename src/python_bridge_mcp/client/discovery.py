@@ -5,7 +5,7 @@ import os
 import socket
 import threading
 from enum import Enum
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 from ..shared.discovery_models import AckDiscovery, HeartbeatDiscovery, RegisterDiscovery
 from ..shared.jsonline import SyncJsonLineCodec
@@ -65,6 +65,23 @@ class DiscoveryClient:
     def state(self) -> DiscoveryState:
         with self._state_lock:
             return self._state
+
+    @property
+    def host(self) -> str:
+        return self._host
+
+    @property
+    def port(self) -> int:
+        return self._port
+
+    def wait_until_registered(self, timeout: Union[int, float] = 10) -> bool:
+        return self._connected_event.wait(timeout)
+
+    def is_online(self) -> bool:
+        return self._connected_event.is_set()
+
+    def get_connection_state(self) -> DiscoveryState:
+        return self.state
 
     def run(self) -> None:
         """Run the client loop forever; returns only after stop() is called."""
