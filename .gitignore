@@ -30,3 +30,4 @@ htmlcov/
 
 .vscode/
 .python-version
+_local/
