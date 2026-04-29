@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 
 from python_bridge_mcp.server.control_models import (
+    ControlError,
+    ErrorResponse,
     GetWorkflowExecutionRequest,
     GetWorkflowExecutionResponse,
     GetWorkflowOverviewRequest,
@@ -202,6 +204,17 @@ def test_pong_contains_backend_identity() -> None:
     parsed = VersionedWireModel.parse_versioned(payload)
     assert isinstance(parsed, PingResponse)
     assert parsed.service == "python-bridge-backend"
+
+
+def test_error_response_roundtrip_casts_control_error() -> None:
+    payload = ErrorResponse(
+        error_code=ControlError.WORKFLOW_NOT_FOUND,
+        message="missing workflow",
+    ).to_dict()
+    parsed = VersionedWireModel.parse_versioned(payload)
+    assert isinstance(parsed, ErrorResponse)
+    assert parsed.error_code == ControlError.WORKFLOW_NOT_FOUND
+    assert payload["error_code"] == "workflow_not_found"
 
 
 def test_set_target_alias_response_cleared_alias() -> None:

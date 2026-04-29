@@ -2,6 +2,7 @@ import asyncio
 from typing import Optional
 
 from .control_models import (
+    ControlError,
     ControlExecuteRequest,
     ErrorResponse,
     GetWorkflowExecutionRequest,
@@ -24,7 +25,7 @@ from ..shared.workflow_persistence import WorkflowRecordUnavailableError
 
 
 class BackendError(Exception):
-    def __init__(self, error_code: str, message: str) -> None:
+    def __init__(self, error_code: ControlError, message: str) -> None:
         super().__init__(message)
         self.error_code = error_code
 
@@ -62,9 +63,9 @@ class BackendClient:
     def _raise_if_error(self, response: VersionedWireModel) -> None:
         if not isinstance(response, ErrorResponse):
             return
-        if response.error_code == "workflow_not_found":
+        if response.error_code == ControlError.WORKFLOW_NOT_FOUND:
             raise WorkflowRecordUnavailableError(response.message)
-        if response.error_code in ("unknown_client", "execution_not_found"):
+        if response.error_code in (ControlError.UNKNOWN_CLIENT, ControlError.EXECUTION_NOT_FOUND):
             raise KeyError(response.message)
         raise BackendError(response.error_code, response.message)
 

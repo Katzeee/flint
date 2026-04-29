@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional
 
 from ..shared.model_base import BaseModel, VersionedWireModel, wire_model
@@ -9,6 +10,16 @@ from ..shared.model_base import BaseModel, VersionedWireModel, wire_model
 @dataclass
 class ControlWireModel(VersionedWireModel):
     PROTOCOL_VERSION: ClassVar[int] = 1
+
+
+class ControlError(str, Enum):
+    PROTOCOL_ERROR = "protocol_error"
+    INTERNAL_ERROR = "internal_error"
+    UNKNOWN_CLIENT = "unknown_client"
+    UNKNOWN_REQUEST = "unknown_request"
+    WORKFLOW_NOT_FOUND = "workflow_not_found"
+    EXECUTION_NOT_FOUND = "execution_not_found"
+    TARGET_OFFLINE = "target_offline"
 
 
 @dataclass
@@ -123,7 +134,7 @@ class ControlExecuteRequest(ControlWireModel):
 @wire_model
 @dataclass
 class ErrorResponse(ControlWireModel):
-    error_code: str = ""
+    error_code: ControlError = ControlError.INTERNAL_ERROR
     message: str = ""
 
 

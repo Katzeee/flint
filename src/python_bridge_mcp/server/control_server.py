@@ -8,6 +8,7 @@ log = logging.getLogger(__name__)
 
 from .registry import Registry
 from .control_models import (
+    ControlError,
     ControlExecuteRequest,
     ErrorResponse,
     GetWorkflowExecutionRequest,
@@ -77,9 +78,9 @@ class ControlServer:
         except ConnectionError:
             pass
         except WireModelError as exc:
-            response = ErrorResponse(error_code="protocol_error", message=str(exc))
+            response = ErrorResponse(error_code=ControlError.PROTOCOL_ERROR, message=str(exc))
         except Exception as exc:
-            response = ErrorResponse(error_code="internal_error", message=str(exc))
+            response = ErrorResponse(error_code=ControlError.INTERNAL_ERROR, message=str(exc))
         finally:
             if response is not None:
                 await AsyncJsonLineCodec.send(writer, response.to_dict())
@@ -97,33 +98,33 @@ class ControlServer:
             try:
                 return await self.execute(request.instance_id, request.code, request.workflow_id, request.name)
             except KeyError as exc:
-                return ErrorResponse(error_code="unknown_client", message=str(exc))
+                return ErrorResponse(error_code=ControlError.UNKNOWN_CLIENT, message=str(exc))
 
         if isinstance(request, GetWorkflowOverviewRequest):
             try:
                 return self.get_workflow_overview(request.workflow_id)
             except WorkflowRecordUnavailableError as exc:
-                return ErrorResponse(error_code="workflow_not_found", message=str(exc))
+                return ErrorResponse(error_code=ControlError.WORKFLOW_NOT_FOUND, message=str(exc))
 
         if isinstance(request, GetWorkflowExecutionRequest):
             try:
                 return self.get_workflow_execution(request.workflow_id, request.execution_id, request.view)
             except WorkflowRecordUnavailableError as exc:
-                return ErrorResponse(error_code="workflow_not_found", message=str(exc))
+                return ErrorResponse(error_code=ControlError.WORKFLOW_NOT_FOUND, message=str(exc))
             except KeyError as exc:
-                return ErrorResponse(error_code="execution_not_found", message=str(exc))
+                return ErrorResponse(error_code=ControlError.EXECUTION_NOT_FOUND, message=str(exc))
 
         if isinstance(request, SetTargetAliasRequest):
             try:
                 return await self.set_alias(request.instance_id, request.alias)
             except KeyError as exc:
-                return ErrorResponse(error_code="unknown_client", message=str(exc))
+                return ErrorResponse(error_code=ControlError.UNKNOWN_CLIENT, message=str(exc))
 
         if isinstance(request, PingRequest):
             return PingResponse()
 
         return ErrorResponse(
-            error_code="unknown_request",
+            error_code=ControlError.UNKNOWN_REQUEST,
             message=f"unhandled request type: {type(request).__name__}",
         )
 

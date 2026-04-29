@@ -9,8 +9,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, TextContent
 
 from .backend_client import BackendClient, BackendError
+from .control_models import ControlError
 from .launcher import BackendLauncher
-from ..shared.exec_models import ExecError, ExecResult, ExecStatus
 from ..shared.workflow_persistence import WorkflowRecordUnavailableError
 
 mcp = FastMCP("python-bridge-mcp")
@@ -39,10 +39,10 @@ def _tool_ok(payload: dict) -> CallToolResult:
     )
 
 
-def _tool_error(error_code: str, message: str) -> CallToolResult:
+def _tool_error(error_code: ControlError, message: str) -> CallToolResult:
     return CallToolResult(
         content=[TextContent(type="text", text=message)],
-        structuredContent={"error_code": error_code, "message": message},
+        structuredContent={"error_code": error_code.value, "message": message},
         isError=True,
     )
 
@@ -78,7 +78,7 @@ async def exec_python(instance_id: str, code: str, workflow_id: str, name: str =
     try:
         result = await client.execute(instance_id, code, workflow_id, name)
     except KeyError as exc:
-        return _tool_error("target_offline", str(exc))
+        return _tool_error(ControlError.TARGET_OFFLINE, str(exc))
     return _tool_ok(result.to_dict(exclude_none=True))
 
 
@@ -106,7 +106,7 @@ async def get_workflow_overview(workflow_id: str):
     try:
         overview = await client.get_workflow_overview(workflow_id)
     except WorkflowRecordUnavailableError as exc:
-        return _tool_error("workflow_not_found", str(exc))
+        return _tool_error(ControlError.WORKFLOW_NOT_FOUND, str(exc))
     return _tool_ok(overview.to_dict(exclude_none=True))
 
 
@@ -123,9 +123,9 @@ async def get_workflow_execution(workflow_id: str, execution_id: str, view: str 
     try:
         response = await client.get_workflow_execution(workflow_id, execution_id, view)
     except WorkflowRecordUnavailableError as exc:
-        return _tool_error("workflow_not_found", str(exc))
+        return _tool_error(ControlError.WORKFLOW_NOT_FOUND, str(exc))
     except KeyError as exc:
-        return _tool_error("execution_not_found", str(exc))
+        return _tool_error(ControlError.EXECUTION_NOT_FOUND, str(exc))
     return _tool_ok(response.to_dict(exclude_none=True))
 
 
@@ -141,7 +141,7 @@ async def set_target_alias(instance_id: str, alias: Optional[str] = None):
     try:
         response = await client.set_alias(instance_id, alias)
     except KeyError as exc:
-        return _tool_error("target_offline", str(exc))
+        return _tool_error(ControlError.TARGET_OFFLINE, str(exc))
     except BackendError as exc:
         return _tool_error(exc.error_code, str(exc))
     return _tool_ok(response.to_dict())
