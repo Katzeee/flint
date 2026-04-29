@@ -132,6 +132,46 @@ class WorkflowPersistence:
             f.write(json.dumps(record.to_dict(), indent=2))
 
     @staticmethod
+    def append_execution_output(
+        workflow_id: str,
+        execution_id: str,
+        stdout_delta: str = "",
+        stderr_delta: str = "",
+    ) -> None:
+        path = WorkflowPersistence.resolve(workflow_id)
+        with FileWriter.locked(path) as f:
+            record = WorkflowRecord.from_dict(json.loads(f.read()))
+            for entry in record.execs:
+                if entry.execution_id == execution_id:
+                    entry.stdout += stdout_delta
+                    entry.stderr += stderr_delta
+                    entry.updated_at = datetime.now(timezone.utc).isoformat()
+                    break
+            f.write(json.dumps(record.to_dict(), indent=2))
+
+    @staticmethod
+    def finalize_execution_result(
+        workflow_id: str,
+        execution_id: str,
+        status: ExecStatus,
+        finished_at: str,
+        traceback: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        path = WorkflowPersistence.resolve(workflow_id)
+        with FileWriter.locked(path) as f:
+            record = WorkflowRecord.from_dict(json.loads(f.read()))
+            for entry in record.execs:
+                if entry.execution_id == execution_id:
+                    entry.status = status
+                    entry.finished_at = finished_at
+                    entry.traceback = traceback
+                    entry.error = error
+                    entry.updated_at = finished_at
+                    break
+            f.write(json.dumps(record.to_dict(), indent=2))
+
+    @staticmethod
     def update_execution_result(
         workflow_id: str,
         execution_id: str,

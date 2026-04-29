@@ -71,6 +71,13 @@ def _read_exec_status(wf_id: str) -> ExecStatus:
     return record.execs[0].status
 
 
+def _read_first_exec(wf_id: str):
+    path = WorkflowPersistence.resolve(wf_id)
+    with open(path, encoding="utf-8") as f:
+        record = WorkflowRecord.from_dict(json.load(f))
+    return record.execs[0]
+
+
 def test_exec_hello_world(connected_system) -> None:
     server, _, control, _ = connected_system
     wf_id = WorkflowPersistence.create_workflow("exec-test")
@@ -78,9 +85,10 @@ def test_exec_hello_world(connected_system) -> None:
     result = server.run_async(control.execute("c1", 'print("hello")', wf_id))
 
     assert result.status == ExecStatus.SUCCEEDED
-    assert result.stdout == "hello\n"
-    assert result.stderr == ""
     assert result.traceback is None
+    entry = _read_first_exec(wf_id)
+    assert entry.stdout == "hello\n"
+    assert entry.stderr == ""
 
 
 def test_exec_exception(connected_system) -> None:
@@ -104,7 +112,9 @@ def test_exec_namespace_persists(connected_system) -> None:
 
     assert first.status == ExecStatus.SUCCEEDED
     assert second.status == ExecStatus.SUCCEEDED
-    assert second.stdout == "42\n"
+    assert _read_first_exec(wf_id).status == ExecStatus.SUCCEEDED
+    record = WorkflowPersistence.load(wf_id)
+    assert record.execs[1].stdout == "42\n"
 
 
 def test_exec_concurrent_rejects_busy(connected_system) -> None:
@@ -122,7 +132,7 @@ def test_exec_concurrent_rejects_busy(connected_system) -> None:
     first, second = server.run_async(_run())
 
     assert first.status == ExecStatus.SUCCEEDED
-    assert first.stdout.strip() == "a"
+    assert _read_first_exec(wf_id).stdout.strip() == "a"
     assert second.status == ExecStatus.FAILED
     assert second.error == "busy"
 

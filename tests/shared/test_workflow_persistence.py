@@ -100,6 +100,39 @@ def test_update_execution_output() -> None:
     assert entry.status == ExecStatus.RUNNING
 
 
+def test_append_execution_output_adds_deltas() -> None:
+    wf_id = WorkflowPersistence.create_workflow("test")
+    exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
+
+    WorkflowPersistence.append_execution_output(wf_id, exec_id, "hel", "wa")
+    WorkflowPersistence.append_execution_output(wf_id, exec_id, "lo\n", "rn\n")
+
+    record = _read_record(wf_id)
+    entry = record.execs[0]
+    assert entry.stdout == "hello\n"
+    assert entry.stderr == "warn\n"
+    assert entry.status == ExecStatus.RUNNING
+
+
+def test_finalize_execution_result_preserves_output() -> None:
+    wf_id = WorkflowPersistence.create_workflow("test")
+    exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
+    WorkflowPersistence.append_execution_output(wf_id, exec_id, "hello\n", "")
+
+    WorkflowPersistence.finalize_execution_result(
+        wf_id,
+        exec_id,
+        ExecStatus.SUCCEEDED,
+        "2023-11-14T22:13:20+00:00",
+    )
+
+    record = _read_record(wf_id)
+    entry = record.execs[0]
+    assert entry.status == ExecStatus.SUCCEEDED
+    assert entry.stdout == "hello\n"
+    assert entry.finished_at == "2023-11-14T22:13:20+00:00"
+
+
 def test_update_execution_result() -> None:
     wf_id = WorkflowPersistence.create_workflow("test")
     exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")

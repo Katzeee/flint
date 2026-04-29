@@ -128,7 +128,7 @@ def test_execute_on_client(
 
     result = app_run.run_async(control.execute("c1", 'print("hello")', wf_id))
     assert result.status == ExecStatus.SUCCEEDED
-    assert result.stdout == "hello\n"
+    assert WorkflowPersistence.load(wf_id).execs[0].stdout == "hello\n"
 
 
 def test_list_clients_after_register(

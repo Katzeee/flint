@@ -4,6 +4,7 @@ import pytest
 
 from python_bridge_mcp.shared.exec_models import (
     ExecError,
+    ExecOutputUpdate,
     ExecRequest,
     ExecResult,
     ExecStatus,
@@ -16,19 +17,17 @@ def test_exec_request_roundtrip():
     req = ExecRequest(execution_id="r1", code="print(1)", workflow_id="wf-1")
     data = req.to_dict()
     assert data["type"] == "ExecRequest"
-    assert data["version"] == 2
+    assert data["version"] == 3
     parsed = VersionedWireModel.parse_versioned(data)
     assert isinstance(parsed, ExecRequest)
     assert parsed == req
 
 
 def test_exec_result_roundtrip():
-    res = ExecResult(
-        execution_id="r1", status=ExecStatus.SUCCEEDED, stdout="hello\n", stderr=""
-    )
+    res = ExecResult(execution_id="r1", status=ExecStatus.SUCCEEDED)
     data = res.to_dict()
     assert data["type"] == "ExecResult"
-    assert data["version"] == 2
+    assert data["version"] == 3
     parsed = VersionedWireModel.parse_versioned(data)
     assert isinstance(parsed, ExecResult)
     assert parsed == res
@@ -38,8 +37,6 @@ def test_exec_result_with_traceback():
     res = ExecResult(
         execution_id="r1",
         status=ExecStatus.FAILED,
-        stdout="",
-        stderr="",
         traceback="Traceback ...\nNameError: name 'x' is not defined\n",
     )
     data = res.to_dict()
@@ -78,9 +75,7 @@ def test_exec_request_execution_name_default_none():
 
 
 def test_exec_status_pending_roundtrip():
-    res = ExecResult(
-        execution_id="r1", status=ExecStatus.PENDING, stdout="", stderr=""
-    )
+    res = ExecResult(execution_id="r1", status=ExecStatus.PENDING)
     data = res.to_dict()
     assert data["status"] == "pending"
     parsed = VersionedWireModel.parse_versioned(data)
@@ -88,32 +83,11 @@ def test_exec_status_pending_roundtrip():
     assert parsed.status == ExecStatus.PENDING
 
 
-# ---------------------------------------------------------------------------
-# 1.3 — RUNNING invariant
-# ---------------------------------------------------------------------------
-
-def test_exec_result_running_stdout_forced_none():
-    """RUNNING ExecResult must have stdout/stderr/traceback set to None."""
+def test_exec_result_has_no_output_fields():
     res = ExecResult(execution_id="r1", status=ExecStatus.RUNNING)
-    assert res.stdout is None
-    assert res.stderr is None
-    assert res.traceback is None
-
-
-def test_exec_result_running_ignores_provided_stdout():
-    """Even if stdout is passed for RUNNING, __post_init__ forces it to None."""
-    res = ExecResult(execution_id="r1", status=ExecStatus.RUNNING, stdout="oops", stderr="oops")
-    assert res.stdout is None
-    assert res.stderr is None
-
-
-def test_exec_result_running_serialization_excludes_stdout_stderr():
-    """RUNNING ExecResult serialized with exclude_none=True must lack stdout/stderr."""
-    res = ExecResult(execution_id="r1", status=ExecStatus.RUNNING)
-    data = res.to_dict(exclude_none=True)
+    data = res.to_dict()
     assert "stdout" not in data
     assert "stderr" not in data
-    assert "traceback" not in data
 
 
 def test_exec_result_running_roundtrip():
@@ -123,26 +97,21 @@ def test_exec_result_running_roundtrip():
     parsed = VersionedWireModel.parse_versioned(data)
     assert isinstance(parsed, ExecResult)
     assert parsed.status == ExecStatus.RUNNING
-    assert parsed.stdout is None
-    assert parsed.stderr is None
 
 
-def test_exec_result_succeeded_requires_stdout():
-    """SUCCEEDED ExecResult without stdout raises ValueError."""
-    with pytest.raises(ValueError):
-        ExecResult(execution_id="r1", status=ExecStatus.SUCCEEDED, stderr="")
-
-
-def test_exec_result_succeeded_requires_stderr():
-    """SUCCEEDED ExecResult without stderr raises ValueError."""
-    with pytest.raises(ValueError):
-        ExecResult(execution_id="r1", status=ExecStatus.SUCCEEDED, stdout="hi")
-
-
-def test_exec_result_failed_requires_stdout():
-    """FAILED ExecResult without stdout raises ValueError."""
-    with pytest.raises(ValueError):
-        ExecResult(execution_id="r1", status=ExecStatus.FAILED, stderr="")
+def test_exec_output_update_roundtrip():
+    update = ExecOutputUpdate(
+        execution_id="r1",
+        workflow_id="wf",
+        sequence=1,
+        stdout_delta="hello\n",
+        request_id="abc123",
+    )
+    data = update.to_dict()
+    parsed = VersionedWireModel.parse_versioned(data)
+    assert isinstance(parsed, ExecOutputUpdate)
+    assert parsed.stdout_delta == "hello\n"
+    assert parsed.sequence == 1
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +131,6 @@ def test_exec_result_error_code_roundtrip():
     res = ExecResult(
         execution_id="r1",
         status=ExecStatus.FAILED,
-        stdout="",
-        stderr="",
         error=ExecError.CONNECTION_FAILED,
     )
     data = res.to_dict()
@@ -193,8 +160,6 @@ def test_exec_result_request_id_roundtrip():
     res = ExecResult(
         execution_id="r1",
         status=ExecStatus.SUCCEEDED,
-        stdout="",
-        stderr="",
         request_id="abc123",
     )
     data = res.to_dict()
@@ -204,9 +169,7 @@ def test_exec_result_request_id_roundtrip():
 
 
 def test_exec_result_request_id_excluded_when_none():
-    res = ExecResult(
-        execution_id="r1", status=ExecStatus.SUCCEEDED, stdout="", stderr=""
-    )
+    res = ExecResult(execution_id="r1", status=ExecStatus.SUCCEEDED)
     assert res.request_id is None
     data = res.to_dict(exclude_none=True)
     assert "request_id" not in data

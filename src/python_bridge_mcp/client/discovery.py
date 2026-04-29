@@ -5,11 +5,12 @@ import logging
 import os
 import threading
 from enum import Enum
-from typing import Callable, Optional, Union
+from typing import Awaitable, Callable, Optional, Tuple, Union
 
 from ..shared.discovery_models import AckDiscovery, HeartbeatDiscovery, RegisterDiscovery
 from ..shared.exec_models import (
     ExecError,
+    ExecOutputUpdate,
     ExecRequest,
     ExecResult,
     ExecStatus,
@@ -20,7 +21,6 @@ from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
 from ..shared.text_buffer import ThreadSafeTextBuffer
 from .code_runner import CodeRunner
-from .periodic_flusher import PeriodicFlusher
 
 log = logging.getLogger(__name__)
 
@@ -31,12 +31,85 @@ class DiscoveryState(Enum):
     STOPPED = "stopped"
 
 
+class _OutputUpdateFlusher:
+    def __init__(
+        self,
+        request: ExecRequest,
+        out: ThreadSafeTextBuffer,
+        err: ThreadSafeTextBuffer,
+        send: Callable[[VersionedWireModel], Awaitable[None]],
+        interval: float,
+        max_chars: int,
+    ) -> None:
+        self._request = request
+        self._out = out
+        self._err = err
+        self._send = send
+        self._interval = interval
+        self._max_chars = max_chars
+        self._stdout_pos = 0
+        self._stderr_pos = 0
+        self._sequence = 0
+        self._stop_event = asyncio.Event()
+        self._task: Optional[asyncio.Task] = None
+
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._run())
+
+    async def stop(self) -> None:
+        self._stop_event.set()
+        if self._task is not None:
+            await asyncio.gather(self._task, return_exceptions=True)
+        await self.flush()
+
+    async def flush(self) -> None:
+        stdout_delta, stderr_delta = self._pending_output()
+        while stdout_delta or stderr_delta:
+            stdout_chunk = stdout_delta[: self._max_chars]
+            remaining = self._max_chars - len(stdout_chunk)
+            stderr_chunk = stderr_delta[:remaining]
+            await self._send_update(stdout_chunk, stderr_chunk)
+            stdout_delta = stdout_delta[len(stdout_chunk) :]
+            stderr_delta = stderr_delta[len(stderr_chunk) :]
+
+    async def _run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=self._interval)
+            except asyncio.TimeoutError:
+                await self.flush()
+
+    def _pending_output(self) -> Tuple[str, str]:
+        stdout_value = self._out.getvalue()
+        stderr_value = self._err.getvalue()
+        return (
+            stdout_value[self._stdout_pos :],
+            stderr_value[self._stderr_pos :],
+        )
+
+    async def _send_update(self, stdout_delta: str, stderr_delta: str) -> None:
+        self._sequence += 1
+        await self._send(
+            ExecOutputUpdate(
+                execution_id=self._request.execution_id,
+                workflow_id=self._request.workflow_id,
+                sequence=self._sequence,
+                stdout_delta=stdout_delta,
+                stderr_delta=stderr_delta,
+                request_id=self._request.request_id,
+            )
+        )
+        self._stdout_pos += len(stdout_delta)
+        self._stderr_pos += len(stderr_delta)
+
+
 class DiscoveryClient:
     DEFAULT_HOST = "localhost"
     DEFAULT_PORT = 6321
     HEARTBEAT_INTERVAL = 5
     MAX_BACKOFF = 30
-    FLUSH_INTERVAL = 0.5
+    OUTPUT_FLUSH_INTERVAL = 2.0
+    OUTPUT_UPDATE_MAX_CHARS = 256 * 1024
 
     def __init__(
         self,
@@ -151,13 +224,15 @@ class DiscoveryClient:
         self._writer = writer
         self._write_lock = asyncio.Lock()
         try:
-            await self._send(RegisterDiscovery(
-                pid=self._pid,
-                instance_id=self._instance_id,
-                instance_name=self._instance_name,
-                alias=self._current_alias(),
-                instance_type=self._instance_type,
-            ))
+            await self._send(
+                RegisterDiscovery(
+                    pid=self._pid,
+                    instance_id=self._instance_id,
+                    instance_name=self._instance_name,
+                    alias=self._current_alias(),
+                    instance_type=self._instance_type,
+                )
+            )
             ack = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(reader))
             if not isinstance(ack, AckDiscovery):
                 raise RuntimeError("Registration rejected: unexpected response")
@@ -166,7 +241,9 @@ class DiscoveryClient:
             self._set_state(DiscoveryState.CONNECTED)
             log.info(
                 "Discovery connected to %s:%d as %s",
-                self._host, self._port, self._instance_id,
+                self._host,
+                self._port,
+                self._instance_id,
             )
 
             heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -205,34 +282,37 @@ class DiscoveryClient:
                 raise WireModelError(f"unexpected message type: {type(msg).__name__}")
 
     async def _handle_set_alias(self, msg: SetAliasRequest) -> None:
-        await self._send(SetAliasResult(
-            success=True,
-            alias=self._set_alias(msg.alias),
-            request_id=msg.request_id,
-        ))
+        await self._send(
+            SetAliasResult(
+                success=True,
+                alias=self._set_alias(msg.alias),
+                request_id=msg.request_id,
+            )
+        )
 
     async def _handle_exec(self, msg: ExecRequest) -> None:
         assert self._execution_lock is not None
         if self._execution_lock.locked():
-            await self._send(ExecResult(
-                execution_id=msg.execution_id,
-                status=ExecStatus.FAILED,
-                stdout="",
-                stderr="",
-                error=ExecError.BUSY,
-                request_id=msg.request_id,
-            ))
+            await self._send(
+                ExecResult(
+                    execution_id=msg.execution_id,
+                    status=ExecStatus.FAILED,
+                    error=ExecError.BUSY,
+                    request_id=msg.request_id,
+                )
+            )
             return
 
         async with self._execution_lock:
             out = ThreadSafeTextBuffer()
             err = ThreadSafeTextBuffer()
-            flusher = PeriodicFlusher(
-                self.FLUSH_INTERVAL,
-                msg.workflow_id,
-                msg.execution_id,
+            flusher = _OutputUpdateFlusher(
+                msg,
                 out,
                 err,
+                self._send,
+                self.OUTPUT_FLUSH_INTERVAL,
+                self.OUTPUT_UPDATE_MAX_CHARS,
             )
             flusher.start()
             try:
@@ -247,13 +327,11 @@ class DiscoveryClient:
                 result = ExecResult(
                     execution_id=msg.execution_id,
                     status=ExecStatus.FAILED,
-                    stdout=out.getvalue(),
-                    stderr=err.getvalue(),
                     error=str(exc),
                     request_id=msg.request_id,
                 )
             finally:
-                flusher.stop()
+                await flusher.stop()
         await self._send(result)
 
     async def _send(self, msg: VersionedWireModel) -> None:

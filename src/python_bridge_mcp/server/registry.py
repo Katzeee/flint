@@ -3,11 +3,11 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 from uuid import uuid4
 
 from ..shared.discovery_models import AckDiscovery, HeartbeatDiscovery, RegisterDiscovery
-from ..shared.exec_models import ExecResult, SetAliasResult
+from ..shared.exec_models import ExecOutputUpdate, ExecResult, SetAliasResult
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
 
@@ -88,6 +88,7 @@ class Registry:
         self._stale_timeout = stale_timeout
         self._clients: Dict[str, ClientEntry] = {}
         self._sessions: Dict[str, ControlSession] = {}
+        self._output_update_handler: Optional[Callable[[ExecOutputUpdate], None]] = None
         self._lock = threading.Lock()
         self._server: Optional[asyncio.AbstractServer] = None
 
@@ -203,6 +204,9 @@ class Registry:
             session.forget(request_id)
             raise
 
+    def set_output_update_handler(self, handler: Callable[[ExecOutputUpdate], None]) -> None:
+        self._output_update_handler = handler
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -312,6 +316,21 @@ class Registry:
                 elif isinstance(msg, (ExecResult, SetAliasResult)):
                     if session is None or not session.resolve(msg):
                         log.warning("Dropping unmatched response from %s: %s", instance_id, type(msg).__name__)
+
+                elif isinstance(msg, ExecOutputUpdate):
+                    if session is None:
+                        await AsyncJsonLineCodec.send(writer, AckDiscovery(success=False, error="not registered").to_dict())
+                        return
+                    if self._output_update_handler is not None:
+                        try:
+                            self._output_update_handler(msg)
+                        except Exception:
+                            log.warning(
+                                "Failed to handle output update for %s/%s",
+                                msg.workflow_id,
+                                msg.execution_id,
+                                exc_info=True,
+                            )
 
                 else:
                     if session is not None:

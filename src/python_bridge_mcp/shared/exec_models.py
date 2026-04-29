@@ -22,7 +22,7 @@ class ExecError(str, Enum):
 
 @dataclass
 class ExecWireModel(VersionedWireModel):
-    PROTOCOL_VERSION: ClassVar[int] = 2
+    PROTOCOL_VERSION: ClassVar[int] = 3
 
 
 @wire_model
@@ -52,26 +52,20 @@ class SetAliasResult(ExecWireModel):
 
 @wire_model
 @dataclass
+class ExecOutputUpdate(ExecWireModel):
+    execution_id: str
+    workflow_id: str
+    sequence: int
+    stdout_delta: str = ""
+    stderr_delta: str = ""
+    request_id: Optional[str] = None
+
+
+@wire_model
+@dataclass
 class ExecResult(ExecWireModel):
     execution_id: str
     status: ExecStatus
-    stdout: Optional[str] = None
-    stderr: Optional[str] = None
     traceback: Optional[str] = None
     error: Optional[str] = None
     request_id: Optional[str] = None
-
-    def __post_init__(self) -> None:
-        if self.status == ExecStatus.RUNNING:
-            self.stdout = None
-            self.stderr = None
-            self.traceback = None
-        elif self.status in (ExecStatus.SUCCEEDED, ExecStatus.FAILED):
-            if not isinstance(self.stdout, str):
-                raise ValueError(
-                    f"ExecResult with status={self.status!r} requires stdout as str, got {self.stdout!r}"
-                )
-            if not isinstance(self.stderr, str):
-                raise ValueError(
-                    f"ExecResult with status={self.status!r} requires stderr as str, got {self.stderr!r}"
-                )

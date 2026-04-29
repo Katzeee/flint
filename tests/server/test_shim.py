@@ -125,8 +125,6 @@ def test_exec_python_success(monkeypatch) -> None:
     result_obj = ExecResult(
         execution_id="0001",
         status=ExecStatus.SUCCEEDED,
-        stdout="hello\n",
-        stderr="",
     )
     client = _mock_client(execute=result_obj)
     _patch(monkeypatch, client)
@@ -139,7 +137,7 @@ def test_exec_python_success(monkeypatch) -> None:
     }))
     assert result.isError is False
     assert result.structuredContent["status"] == "succeeded"
-    assert result.structuredContent["stdout"] == "hello\n"
+    assert "stdout" not in result.structuredContent
 
 
 def test_exec_python_target_not_found(monkeypatch) -> None:

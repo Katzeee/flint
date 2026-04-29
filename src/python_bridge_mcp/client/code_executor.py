@@ -32,7 +32,5 @@ class CodeExecutor:
         return ExecResult(
             execution_id=execution_id,
             status=status,
-            stdout=out.getvalue(),
-            stderr=err.getvalue(),
             traceback=traceback,
         )

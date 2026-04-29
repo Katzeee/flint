@@ -4,9 +4,18 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-log = logging.getLogger(__name__)
-
-from .registry import Registry
+from ..shared.exec_models import (
+    ExecError,
+    ExecOutputUpdate,
+    ExecRequest,
+    ExecResult,
+    ExecStatus,
+    SetAliasRequest,
+    SetAliasResult,
+)
+from ..shared.jsonline import AsyncJsonLineCodec
+from ..shared.model_base import VersionedWireModel, WireModelError
+from ..shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
 from .control_models import (
     ControlError,
     ControlExecuteRequest,
@@ -26,10 +35,9 @@ from .control_models import (
     TargetInfo,
     TargetSummary,
 )
-from ..shared.exec_models import ExecError, ExecRequest, ExecResult, ExecStatus, SetAliasRequest, SetAliasResult
-from ..shared.jsonline import AsyncJsonLineCodec
-from ..shared.model_base import VersionedWireModel, WireModelError
-from ..shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
+from .registry import Registry
+
+log = logging.getLogger(__name__)
 
 
 class ControlServer:
@@ -49,6 +57,7 @@ class ControlServer:
         self._host = host
         self._port = port
         self._server: Optional[asyncio.AbstractServer] = None
+        self._discovery.set_output_update_handler(self.handle_output_update)
 
     async def run(self) -> None:
         self._server = await asyncio.start_server(
@@ -241,7 +250,9 @@ class ControlServer:
         )
         log.info(
             "Execute start: instance=%s workflow=%s execution=%s",
-            instance_id, workflow_id, execution_id,
+            instance_id,
+            workflow_id,
+            execution_id,
         )
 
         req = ExecRequest(
@@ -252,9 +263,7 @@ class ControlServer:
             request_id=request_id,
         )
 
-        task = asyncio.create_task(
-            self._receive_result(instance_id, req, workflow_id, execution_id)
-        )
+        task = asyncio.create_task(self._receive_result(instance_id, req, workflow_id, execution_id))
         task.add_done_callback(ControlServer._consume_task_exception)
 
         try:
@@ -269,21 +278,26 @@ class ControlServer:
             return ExecResult(
                 execution_id=execution_id,
                 status=ExecStatus.FAILED,
-                stdout="",
-                stderr="",
                 error=ExecError.CONNECTION_FAILED,
                 request_id=request_id,
             )
 
     @staticmethod
     def _fail_execution(workflow_id: str, execution_id: str, error: ExecError) -> None:
-        WorkflowPersistence.update_execution_result(
+        WorkflowPersistence.finalize_execution_result(
             workflow_id,
             execution_id,
             ExecStatus.FAILED,
-            "", "",
             datetime.now(timezone.utc).isoformat(),
             error=error,
+        )
+
+    def handle_output_update(self, update: ExecOutputUpdate) -> None:
+        WorkflowPersistence.append_execution_output(
+            update.workflow_id,
+            update.execution_id,
+            update.stdout_delta,
+            update.stderr_delta,
         )
 
     @staticmethod
@@ -310,25 +324,28 @@ class ControlServer:
             if result.error == ExecError.BUSY:
                 WorkflowPersistence.remove_execution(workflow_id, execution_id)
             else:
-                WorkflowPersistence.update_execution_result(
+                WorkflowPersistence.finalize_execution_result(
                     workflow_id,
                     execution_id,
                     result.status,
-                    result.stdout or "",
-                    result.stderr or "",
                     datetime.now(timezone.utc).isoformat(),
                     result.traceback,
                     result.error,
                 )
             log.info(
                 "Execute finished: workflow=%s execution=%s status=%s error=%s",
-                workflow_id, execution_id, result.status, result.error,
+                workflow_id,
+                execution_id,
+                result.status,
+                result.error,
             )
             return result
         except asyncio.TimeoutError:
             log.warning(
                 "Execution %s (workflow %s) timed out after %.0fs",
-                execution_id, workflow_id, ControlServer.BACKGROUND_EXEC_TIMEOUT,
+                execution_id,
+                workflow_id,
+                ControlServer.BACKGROUND_EXEC_TIMEOUT,
             )
             ControlServer._fail_execution(workflow_id, execution_id, ExecError.EXECUTION_TIMEOUT)
             raise
