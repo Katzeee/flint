@@ -24,16 +24,16 @@ from .control_models import (
     GetWorkflowExecutionResponse,
     GetWorkflowOverviewRequest,
     GetWorkflowOverviewResponse,
-    ListTargetsRequest,
-    ListTargetsResponse,
+    ListInstancesRequest,
+    ListInstancesResponse,
     PingRequest,
     PingResponse,
-    SetTargetAliasRequest,
-    SetTargetAliasResponse,
+    SetInstanceAliasRequest,
+    SetInstanceAliasResponse,
     StartWorkflowRequest,
     StartWorkflowResponse,
-    TargetInfo,
-    TargetSummary,
+    InstanceInfo,
+    InstanceSummary,
 )
 from .registry import Registry
 
@@ -96,8 +96,8 @@ class ControlServer:
             writer.close()
 
     async def _dispatch(self, request: VersionedWireModel) -> VersionedWireModel:
-        if isinstance(request, ListTargetsRequest):
-            return self.list_targets(request.instance_type)
+        if isinstance(request, ListInstancesRequest):
+            return self.list_instances(request.instance_type)
 
         if isinstance(request, StartWorkflowRequest):
             wf_id = self.start_workflow(request.name, request.description)
@@ -123,7 +123,7 @@ class ControlServer:
             except KeyError as exc:
                 return ErrorResponse(error_code=ControlError.EXECUTION_NOT_FOUND, message=str(exc))
 
-        if isinstance(request, SetTargetAliasRequest):
+        if isinstance(request, SetInstanceAliasRequest):
             try:
                 return await self.set_alias(request.instance_id, request.alias)
             except KeyError as exc:
@@ -137,10 +137,10 @@ class ControlServer:
             message=f"unhandled request type: {type(request).__name__}",
         )
 
-    def list_targets(self, instance_type: Optional[str] = None) -> ListTargetsResponse:
+    def list_instances(self, instance_type: Optional[str] = None) -> ListInstancesResponse:
         clients = self._discovery.list_clients(instance_type)
-        targets = [
-            TargetInfo(
+        instances = [
+            InstanceInfo(
                 instance_id=e.instance_id,
                 instance_name=e.instance_name,
                 alias=e.alias,
@@ -148,9 +148,9 @@ class ControlServer:
             )
             for e in clients.values()
         ]
-        return ListTargetsResponse(targets=targets)
+        return ListInstancesResponse(instances=instances)
 
-    async def set_alias(self, instance_id: str, alias: Optional[str]) -> SetTargetAliasResponse:
+    async def set_alias(self, instance_id: str, alias: Optional[str]) -> SetInstanceAliasResponse:
         return await self._set_alias_remote(instance_id, alias)
 
     async def _set_alias_remote(
@@ -159,7 +159,7 @@ class ControlServer:
         alias: Optional[str],
         *,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
-    ) -> SetTargetAliasResponse:
+    ) -> SetInstanceAliasResponse:
         entry = self._discovery.get_client(instance_id)
         if entry is None:
             raise KeyError(f"unknown client: {instance_id}")
@@ -172,13 +172,13 @@ class ControlServer:
         if not isinstance(result, InstanceSetAliasResult):
             raise WireModelError(f"unexpected response: {type(result).__name__}")
         self._discovery.set_alias(instance_id, result.alias)
-        return SetTargetAliasResponse(success=True, instance_id=instance_id, alias=result.alias)
+        return SetInstanceAliasResponse(success=True, instance_id=instance_id, alias=result.alias)
 
     def get_workflow_overview(self, workflow_id: str) -> GetWorkflowOverviewResponse:
         record = WorkflowPersistence.load(workflow_id)
-        raw_summaries = WorkflowPersistence.get_target_summaries(record)
-        target_summaries = [
-            TargetSummary(
+        raw_summaries = WorkflowPersistence.get_instance_summaries(record)
+        instance_summaries = [
+            InstanceSummary(
                 instance_id=iid,
                 exec_count=s["exec_count"],
                 active_count=s["active_count"],
@@ -193,7 +193,7 @@ class ControlServer:
             execution_count=record.execution_count,
             created_at=record.created_at,
             instance_ids=list(record.instance_ids),
-            target_summaries=target_summaries,
+            instance_summaries=instance_summaries,
         )
 
     def get_workflow_execution(

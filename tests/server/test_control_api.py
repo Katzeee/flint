@@ -66,7 +66,7 @@ def listener_runner() -> None:
     return None
 
 
-class _DccRunner:
+class _InstanceRunner:
     def __init__(self, client: DiscoveryClient) -> None:
         self.client = client
         self._thread = threading.Thread(target=client.run, daemon=True)
@@ -84,7 +84,7 @@ def _bg_register(
     exec_port: int = 0,
     instance_id: str = "c1",
     pid: int = 1,
-) -> _DccRunner:
+) -> _InstanceRunner:
     client = DiscoveryClient(
         instance_id=instance_id,
         instance_name="test",
@@ -94,7 +94,7 @@ def _bg_register(
         heartbeat_interval=0.1,
         pid=pid,
     )
-    runner = _DccRunner(client)
+    runner = _InstanceRunner(client)
     runner.start()
     assert client.wait_until_registered(timeout=3), "registration failed"
 
@@ -107,24 +107,24 @@ def _bg_register(
 
 
 # ---------------------------------------------------------------------------
-# list_targets
+# list_instances
 # ---------------------------------------------------------------------------
 
-def test_list_targets_empty(backend, client) -> None:
-    result = asyncio.run(client.list_targets())
-    assert result.targets == []
+def test_list_instances_empty(backend, client) -> None:
+    result = asyncio.run(client.list_instances())
+    assert result.instances == []
 
 
-def test_list_targets_with_registered_dcc(
+def test_list_instances_with_registered_instance(
     backend, client, discovery_port: int, exec_port: int,
 ) -> None:
     _bg_register(discovery_port, exec_port, instance_id="c1")
-    result = asyncio.run(client.list_targets())
-    assert len(result.targets) == 1
-    assert result.targets[0].instance_id == "c1"
+    result = asyncio.run(client.list_instances())
+    assert len(result.instances) == 1
+    assert result.instances[0].instance_id == "c1"
 
 
-def test_list_targets_filter_by_type(
+def test_list_instances_filter_by_type(
     backend, client, discovery_port: int,
 ) -> None:
     registry, *_ = backend
@@ -138,9 +138,9 @@ def test_list_targets_filter_by_type(
     _reg("maya1", "maya", 1, 1001)
     _reg("nuke1", "nuke", 2, 1002)
 
-    result = asyncio.run(client.list_targets(dcc_type="maya"))
-    assert len(result.targets) == 1
-    assert result.targets[0].instance_id == "maya1"
+    result = asyncio.run(client.list_instances(instance_type="maya"))
+    assert len(result.instances) == 1
+    assert result.instances[0].instance_id == "maya1"
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ def test_execute_success(
     assert WorkflowPersistence.load(wf_id).execs[0].stdout == "hello\n"
 
 
-def test_execute_unknown_target_raises(backend, client) -> None:
+def test_execute_unknown_instance_raises(backend, client) -> None:
     wf_id = asyncio.run(client.start_workflow("wf"))
     with pytest.raises(KeyError):
         asyncio.run(client.execute("nonexistent", "x=1", wf_id))
@@ -248,7 +248,7 @@ def test_backend_client_ping(backend, client) -> None:
     assert asyncio.run(client.ping()) is True
 
 
-def test_set_alias_unknown_target(backend, client) -> None:
+def test_set_alias_unknown_instance(backend, client) -> None:
     with pytest.raises(KeyError):
         asyncio.run(client.set_alias("nonexistent", "alias"))
 

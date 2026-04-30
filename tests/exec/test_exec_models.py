@@ -146,7 +146,7 @@ def test_exec_output_update_roundtrip():
 
 def test_exec_error_codes_exist():
     assert InstanceExecError.BUSY == "busy"
-    assert InstanceExecError.TARGET_OFFLINE == "target_offline"
+    assert InstanceExecError.INSTANCE_OFFLINE == "instance_offline"
     assert InstanceExecError.CONNECTION_FAILED == "connection_failed"
     assert InstanceExecError.PROTOCOL_ERROR == "protocol_error"
     assert InstanceExecError.EXECUTION_TIMEOUT == "execution_timeout"

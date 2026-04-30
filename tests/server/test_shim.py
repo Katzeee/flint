@@ -9,10 +9,10 @@ from python_bridge_mcp.server.backend_client import BackendClient
 from python_bridge_mcp.server.control_models import (
     GetWorkflowExecutionResponse,
     GetWorkflowOverviewResponse,
-    ListTargetsResponse,
-    SetTargetAliasResponse,
-    TargetInfo,
-    TargetSummary,
+    ListInstancesResponse,
+    SetInstanceAliasResponse,
+    InstanceInfo,
+    InstanceSummary,
 )
 from python_bridge_mcp.server.shim import mcp as shim_mcp
 from python_bridge_mcp.shared.instance_control_models import InstanceExecError, InstanceExecResult, InstanceExecStatus
@@ -29,12 +29,12 @@ from conftest import free_port
 # ---------------------------------------------------------------------------
 
 EXPECTED_TOOLS = {
-    "list_dcc_targets",
+    "list_instances",
     "exec_python",
     "start_workflow",
     "get_workflow_overview",
     "get_workflow_execution",
-    "set_target_alias",
+    "set_instance_alias",
 }
 
 
@@ -65,40 +65,40 @@ def test_shim_has_all_tools() -> None:
 
 
 # ---------------------------------------------------------------------------
-# E2 — list_dcc_targets
+# E2 — list_instances
 # ---------------------------------------------------------------------------
 
-def test_list_dcc_targets_returns_targets(monkeypatch) -> None:
-    targets = [
-        TargetInfo(instance_id="c1", instance_name="myapp", instance_type="maya")
+def test_list_instances_returns_instances(monkeypatch) -> None:
+    instances = [
+        InstanceInfo(instance_id="c1", instance_name="myapp", instance_type="maya")
     ]
-    client = _mock_client(list_targets=ListTargetsResponse(targets=targets))
+    client = _mock_client(list_instances=ListInstancesResponse(instances=instances))
     _patch(monkeypatch, client)
 
-    result = asyncio.run(shim_mcp.call_tool("list_dcc_targets", {}))
+    result = asyncio.run(shim_mcp.call_tool("list_instances", {}))
     data = result.structuredContent
-    assert len(data["targets"]) == 1
-    assert data["targets"][0]["instance_id"] == "c1"
-    assert data["targets"][0]["instance_name"] == "myapp"
-    assert data["targets"][0]["instance_type"] == "maya"
+    assert len(data["instances"]) == 1
+    assert data["instances"][0]["instance_id"] == "c1"
+    assert data["instances"][0]["instance_name"] == "myapp"
+    assert data["instances"][0]["instance_type"] == "maya"
     assert json.loads(result.content[0].text) == data
-    client.list_targets.assert_called_once_with(None)
+    client.list_instances.assert_called_once_with(None)
 
 
-def test_list_dcc_targets_returns_structured_content(monkeypatch) -> None:
-    targets = [
-        TargetInfo(
+def test_list_instances_returns_structured_content(monkeypatch) -> None:
+    instances = [
+        InstanceInfo(
             instance_id="c1",
             instance_name="myapp",
             instance_type="maya",
         )
     ]
-    client = _mock_client(list_targets=ListTargetsResponse(targets=targets))
+    client = _mock_client(list_instances=ListInstancesResponse(instances=instances))
     _patch(monkeypatch, client)
 
-    result = asyncio.run(shim_mcp.call_tool("list_dcc_targets", {}))
+    result = asyncio.run(shim_mcp.call_tool("list_instances", {}))
     assert result.structuredContent == {
-        "targets": [
+        "instances": [
             {
                 "instance_id": "c1",
                 "instance_name": "myapp",
@@ -109,12 +109,12 @@ def test_list_dcc_targets_returns_structured_content(monkeypatch) -> None:
     }
 
 
-def test_list_dcc_targets_filters_by_type(monkeypatch) -> None:
-    client = _mock_client(list_targets=ListTargetsResponse(targets=[]))
+def test_list_instances_filters_by_type(monkeypatch) -> None:
+    client = _mock_client(list_instances=ListInstancesResponse(instances=[]))
     _patch(monkeypatch, client)
 
-    asyncio.run(shim_mcp.call_tool("list_dcc_targets", {"dcc_type": "maya"}))
-    client.list_targets.assert_called_once_with("maya")
+    asyncio.run(shim_mcp.call_tool("list_instances", {"instance_type": "maya"}))
+    client.list_instances.assert_called_once_with("maya")
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ def test_exec_python_success(monkeypatch) -> None:
     assert "stdout" not in result.structuredContent
 
 
-def test_exec_python_target_not_found(monkeypatch) -> None:
+def test_exec_python_instance_not_found(monkeypatch) -> None:
     client = AsyncMock(spec=BackendClient)
     client.execute.side_effect = KeyError("unknown client: nonexistent")
     _patch(monkeypatch, client)
@@ -151,7 +151,7 @@ def test_exec_python_target_not_found(monkeypatch) -> None:
         "workflow_id": "dummy",
     }))
     assert result.isError is True
-    assert result.structuredContent["error_code"] == "target_offline"
+    assert result.structuredContent["error_code"] == "instance_offline"
 
 
 # ---------------------------------------------------------------------------
@@ -274,15 +274,15 @@ def test_get_workflow_execution_not_found(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# E7 — set_target_alias
+# E7 — set_instance_alias
 # ---------------------------------------------------------------------------
 
-def test_set_target_alias_updates_alias(monkeypatch) -> None:
-    resp = SetTargetAliasResponse(success=True, instance_id="c1", alias="my-alias")
+def test_set_instance_alias_updates_alias(monkeypatch) -> None:
+    resp = SetInstanceAliasResponse(success=True, instance_id="c1", alias="my-alias")
     client = _mock_client(set_alias=resp)
     _patch(monkeypatch, client)
 
-    result = asyncio.run(shim_mcp.call_tool("set_target_alias", {
+    result = asyncio.run(shim_mcp.call_tool("set_instance_alias", {
         "instance_id": "c1",
         "alias": "my-alias",
     }))
@@ -290,12 +290,12 @@ def test_set_target_alias_updates_alias(monkeypatch) -> None:
     client.set_alias.assert_called_once_with("c1", "my-alias")
 
 
-def test_set_target_alias_none(monkeypatch) -> None:
-    resp = SetTargetAliasResponse(success=True, instance_id="c1", alias=None)
+def test_set_instance_alias_none(monkeypatch) -> None:
+    resp = SetInstanceAliasResponse(success=True, instance_id="c1", alias=None)
     client = _mock_client(set_alias=resp)
     _patch(monkeypatch, client)
 
-    result = asyncio.run(shim_mcp.call_tool("set_target_alias", {
+    result = asyncio.run(shim_mcp.call_tool("set_instance_alias", {
         "instance_id": "c1",
         "alias": None,
     }))

@@ -14,7 +14,7 @@ class InstanceExecStatus(str, Enum):
 
 class InstanceExecError(str, Enum):
     BUSY              = "busy"
-    TARGET_OFFLINE    = "target_offline"
+    INSTANCE_OFFLINE    = "instance_offline"
     CONNECTION_FAILED = "connection_failed"
     PROTOCOL_ERROR    = "protocol_error"
     EXECUTION_TIMEOUT = "execution_timeout"

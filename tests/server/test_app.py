@@ -13,7 +13,7 @@ from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.shared.instance_control_models import InstanceExecStatus
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
-from python_bridge_mcp.server.control_models import ListTargetsResponse, SetTargetAliasResponse
+from python_bridge_mcp.server.control_models import ListInstancesResponse, SetInstanceAliasResponse
 
 from conftest import AsyncRunner, free_port, wait_for
 
@@ -22,7 +22,7 @@ from conftest import AsyncRunner, free_port, wait_for
 # Helpers
 # ---------------------------------------------------------------------------
 
-class _DccRunner:
+class _InstanceRunner:
     def __init__(self, client: DiscoveryClient) -> None:
         self.client = client
         self._thread = threading.Thread(target=client.run, daemon=True)
@@ -44,7 +44,7 @@ def _bg_register(
     disconnect_event: Optional[threading.Event] = None,
     instance_type: str = "",
     pid: int = 1,
-) -> _DccRunner:
+) -> _InstanceRunner:
     client = DiscoveryClient(
         instance_id=instance_id,
         instance_name=instance_name,
@@ -56,7 +56,7 @@ def _bg_register(
         heartbeat_interval=0.1,
         pid=pid,
     )
-    runner = _DccRunner(client)
+    runner = _InstanceRunner(client)
     runner.start()
     assert client.wait_until_registered(timeout=3), "registration failed"
 
@@ -275,26 +275,26 @@ def test_set_alias_whitespace_becomes_none(
 
 
 # ---------------------------------------------------------------------------
-# D1 — list_targets
+# D1 — list_instances
 # ---------------------------------------------------------------------------
 
-def test_list_targets_returns_target_info(
+def test_list_instances_returns_instance_info(
     app_runner, discovery_port: int, exec_port: int,
 ) -> None:
     registry, control, _ = app_runner
     _bg_register(discovery_port, exec_port, instance_name="myapp", instance_type="maya")
 
-    response = control.list_targets()
-    assert isinstance(response, ListTargetsResponse)
-    assert len(response.targets) == 1
-    t = response.targets[0]
+    response = control.list_instances()
+    assert isinstance(response, ListInstancesResponse)
+    assert len(response.instances) == 1
+    t = response.instances[0]
     assert t.instance_id == "c1"
     assert t.instance_name == "myapp"
     assert t.instance_type == "maya"
     assert t.alias is None
 
 
-def test_list_targets_filters_by_type(
+def test_list_instances_filters_by_type(
     app_runner, discovery_port: int,
 ) -> None:
     registry, control, _ = app_runner
@@ -303,13 +303,13 @@ def test_list_targets_filters_by_type(
     _bg_register(discovery_port, port_maya, instance_id="c1", instance_type="maya", pid=1)
     _bg_register(discovery_port, port_nuke, instance_id="c2", instance_type="nuke", pid=2)
 
-    maya = control.list_targets("maya")
-    assert len(maya.targets) == 1
-    assert maya.targets[0].instance_id == "c1"
+    maya = control.list_instances("maya")
+    assert len(maya.instances) == 1
+    assert maya.instances[0].instance_id == "c1"
 
-    nuke = control.list_targets("nuke")
-    assert len(nuke.targets) == 1
-    assert nuke.targets[0].instance_id == "c2"
+    nuke = control.list_instances("nuke")
+    assert len(nuke.instances) == 1
+    assert nuke.instances[0].instance_id == "c2"
 
 
 # ---------------------------------------------------------------------------
@@ -373,7 +373,7 @@ def test_get_workflow_execution_not_found(app_runner) -> None:
 
 
 # ---------------------------------------------------------------------------
-# D4 — set_alias returns SetTargetAliasResponse
+# D4 — set_alias returns SetInstanceAliasResponse
 # ---------------------------------------------------------------------------
 
 def test_set_alias_returns_response_with_normalized_alias(
@@ -383,7 +383,7 @@ def test_set_alias_returns_response_with_normalized_alias(
     _bg_register(discovery_port, exec_port)
 
     response = runner.run_async(control.set_alias("c1", ""))
-    assert isinstance(response, SetTargetAliasResponse)
+    assert isinstance(response, SetInstanceAliasResponse)
     assert response.success is True
     assert response.instance_id == "c1"
     assert response.alias is None

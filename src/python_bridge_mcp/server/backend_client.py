@@ -9,12 +9,12 @@ from .control_models import (
     GetWorkflowExecutionResponse,
     GetWorkflowOverviewRequest,
     GetWorkflowOverviewResponse,
-    ListTargetsRequest,
-    ListTargetsResponse,
+    ListInstancesRequest,
+    ListInstancesResponse,
     PingRequest,
     PingResponse,
-    SetTargetAliasRequest,
-    SetTargetAliasResponse,
+    SetInstanceAliasRequest,
+    SetInstanceAliasResponse,
     StartWorkflowRequest,
     StartWorkflowResponse,
 )
@@ -78,10 +78,10 @@ class BackendClient:
             and resp.ready is True
         )
 
-    async def list_targets(self, dcc_type: Optional[str] = None) -> ListTargetsResponse:
-        resp = await self._roundtrip(ListTargetsRequest(instance_type=dcc_type))
+    async def list_instances(self, instance_type: Optional[str] = None) -> ListInstancesResponse:
+        resp = await self._roundtrip(ListInstancesRequest(instance_type=instance_type))
         self._raise_if_error(resp)
-        assert isinstance(resp, ListTargetsResponse)
+        assert isinstance(resp, ListInstancesResponse)
         return resp
 
     async def start_workflow(self, name: str, description: str = "") -> str:
@@ -134,10 +134,10 @@ class BackendClient:
 
     async def set_alias(
         self, instance_id: str, alias: Optional[str] = None
-    ) -> SetTargetAliasResponse:
+    ) -> SetInstanceAliasResponse:
         resp = await self._roundtrip(
-            SetTargetAliasRequest(instance_id=instance_id, alias=alias)
+            SetInstanceAliasRequest(instance_id=instance_id, alias=alias)
         )
         self._raise_if_error(resp)
-        assert isinstance(resp, SetTargetAliasResponse)
+        assert isinstance(resp, SetInstanceAliasResponse)
         return resp

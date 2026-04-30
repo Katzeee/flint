@@ -53,23 +53,23 @@ def _tool_error(error_code: ControlError, message: str) -> CallToolResult:
 
 
 @mcp.tool()
-async def list_dcc_targets(dcc_type: Optional[str] = None):
-    """List currently registered DCC targets.
+async def list_instances(instance_type: Optional[str] = None):
+    """List currently registered Python instances.
 
     Args:
-        dcc_type: Optional filter by instance type (e.g. "maya", "nuke").
+        instance_type: Optional filter by instance type.
     """
     client = await _get_backend_client()
-    response = await client.list_targets(dcc_type)
-    return _tool_ok({"targets": [t.to_dict() for t in response.targets]})
+    response = await client.list_instances(instance_type)
+    return _tool_ok({"instances": [t.to_dict() for t in response.instances]})
 
 
 @mcp.tool()
 async def exec_python(instance_id: str, code: str, workflow_id: str, name: str = ""):
-    """Execute Python code on a remote DCC target.
+    """Execute Python code on a registered Python instance.
 
     Args:
-        instance_id: Target instance to execute on.
+        instance_id: Instance to execute on.
         code: Python code to execute.
         workflow_id: Workflow to record execution under.
         name: Optional execution name.
@@ -78,7 +78,7 @@ async def exec_python(instance_id: str, code: str, workflow_id: str, name: str =
     try:
         result = await client.execute(instance_id, code, workflow_id, name)
     except KeyError as exc:
-        return _tool_error(ControlError.TARGET_OFFLINE, str(exc))
+        return _tool_error(ControlError.INSTANCE_OFFLINE, str(exc))
     return _tool_ok(result.to_dict(exclude_none=True))
 
 
@@ -130,18 +130,18 @@ async def get_workflow_execution(workflow_id: str, execution_id: str, view: str 
 
 
 @mcp.tool()
-async def set_target_alias(instance_id: str, alias: Optional[str] = None):
-    """Set or clear the alias for a registered target.
+async def set_instance_alias(instance_id: str, alias: Optional[str] = None):
+    """Set or clear the alias for a registered instance.
 
     Args:
-        instance_id: Target instance to update.
+        instance_id: Instance to update.
         alias: New alias value, or None/empty to clear.
     """
     client = await _get_backend_client()
     try:
         response = await client.set_alias(instance_id, alias)
     except KeyError as exc:
-        return _tool_error(ControlError.TARGET_OFFLINE, str(exc))
+        return _tool_error(ControlError.INSTANCE_OFFLINE, str(exc))
     except BackendError as exc:
         return _tool_error(exc.error_code, str(exc))
     return _tool_ok(response.to_dict())

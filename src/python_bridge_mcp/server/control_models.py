@@ -19,11 +19,11 @@ class ControlError(str, Enum):
     UNKNOWN_REQUEST = "unknown_request"
     WORKFLOW_NOT_FOUND = "workflow_not_found"
     EXECUTION_NOT_FOUND = "execution_not_found"
-    TARGET_OFFLINE = "target_offline"
+    INSTANCE_OFFLINE = "instance_offline"
 
 
 @dataclass
-class TargetInfo(BaseModel):
+class InstanceInfo(BaseModel):
     instance_id: str
     instance_name: str
     alias: Optional[str] = None
@@ -31,7 +31,7 @@ class TargetInfo(BaseModel):
 
 
 @dataclass
-class TargetSummary(BaseModel):
+class InstanceSummary(BaseModel):
     instance_id: str
     exec_count: int
     active_count: int
@@ -40,14 +40,14 @@ class TargetSummary(BaseModel):
 
 @wire_model
 @dataclass
-class ListTargetsRequest(ControlWireModel):
+class ListInstancesRequest(ControlWireModel):
     instance_type: Optional[str] = None
 
 
 @wire_model
 @dataclass
-class ListTargetsResponse(ControlWireModel):
-    targets: List[TargetInfo] = field(default_factory=list)
+class ListInstancesResponse(ControlWireModel):
+    instances: List[InstanceInfo] = field(default_factory=list)
 
 
 @wire_model
@@ -78,7 +78,7 @@ class GetWorkflowOverviewResponse(ControlWireModel):
     created_at: str = ""
     description: str = ""
     instance_ids: List[str] = field(default_factory=list)
-    target_summaries: List[TargetSummary] = field(default_factory=list)
+    instance_summaries: List[InstanceSummary] = field(default_factory=list)
 
 
 @wire_model
@@ -109,14 +109,14 @@ class GetWorkflowExecutionResponse(ControlWireModel):
 
 @wire_model
 @dataclass
-class SetTargetAliasRequest(ControlWireModel):
+class SetInstanceAliasRequest(ControlWireModel):
     instance_id: str = ""
     alias: Optional[str] = None
 
 
 @wire_model
 @dataclass
-class SetTargetAliasResponse(ControlWireModel):
+class SetInstanceAliasResponse(ControlWireModel):
     success: bool = False
     instance_id: str = ""
     alias: Optional[str] = None

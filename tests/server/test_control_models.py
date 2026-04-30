@@ -9,49 +9,49 @@ from python_bridge_mcp.server.control_models import (
     GetWorkflowExecutionResponse,
     GetWorkflowOverviewRequest,
     GetWorkflowOverviewResponse,
-    ListTargetsRequest,
-    ListTargetsResponse,
+    ListInstancesRequest,
+    ListInstancesResponse,
     PingRequest,
     PingResponse,
-    SetTargetAliasRequest,
-    SetTargetAliasResponse,
+    SetInstanceAliasRequest,
+    SetInstanceAliasResponse,
     StartWorkflowRequest,
     StartWorkflowResponse,
-    TargetInfo,
+    InstanceInfo,
 )
 from python_bridge_mcp.shared.model_base import VersionedWireModel
 
 
 # ---------------------------------------------------------------------------
-# ListTargets
+# ListInstances
 # ---------------------------------------------------------------------------
 
-def test_list_targets_request_roundtrip() -> None:
-    req = ListTargetsRequest(instance_type="maya")
+def test_list_instances_request_roundtrip() -> None:
+    req = ListInstancesRequest(instance_type="maya")
     data = req.to_dict()
     parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, ListTargetsRequest)
+    assert isinstance(parsed, ListInstancesRequest)
     assert parsed.instance_type == "maya"
 
 
-def test_list_targets_request_no_filter() -> None:
-    req = ListTargetsRequest()
+def test_list_instances_request_no_filter() -> None:
+    req = ListInstancesRequest()
     data = req.to_dict()
     parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, ListTargetsRequest)
+    assert isinstance(parsed, ListInstancesRequest)
     assert parsed.instance_type is None
 
 
-def test_list_targets_response_roundtrip() -> None:
-    resp = ListTargetsResponse(targets=[
-        TargetInfo(instance_id="c1", instance_name="Maya 2024", instance_type="maya"),
+def test_list_instances_response_roundtrip() -> None:
+    resp = ListInstancesResponse(instances=[
+        InstanceInfo(instance_id="c1", instance_name="Maya 2024", instance_type="maya"),
     ])
     data = resp.to_dict()
     parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, ListTargetsResponse)
-    assert len(parsed.targets) == 1
-    assert parsed.targets[0].instance_id == "c1"
-    assert parsed.targets[0].instance_type == "maya"
+    assert isinstance(parsed, ListInstancesResponse)
+    assert len(parsed.instances) == 1
+    assert parsed.instances[0].instance_id == "c1"
+    assert parsed.instances[0].instance_type == "maya"
 
 
 # ---------------------------------------------------------------------------
@@ -163,31 +163,31 @@ def test_get_workflow_execution_response_code_none_in_summary() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SetTargetAlias
+# SetInstanceAlias
 # ---------------------------------------------------------------------------
 
-def test_set_target_alias_request_roundtrip() -> None:
-    req = SetTargetAliasRequest(instance_id="c1", alias="my-maya")
+def test_set_instance_alias_request_roundtrip() -> None:
+    req = SetInstanceAliasRequest(instance_id="c1", alias="my-maya")
     data = req.to_dict()
     parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, SetTargetAliasRequest)
+    assert isinstance(parsed, SetInstanceAliasRequest)
     assert parsed.instance_id == "c1"
     assert parsed.alias == "my-maya"
 
 
-def test_set_target_alias_request_clear_alias() -> None:
-    req = SetTargetAliasRequest(instance_id="c1", alias=None)
+def test_set_instance_alias_request_clear_alias() -> None:
+    req = SetInstanceAliasRequest(instance_id="c1", alias=None)
     data = req.to_dict()
     parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, SetTargetAliasRequest)
+    assert isinstance(parsed, SetInstanceAliasRequest)
     assert parsed.alias is None
 
 
-def test_set_target_alias_response_roundtrip() -> None:
-    resp = SetTargetAliasResponse(success=True, instance_id="c1", alias="my-maya")
+def test_set_instance_alias_response_roundtrip() -> None:
+    resp = SetInstanceAliasResponse(success=True, instance_id="c1", alias="my-maya")
     data = resp.to_dict()
     parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, SetTargetAliasResponse)
+    assert isinstance(parsed, SetInstanceAliasResponse)
     assert parsed.success is True
     assert parsed.instance_id == "c1"
     assert parsed.alias == "my-maya"
@@ -217,8 +217,8 @@ def test_error_response_roundtrip_casts_control_error() -> None:
     assert payload["error_code"] == "workflow_not_found"
 
 
-def test_set_target_alias_response_cleared_alias() -> None:
-    resp = SetTargetAliasResponse(success=True, instance_id="c1", alias=None)
+def test_set_instance_alias_response_cleared_alias() -> None:
+    resp = SetInstanceAliasResponse(success=True, instance_id="c1", alias=None)
     data = resp.to_dict(exclude_none=True)
     parsed = VersionedWireModel.parse_versioned(data)
     assert parsed.alias is None

@@ -56,7 +56,7 @@ def client_b(api_port: int) -> BackendClient:
     return BackendClient(host="localhost", port=api_port)
 
 
-class _DccRunner:
+class _InstanceRunner:
     def __init__(self, client: DiscoveryClient) -> None:
         self.client = client
         self._thread = threading.Thread(target=client.run, daemon=True)
@@ -69,11 +69,11 @@ class _DccRunner:
         self._thread.join(timeout=5)
 
 
-def _start_dcc(
+def _start_instance(
     discovery_port: int,
     instance_id: str = "c1",
     alias: Optional[str] = None,
-) -> _DccRunner:
+) -> _InstanceRunner:
     client = DiscoveryClient(
         instance_id=instance_id,
         instance_name="test",
@@ -84,7 +84,7 @@ def _start_dcc(
         heartbeat_interval=0.1,
         pid=1,
     )
-    runner = _DccRunner(client)
+    runner = _InstanceRunner(client)
     runner.start()
     assert client.wait_until_registered(timeout=3), "registration failed"
     return runner
@@ -94,20 +94,20 @@ def _start_dcc(
 # Tests
 # ---------------------------------------------------------------------------
 
-def test_both_clients_see_same_dcc(
+def test_both_clients_see_same_instance(
     backend, client_a, client_b, discovery_port: int,
 ) -> None:
-    """Two BackendClients connected to the same backend both see the registered DCC."""
-    dcc = _start_dcc(discovery_port, instance_id="dcc1")
+    """Two BackendClients connected to the same backend both see the registered instance."""
+    instance = _start_instance(discovery_port, instance_id="instance1")
     try:
-        targets_a = asyncio.run(client_a.list_targets())
-        targets_b = asyncio.run(client_b.list_targets())
+        instances_a = asyncio.run(client_a.list_instances())
+        instances_b = asyncio.run(client_b.list_instances())
 
-        assert len(targets_a.targets) == 1
-        assert len(targets_b.targets) == 1
-        assert targets_a.targets[0].instance_id == targets_b.targets[0].instance_id == "dcc1"
+        assert len(instances_a.instances) == 1
+        assert len(instances_b.instances) == 1
+        assert instances_a.instances[0].instance_id == instances_b.instances[0].instance_id == "instance1"
     finally:
-        dcc.stop()
+        instance.stop()
 
 
 def test_execution_visible_to_second_client(
@@ -115,19 +115,19 @@ def test_execution_visible_to_second_client(
     discovery_port: int,
 ) -> None:
     """Client A executes code; Client B can see the execution in the workflow overview."""
-    dcc = _start_dcc(discovery_port, instance_id="dcc1")
+    instance = _start_instance(discovery_port, instance_id="instance1")
     try:
         wf_id = asyncio.run(client_a.start_workflow("shared-wf"))
 
-        result = asyncio.run(client_a.execute("dcc1", 'print("hi")', wf_id))
+        result = asyncio.run(client_a.execute("instance1", 'print("hi")', wf_id))
         assert result.status == InstanceExecStatus.SUCCEEDED
 
         overview = asyncio.run(client_b.get_workflow_overview(wf_id))
         assert overview.execution_count == 1
-        assert len(overview.target_summaries) == 1
-        assert overview.target_summaries[0].instance_id == "dcc1"
+        assert len(overview.instance_summaries) == 1
+        assert overview.instance_summaries[0].instance_id == "instance1"
     finally:
-        dcc.stop()
+        instance.stop()
 
 
 def test_workflow_created_by_a_readable_by_b(
@@ -144,15 +144,15 @@ def test_alias_set_by_a_visible_via_b(
     backend, client_a, client_b,
     discovery_port: int,
 ) -> None:
-    """Alias set via client A is reflected when client B lists targets."""
-    dcc = _start_dcc(discovery_port, instance_id="dcc1")
+    """Alias set via client A is reflected when client B lists instances."""
+    instance = _start_instance(discovery_port, instance_id="instance1")
     try:
-        asyncio.run(client_a.set_alias("dcc1", "my-maya"))
+        asyncio.run(client_a.set_alias("instance1", "my-maya"))
 
-        targets = asyncio.run(client_b.list_targets())
-        assert targets.targets[0].alias == "my-maya"
+        instances = asyncio.run(client_b.list_instances())
+        assert instances.instances[0].alias == "my-maya"
     finally:
-        dcc.stop()
+        instance.stop()
 
 
 def test_alias_survives_re_registration_via_listener_state(
@@ -160,21 +160,21 @@ def test_alias_survives_re_registration_via_listener_state(
     discovery_port: int,
 ) -> None:
     """After re-registration, alias from client state is preserved."""
-    dcc = _start_dcc(discovery_port, instance_id="dcc1")
+    instance = _start_instance(discovery_port, instance_id="instance1")
     try:
-        asyncio.run(client_a.set_alias("dcc1", "lighting"))
-        assert asyncio.run(client_b.list_targets()).targets[0].alias == "lighting"
+        asyncio.run(client_a.set_alias("instance1", "lighting"))
+        assert asyncio.run(client_b.list_instances()).instances[0].alias == "lighting"
 
-        alias = dcc.client._current_alias()
+        alias = instance.client._current_alias()
     finally:
-        dcc.stop()
+        instance.stop()
 
-    assert wait_for(lambda: asyncio.run(client_b.list_targets()).targets == [])
+    assert wait_for(lambda: asyncio.run(client_b.list_instances()).instances == [])
 
-    dcc2 = _start_dcc(discovery_port, instance_id="dcc1", alias=alias)
+    instance2 = _start_instance(discovery_port, instance_id="instance1", alias=alias)
     try:
-        targets = asyncio.run(client_b.list_targets())
-        assert len(targets.targets) > 0
-        assert targets.targets[0].alias == "lighting"
+        instances = asyncio.run(client_b.list_instances())
+        assert len(instances.instances) > 0
+        assert instances.instances[0].alias == "lighting"
     finally:
-        dcc2.stop()
+        instance2.stop()

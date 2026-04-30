@@ -199,11 +199,11 @@ class WorkflowPersistence:
             f.write(json.dumps(record.to_dict(), indent=2))
 
     @staticmethod
-    def get_target_summaries(record: "WorkflowRecord") -> Dict[str, Dict[str, Any]]:
+    def get_instance_summaries(record: "WorkflowRecord") -> Dict[str, Dict[str, Any]]:
         """Return per-instance_id execution summary for a loaded workflow record.
 
         Returns a dict keyed by instance_id, each value containing:
-            exec_count    - total executions on that target
+            exec_count    - total executions on that instance
             active_count  - currently RUNNING executions
             latest_status - status of the most recent execution (str or None)
         """

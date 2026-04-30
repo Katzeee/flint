@@ -130,7 +130,7 @@ def test_execute_rejects_missing_workflow(
 def test_execute_connection_failed_records_failed_execution(app_runner) -> None:
     """When open_connection fails, execution is written as FAILED with CONNECTION_FAILED."""
     registry, control, app_run = app_runner
-    # Register a target on a port that is not listening (port 1 is privileged/closed)
+    # Register a instance on a port that is not listening (port 1 is privileged/closed)
     registry.register(ClientEntry(
         pid=1, instance_id="dead", instance_name="dead",
         alias=None,
@@ -266,13 +266,13 @@ def test_request_id_persisted_in_exec_entry(
 
 
 # ---------------------------------------------------------------------------
-# 2.3 — per-target summaries in get_workflow_overview
+# 2.3 — per-instance summaries in get_workflow_overview
 # ---------------------------------------------------------------------------
 
-def test_get_workflow_overview_target_summaries(
+def test_get_workflow_overview_instance_summaries(
     app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    """get_workflow_overview includes per-target exec_count and latest_status."""
+    """get_workflow_overview includes per-instance exec_count and latest_status."""
     registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port)
     wf_id = control.start_workflow("overview-test")
@@ -281,19 +281,19 @@ def test_get_workflow_overview_target_summaries(
     app_run.run_async(control.execute("c1", 'print("b")', wf_id))
 
     overview = control.get_workflow_overview(wf_id)
-    assert len(overview.target_summaries) == 1
-    summary = overview.target_summaries[0]
+    assert len(overview.instance_summaries) == 1
+    summary = overview.instance_summaries[0]
     assert summary.instance_id == "c1"
     assert summary.exec_count == 2
     assert summary.active_count == 0
     assert summary.latest_status == "succeeded"
 
 
-def test_get_workflow_overview_target_summaries_in_dict(app_runner) -> None:
-    """target_summaries appears in the serialized overview dict."""
+def test_get_workflow_overview_instance_summaries_in_dict(app_runner) -> None:
+    """instance_summaries appears in the serialized overview dict."""
     registry, control, _ = app_runner
     wf_id = control.start_workflow("overview-dict-test")
     overview = control.get_workflow_overview(wf_id)
     data = overview.to_dict(exclude_none=True)
-    assert "target_summaries" in data
-    assert data["target_summaries"] == []
+    assert "instance_summaries" in data
+    assert data["instance_summaries"] == []
