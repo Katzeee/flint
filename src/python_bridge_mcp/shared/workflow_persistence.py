@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from platformdirs import user_data_dir
 
-from .exec_models import ExecStatus
+from .instance_control_models import InstanceExecStatus
 from .file_writer import FileWriter
 from .workflow_models import ExecEntry, WorkflowRecord
 
@@ -75,7 +75,7 @@ class WorkflowPersistence:
         code: str,
         request_id: Optional[str] = None,
     ) -> str:
-        """Server calls this before sending ExecRequest. Appends RUNNING entry.
+        """Server calls this before sending InstanceExecRequest. Appends RUNNING entry.
 
         Returns the generated execution_id.
         """
@@ -90,7 +90,7 @@ class WorkflowPersistence:
                 workflow_id=workflow_id,
                 instance_id=instance_id,
                 code=code,
-                status=ExecStatus.RUNNING,
+                status=InstanceExecStatus.RUNNING,
                 stdout="",
                 stderr="",
                 started_at=datetime.now(timezone.utc).isoformat(),
@@ -153,7 +153,7 @@ class WorkflowPersistence:
     def finalize_execution_result(
         workflow_id: str,
         execution_id: str,
-        status: ExecStatus,
+        status: InstanceExecStatus,
         finished_at: str,
         traceback: Optional[str] = None,
         error: Optional[str] = None,
@@ -175,7 +175,7 @@ class WorkflowPersistence:
     def update_execution_result(
         workflow_id: str,
         execution_id: str,
-        status: ExecStatus,
+        status: InstanceExecStatus,
         stdout: str,
         stderr: str,
         finished_at: str,
@@ -213,7 +213,7 @@ class WorkflowPersistence:
             if iid not in summaries:
                 summaries[iid] = {"exec_count": 0, "active_count": 0, "latest_status": None}
             summaries[iid]["exec_count"] += 1
-            if entry.status == ExecStatus.RUNNING:
+            if entry.status == InstanceExecStatus.RUNNING:
                 summaries[iid]["active_count"] += 1
             summaries[iid]["latest_status"] = entry.status.value
         return summaries

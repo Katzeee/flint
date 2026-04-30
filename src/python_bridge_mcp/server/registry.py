@@ -6,8 +6,15 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 from uuid import uuid4
 
-from ..shared.discovery_models import AckDiscovery, HeartbeatDiscovery, RegisterDiscovery
-from ..shared.exec_models import ExecOutputUpdate, ExecResult, SetAliasResult
+from ..shared.instance_control_models import (
+    InstanceExecOutputUpdate,
+    InstanceExecResult,
+    InstanceAck,
+    InstanceControlError,
+    InstanceHeartbeat,
+    InstanceRegister,
+    InstanceSetAliasResult,
+)
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
 
@@ -88,7 +95,7 @@ class Registry:
         self._stale_timeout = stale_timeout
         self._clients: Dict[str, ClientEntry] = {}
         self._sessions: Dict[str, ControlSession] = {}
-        self._output_update_handler: Optional[Callable[[ExecOutputUpdate], None]] = None
+        self._output_update_handler: Optional[Callable[[InstanceExecOutputUpdate], None]] = None
         self._lock = threading.Lock()
         self._server: Optional[asyncio.AbstractServer] = None
 
@@ -204,7 +211,7 @@ class Registry:
             session.forget(request_id)
             raise
 
-    def set_output_update_handler(self, handler: Callable[[ExecOutputUpdate], None]) -> None:
+    def set_output_update_handler(self, handler: Callable[[InstanceExecOutputUpdate], None]) -> None:
         self._output_update_handler = handler
 
     # ------------------------------------------------------------------
@@ -285,12 +292,22 @@ class Registry:
                 except asyncio.TimeoutError:
                     return  # no heartbeat in time — drop connection
                 except (ConnectionError, WireModelError, ValueError) as e:
-                    await AsyncJsonLineCodec.send(writer, AckDiscovery(success=False, error=str(e)).to_dict())
+                    await AsyncJsonLineCodec.send(
+                        writer,
+                        InstanceAck(
+                            success=False,
+                            error_code=InstanceControlError.PROTOCOL_ERROR,
+                            message=str(e),
+                        ).to_dict(),
+                    )
                     return
 
-                if isinstance(msg, RegisterDiscovery):
+                if isinstance(msg, InstanceRegister):
                     if session is not None:
-                        await session.send(AckDiscovery(success=False, error="already registered"))
+                        await session.send(InstanceAck(
+                            success=False,
+                            error_code=InstanceControlError.ALREADY_REGISTERED,
+                        ))
                         return
                     instance_id = msg.instance_id
                     registered_pid = msg.pid
@@ -302,24 +319,39 @@ class Registry:
                         alias=msg.alias,
                         instance_type=msg.instance_type,
                     ), session)
-                    await session.send(AckDiscovery(success=True))
+                    await session.send(InstanceAck(success=True))
 
-                elif isinstance(msg, HeartbeatDiscovery):
+                elif isinstance(msg, InstanceHeartbeat):
                     if session is None:
-                        await AsyncJsonLineCodec.send(writer, AckDiscovery(success=False, error="not registered").to_dict())
+                        await AsyncJsonLineCodec.send(
+                            writer,
+                            InstanceAck(
+                                success=False,
+                                error_code=InstanceControlError.NOT_REGISTERED,
+                            ).to_dict(),
+                        )
                         return
                     if not self.heartbeat(msg.instance_id):
-                        await session.send(AckDiscovery(success=False, error="not registered"))
+                        await session.send(InstanceAck(
+                            success=False,
+                            error_code=InstanceControlError.NOT_REGISTERED,
+                        ))
                         return
-                    await session.send(AckDiscovery(success=True))
+                    await session.send(InstanceAck(success=True))
 
-                elif isinstance(msg, (ExecResult, SetAliasResult)):
+                elif isinstance(msg, (InstanceExecResult, InstanceSetAliasResult)):
                     if session is None or not session.resolve(msg):
                         log.warning("Dropping unmatched response from %s: %s", instance_id, type(msg).__name__)
 
-                elif isinstance(msg, ExecOutputUpdate):
+                elif isinstance(msg, InstanceExecOutputUpdate):
                     if session is None:
-                        await AsyncJsonLineCodec.send(writer, AckDiscovery(success=False, error="not registered").to_dict())
+                        await AsyncJsonLineCodec.send(
+                            writer,
+                            InstanceAck(
+                                success=False,
+                                error_code=InstanceControlError.NOT_REGISTERED,
+                            ).to_dict(),
+                        )
                         return
                     if self._output_update_handler is not None:
                         try:
@@ -334,9 +366,18 @@ class Registry:
 
                 else:
                     if session is not None:
-                        await session.send(AckDiscovery(success=False, error="unexpected message type"))
+                        await session.send(InstanceAck(
+                            success=False,
+                            error_code=InstanceControlError.UNEXPECTED_MESSAGE_TYPE,
+                        ))
                     else:
-                        await AsyncJsonLineCodec.send(writer, AckDiscovery(success=False, error="unexpected message type").to_dict())
+                        await AsyncJsonLineCodec.send(
+                            writer,
+                            InstanceAck(
+                                success=False,
+                                error_code=InstanceControlError.UNEXPECTED_MESSAGE_TYPE,
+                            ).to_dict(),
+                        )
                     return
         finally:
             if instance_id is not None:

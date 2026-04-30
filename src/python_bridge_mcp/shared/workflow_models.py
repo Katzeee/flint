@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from .exec_models import ExecStatus
+from .instance_control_models import InstanceExecStatus
 from .model_base import BaseModel
 
 
@@ -12,7 +12,7 @@ class ExecEntry(BaseModel):
     workflow_id: str
     instance_id: str
     code: str
-    status: ExecStatus
+    status: InstanceExecStatus
     stdout: str
     stderr: str
     started_at: str

@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from queue import Queue
 from typing import Any, Callable, Optional, Type, TypeVar
 
-from ..shared.exec_models import ExecResult
+from ..shared.instance_control_models import InstanceExecResult
 from ..shared.text_buffer import ThreadSafeTextBuffer
 from .code_executor import CodeExecutor
 
@@ -33,7 +33,7 @@ class CodeRunner(ABC):
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
-    ) -> ExecResult: ...
+    ) -> InstanceExecResult: ...
 
     async def async_execute(
         self,
@@ -41,7 +41,7 @@ class CodeRunner(ABC):
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
-    ) -> ExecResult:
+    ) -> InstanceExecResult:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None, functools.partial(self.execute, execution_id, code, out=out, err=err),
@@ -57,7 +57,7 @@ class DirectRunner(CodeRunner):
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
-    ) -> ExecResult:
+    ) -> InstanceExecResult:
         return self._executor.execute(execution_id, code, out=out, err=err)
 
 
@@ -81,7 +81,7 @@ class MainThreadRunner(CodeRunner):
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
-    ) -> ExecResult:
+    ) -> InstanceExecResult:
         result_event = threading.Event()
         holder: list = [None]
 
@@ -163,7 +163,7 @@ class QtMainThreadRunner(CodeRunner):
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
-    ) -> ExecResult:
+    ) -> InstanceExecResult:
         return self._executor_bridge.run(
             lambda: self._executor.execute(execution_id, code, out=out, err=err)
         )

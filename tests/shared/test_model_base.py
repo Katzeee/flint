@@ -230,19 +230,10 @@ def test_parse_versioned_rejects_far_future_version():
         VersionedWireModel.parse_versioned({"type": "MsgV1", "version": 9999, "val": "x"})
 
 
-def test_cross_protocol_version_rejected():
-    """exec (v2) and discovery (v1) messages must not be interchangeable."""
-    from python_bridge_mcp.shared.exec_models import ExecRequest
-    from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
+def test_instance_control_messages_share_protocol_version():
+    from python_bridge_mcp.shared.instance_control_models import InstanceExecRequest, InstanceRegister
 
-    with pytest.raises(WireModelError, match="Version mismatch"):
-        VersionedWireModel.parse_versioned({
-            "type": "ExecRequest", "version": 1,
-            "execution_id": "001", "code": "x", "workflow_id": "wf",
-        })
+    exec_req = InstanceExecRequest(execution_id="001", code="x", workflow_id="wf")
+    register = InstanceRegister(pid=1, instance_id="c1", instance_name="t")
 
-    with pytest.raises(WireModelError, match="Version mismatch"):
-        VersionedWireModel.parse_versioned({
-            "type": "RegisterDiscovery", "version": 2,
-            "pid": 1, "instance_id": "c1", "instance_name": "t",
-        })
+    assert exec_req.to_dict()["version"] == register.to_dict()["version"]

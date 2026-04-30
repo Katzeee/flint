@@ -4,14 +4,14 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from ..shared.exec_models import (
-    ExecError,
-    ExecOutputUpdate,
-    ExecRequest,
-    ExecResult,
-    ExecStatus,
-    SetAliasRequest,
-    SetAliasResult,
+from ..shared.instance_control_models import (
+    InstanceExecError,
+    InstanceExecOutputUpdate,
+    InstanceExecRequest,
+    InstanceExecResult,
+    InstanceExecStatus,
+    InstanceSetAliasRequest,
+    InstanceSetAliasResult,
 )
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
@@ -166,10 +166,10 @@ class ControlServer:
 
         result = await self._discovery.request(
             instance_id,
-            SetAliasRequest(alias=alias),
+            InstanceSetAliasRequest(alias=alias),
             timeout=connect_timeout,
         )
-        if not isinstance(result, SetAliasResult):
+        if not isinstance(result, InstanceSetAliasResult):
             raise WireModelError(f"unexpected response: {type(result).__name__}")
         self._discovery.set_alias(instance_id, result.alias)
         return SetTargetAliasResponse(success=True, instance_id=instance_id, alias=result.alias)
@@ -234,7 +234,7 @@ class ControlServer:
         *,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
         early_return_window: float = DEFAULT_EARLY_RETURN_WINDOW,
-    ) -> ExecResult:
+    ) -> InstanceExecResult:
         entry = self._discovery.get_client(instance_id)
         if entry is None:
             raise KeyError(f"unknown client: {instance_id}")
@@ -255,7 +255,7 @@ class ControlServer:
             execution_id,
         )
 
-        req = ExecRequest(
+        req = InstanceExecRequest(
             execution_id=execution_id,
             code=code,
             workflow_id=workflow_id,
@@ -269,30 +269,30 @@ class ControlServer:
         try:
             return await asyncio.wait_for(asyncio.shield(task), timeout=early_return_window)
         except asyncio.TimeoutError:
-            return ExecResult(
+            return InstanceExecResult(
                 execution_id=execution_id,
-                status=ExecStatus.RUNNING,
+                status=InstanceExecStatus.RUNNING,
                 request_id=request_id,
             )
         except Exception:
-            return ExecResult(
+            return InstanceExecResult(
                 execution_id=execution_id,
-                status=ExecStatus.FAILED,
-                error=ExecError.CONNECTION_FAILED,
+                status=InstanceExecStatus.FAILED,
+                error=InstanceExecError.CONNECTION_FAILED,
                 request_id=request_id,
             )
 
     @staticmethod
-    def _fail_execution(workflow_id: str, execution_id: str, error: ExecError) -> None:
+    def _fail_execution(workflow_id: str, execution_id: str, error: InstanceExecError) -> None:
         WorkflowPersistence.finalize_execution_result(
             workflow_id,
             execution_id,
-            ExecStatus.FAILED,
+            InstanceExecStatus.FAILED,
             datetime.now(timezone.utc).isoformat(),
             error=error,
         )
 
-    def handle_output_update(self, update: ExecOutputUpdate) -> None:
+    def handle_output_update(self, update: InstanceExecOutputUpdate) -> None:
         WorkflowPersistence.append_execution_output(
             update.workflow_id,
             update.execution_id,
@@ -309,19 +309,19 @@ class ControlServer:
     async def _receive_result(
         self,
         instance_id: str,
-        request: ExecRequest,
+        request: InstanceExecRequest,
         workflow_id: str,
         execution_id: str,
-    ) -> ExecResult:
+    ) -> InstanceExecResult:
         try:
             result = await self._discovery.request(
                 instance_id,
                 request,
                 timeout=ControlServer.BACKGROUND_EXEC_TIMEOUT,
             )
-            if not isinstance(result, ExecResult):
+            if not isinstance(result, InstanceExecResult):
                 raise WireModelError(f"unexpected response: {type(result).__name__}")
-            if result.error == ExecError.BUSY:
+            if result.error == InstanceExecError.BUSY:
                 WorkflowPersistence.remove_execution(workflow_id, execution_id)
             else:
                 WorkflowPersistence.finalize_execution_result(
@@ -347,11 +347,11 @@ class ControlServer:
                 workflow_id,
                 ControlServer.BACKGROUND_EXEC_TIMEOUT,
             )
-            ControlServer._fail_execution(workflow_id, execution_id, ExecError.EXECUTION_TIMEOUT)
+            ControlServer._fail_execution(workflow_id, execution_id, InstanceExecError.EXECUTION_TIMEOUT)
             raise
         except WireModelError:
-            ControlServer._fail_execution(workflow_id, execution_id, ExecError.PROTOCOL_ERROR)
+            ControlServer._fail_execution(workflow_id, execution_id, InstanceExecError.PROTOCOL_ERROR)
             raise
         except Exception:
-            ControlServer._fail_execution(workflow_id, execution_id, ExecError.CONNECTION_FAILED)
+            ControlServer._fail_execution(workflow_id, execution_id, InstanceExecError.CONNECTION_FAILED)
             raise

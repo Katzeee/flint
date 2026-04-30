@@ -13,7 +13,7 @@ from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.server.backend_client import BackendClient
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import Registry
-from python_bridge_mcp.shared.exec_models import ExecStatus
+from python_bridge_mcp.shared.instance_control_models import InstanceExecStatus
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -120,7 +120,7 @@ def test_execution_visible_to_second_client(
         wf_id = asyncio.run(client_a.start_workflow("shared-wf"))
 
         result = asyncio.run(client_a.execute("dcc1", 'print("hi")', wf_id))
-        assert result.status == ExecStatus.SUCCEEDED
+        assert result.status == InstanceExecStatus.SUCCEEDED
 
         overview = asyncio.run(client_b.get_workflow_overview(wf_id))
         assert overview.execution_count == 1

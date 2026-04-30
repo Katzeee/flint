@@ -11,7 +11,7 @@ from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.discovery import DiscoveryClient
-from python_bridge_mcp.shared.exec_models import ExecStatus
+from python_bridge_mcp.shared.instance_control_models import InstanceExecStatus
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
 from python_bridge_mcp.server.control_models import ListTargetsResponse, SetTargetAliasResponse
 
@@ -127,7 +127,7 @@ def test_execute_on_client(
     wf_id = control.start_workflow("test")
 
     result = app_run.run_async(control.execute("c1", 'print("hello")', wf_id))
-    assert result.status == ExecStatus.SUCCEEDED
+    assert result.status == InstanceExecStatus.SUCCEEDED
     assert WorkflowPersistence.load(wf_id).execs[0].stdout == "hello\n"
 
 
@@ -344,14 +344,14 @@ def test_get_workflow_execution_full_view(app_runner) -> None:
     wf_id = control.start_workflow("my-wf")
     execution_id = WorkflowPersistence.append_running_execution(wf_id, "step-1", "c1", "print(42)")
     WorkflowPersistence.update_execution_result(
-        wf_id, execution_id, ExecStatus.SUCCEEDED, "42\n", "",
+        wf_id, execution_id, InstanceExecStatus.SUCCEEDED, "42\n", "",
         datetime.now(timezone.utc).isoformat(),
     )
 
     response = control.get_workflow_execution(wf_id, execution_id, view="full")
     assert response.execution_id == execution_id
     assert response.code == "print(42)"
-    assert response.status == ExecStatus.SUCCEEDED.value
+    assert response.status == InstanceExecStatus.SUCCEEDED.value
     assert response.stdout == "42\n"
 
 

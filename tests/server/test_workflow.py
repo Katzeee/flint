@@ -10,8 +10,7 @@ from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence, W
 from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.discovery import DiscoveryClient
-from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
-from python_bridge_mcp.shared.exec_models import ExecError, ExecStatus
+from python_bridge_mcp.shared.instance_control_models import InstanceExecError, InstanceExecStatus, InstanceRegister
 from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
 
 from conftest import AsyncRunner, free_port
@@ -110,7 +109,7 @@ def test_execute_with_workflow_id(
     wf_id = control.start_workflow("test")
 
     result = app_run.run_async(control.execute("c1", 'print("hello")', wf_id))
-    assert result.status == ExecStatus.SUCCEEDED
+    assert result.status == InstanceExecStatus.SUCCEEDED
     assert WorkflowPersistence.load(wf_id).execs[0].stdout == "hello\n"
 
 
@@ -142,15 +141,15 @@ def test_execute_connection_failed_records_failed_execution(app_runner) -> None:
         control.execute("dead", "print(1)", wf_id, connect_timeout=2.0)
     )
 
-    assert result.status == ExecStatus.FAILED
-    assert result.error == ExecError.CONNECTION_FAILED
+    assert result.status == InstanceExecStatus.FAILED
+    assert result.error == InstanceExecError.CONNECTION_FAILED
 
     # Verify the failure is persisted to disk
     record = WorkflowPersistence.load(wf_id)
     assert len(record.execs) == 1
     entry = record.execs[0]
-    assert entry.status == ExecStatus.FAILED
-    assert entry.error == ExecError.CONNECTION_FAILED.value
+    assert entry.status == InstanceExecStatus.FAILED
+    assert entry.error == InstanceExecError.CONNECTION_FAILED.value
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +198,7 @@ def test_registry_reconnect_does_not_evict_new_entry(discovery_port) -> None:
         async def _do() -> None:
             reader, writer = await asyncio.open_connection("localhost", discovery_port)
             try:
-                msg = RegisterDiscovery(
+                msg = InstanceRegister(
                     pid=pid, instance_id="shared", instance_name="test",
                 )
                 await AsyncJsonLineCodec.send(writer, msg.to_dict())
@@ -240,7 +239,7 @@ def test_registry_reconnect_does_not_evict_new_entry(discovery_port) -> None:
 def test_request_id_present_in_result(
     app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    """execute() generates a request_id that appears in the returned ExecResult."""
+    """execute() generates a request_id that appears in the returned InstanceExecResult."""
     registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port)
     wf_id = control.start_workflow("reqid-test")
@@ -253,7 +252,7 @@ def test_request_id_present_in_result(
 def test_request_id_persisted_in_exec_entry(
     app_runner, listener_runner, discovery_port: int, exec_port: int,
 ) -> None:
-    """The request_id used for the ExecRequest is stored in the ExecEntry on disk."""
+    """The request_id used for the InstanceExecRequest is stored in the ExecEntry on disk."""
     registry, control, app_run = app_runner
     _bg_register(discovery_port, exec_port)
     wf_id = control.start_workflow("reqid-persist-test")

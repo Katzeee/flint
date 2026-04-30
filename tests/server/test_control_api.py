@@ -15,7 +15,7 @@ from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.server.backend_client import BackendClient, BackendError
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import ClientEntry, Registry
-from python_bridge_mcp.shared.exec_models import ExecStatus
+from python_bridge_mcp.shared.instance_control_models import InstanceExecStatus
 from python_bridge_mcp.shared.workflow_persistence import (
     WorkflowPersistence,
     WorkflowRecordUnavailableError,
@@ -170,7 +170,7 @@ def test_execute_success(
     wf_id = asyncio.run(client.start_workflow("exec-test"))
 
     result = asyncio.run(client.execute("c1", 'print("hello")', wf_id))
-    assert result.status == ExecStatus.SUCCEEDED
+    assert result.status == InstanceExecStatus.SUCCEEDED
     assert WorkflowPersistence.load(wf_id).execs[0].stdout == "hello\n"
 
 
@@ -206,7 +206,7 @@ def test_get_workflow_execution(backend, client) -> None:
     wf_id = asyncio.run(client.start_workflow("wf"))
     exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "x=1")
     WorkflowPersistence.update_execution_result(
-        wf_id, exec_id, ExecStatus.SUCCEEDED,
+        wf_id, exec_id, InstanceExecStatus.SUCCEEDED,
         "out", "", datetime.now(timezone.utc).isoformat(),
     )
 
@@ -219,7 +219,7 @@ def test_get_workflow_execution_full_view(backend, client) -> None:
     wf_id = asyncio.run(client.start_workflow("wf"))
     exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
     WorkflowPersistence.update_execution_result(
-        wf_id, exec_id, ExecStatus.SUCCEEDED, "1\n", "",
+        wf_id, exec_id, InstanceExecStatus.SUCCEEDED, "1\n", "",
         datetime.now(timezone.utc).isoformat(),
     )
 

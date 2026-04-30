@@ -7,15 +7,17 @@ import threading
 from enum import Enum
 from typing import Awaitable, Callable, Optional, Tuple, Union
 
-from ..shared.discovery_models import AckDiscovery, HeartbeatDiscovery, RegisterDiscovery
-from ..shared.exec_models import (
-    ExecError,
-    ExecOutputUpdate,
-    ExecRequest,
-    ExecResult,
-    ExecStatus,
-    SetAliasRequest,
-    SetAliasResult,
+from ..shared.instance_control_models import (
+    InstanceExecError,
+    InstanceExecOutputUpdate,
+    InstanceExecRequest,
+    InstanceExecResult,
+    InstanceExecStatus,
+    InstanceAck,
+    InstanceHeartbeat,
+    InstanceRegister,
+    InstanceSetAliasRequest,
+    InstanceSetAliasResult,
 )
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
@@ -34,7 +36,7 @@ class DiscoveryState(Enum):
 class _OutputUpdateFlusher:
     def __init__(
         self,
-        request: ExecRequest,
+        request: InstanceExecRequest,
         out: ThreadSafeTextBuffer,
         err: ThreadSafeTextBuffer,
         send: Callable[[VersionedWireModel], Awaitable[None]],
@@ -90,7 +92,7 @@ class _OutputUpdateFlusher:
     async def _send_update(self, stdout_delta: str, stderr_delta: str) -> None:
         self._sequence += 1
         await self._send(
-            ExecOutputUpdate(
+            InstanceExecOutputUpdate(
                 execution_id=self._request.execution_id,
                 workflow_id=self._request.workflow_id,
                 sequence=self._sequence,
@@ -225,7 +227,7 @@ class DiscoveryClient:
         self._write_lock = asyncio.Lock()
         try:
             await self._send(
-                RegisterDiscovery(
+                InstanceRegister(
                     pid=self._pid,
                     instance_id=self._instance_id,
                     instance_name=self._instance_name,
@@ -234,10 +236,11 @@ class DiscoveryClient:
                 )
             )
             ack = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(reader))
-            if not isinstance(ack, AckDiscovery):
+            if not isinstance(ack, InstanceAck):
                 raise RuntimeError("Registration rejected: unexpected response")
             if not ack.success:
-                raise RuntimeError(f"Registration rejected: {ack.error}")
+                error = ack.message or ack.error_code or "unknown error"
+                raise RuntimeError(f"Registration rejected: {error}")
             self._set_state(DiscoveryState.CONNECTED)
             log.info(
                 "Discovery connected to %s:%d as %s",
@@ -265,39 +268,39 @@ class DiscoveryClient:
             await asyncio.sleep(self._heartbeat_interval)
             if self._stop_event.is_set():
                 return
-            await self._send(HeartbeatDiscovery(instance_id=self._instance_id))
+            await self._send(InstanceHeartbeat(instance_id=self._instance_id))
 
     async def _read_loop(self, reader: asyncio.StreamReader) -> None:
         while not self._stop_event.is_set():
             data = await AsyncJsonLineCodec.recv(reader)
             msg = VersionedWireModel.parse_versioned(data)
-            if isinstance(msg, AckDiscovery):
+            if isinstance(msg, InstanceAck):
                 if not msg.success:
-                    raise RuntimeError(msg.error or "backend rejected request")
-            elif isinstance(msg, ExecRequest):
+                    raise RuntimeError(msg.message or msg.error_code or "backend rejected request")
+            elif isinstance(msg, InstanceExecRequest):
                 asyncio.create_task(self._handle_exec(msg))
-            elif isinstance(msg, SetAliasRequest):
+            elif isinstance(msg, InstanceSetAliasRequest):
                 asyncio.create_task(self._handle_set_alias(msg))
             else:
                 raise WireModelError(f"unexpected message type: {type(msg).__name__}")
 
-    async def _handle_set_alias(self, msg: SetAliasRequest) -> None:
+    async def _handle_set_alias(self, msg: InstanceSetAliasRequest) -> None:
         await self._send(
-            SetAliasResult(
+            InstanceSetAliasResult(
                 success=True,
                 alias=self._set_alias(msg.alias),
                 request_id=msg.request_id,
             )
         )
 
-    async def _handle_exec(self, msg: ExecRequest) -> None:
+    async def _handle_exec(self, msg: InstanceExecRequest) -> None:
         assert self._execution_lock is not None
         if self._execution_lock.locked():
             await self._send(
-                ExecResult(
+                InstanceExecResult(
                     execution_id=msg.execution_id,
-                    status=ExecStatus.FAILED,
-                    error=ExecError.BUSY,
+                    status=InstanceExecStatus.FAILED,
+                    error=InstanceExecError.BUSY,
                     request_id=msg.request_id,
                 )
             )
@@ -324,9 +327,9 @@ class DiscoveryClient:
                 )
                 result.request_id = msg.request_id
             except Exception as exc:
-                result = ExecResult(
+                result = InstanceExecResult(
                     execution_id=msg.execution_id,
-                    status=ExecStatus.FAILED,
+                    status=InstanceExecStatus.FAILED,
                     error=str(exc),
                     request_id=msg.request_id,
                 )

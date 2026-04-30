@@ -15,7 +15,7 @@ from python_bridge_mcp.server.control_models import (
     TargetSummary,
 )
 from python_bridge_mcp.server.shim import mcp as shim_mcp
-from python_bridge_mcp.shared.exec_models import ExecError, ExecResult, ExecStatus
+from python_bridge_mcp.shared.instance_control_models import InstanceExecError, InstanceExecResult, InstanceExecStatus
 from python_bridge_mcp.shared.workflow_persistence import (
     WorkflowPersistence,
     WorkflowRecordUnavailableError,
@@ -122,9 +122,9 @@ def test_list_dcc_targets_filters_by_type(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 def test_exec_python_success(monkeypatch) -> None:
-    result_obj = ExecResult(
+    result_obj = InstanceExecResult(
         execution_id="0001",
-        status=ExecStatus.SUCCEEDED,
+        status=InstanceExecStatus.SUCCEEDED,
     )
     client = _mock_client(execute=result_obj)
     _patch(monkeypatch, client)

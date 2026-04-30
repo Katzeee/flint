@@ -9,7 +9,7 @@ from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.discovery import DiscoveryClient, DiscoveryState
 from python_bridge_mcp.server.registry import Registry
-from python_bridge_mcp.shared.discovery_models import RegisterDiscovery
+from python_bridge_mcp.shared.instance_control_models import InstanceRegister
 
 from conftest import AsyncRunner, free_port, wait_for
 
@@ -186,7 +186,7 @@ def test_server_stop_with_no_clients(port: int) -> None:
 
 
 def test_register_discovery_pid_is_int() -> None:
-    msg = RegisterDiscovery(
+    msg = InstanceRegister(
         pid=1234, instance_id="c1", instance_name="test",
     )
     data = msg.to_dict()

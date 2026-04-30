@@ -18,7 +18,7 @@ from .control_models import (
     StartWorkflowRequest,
     StartWorkflowResponse,
 )
-from ..shared.exec_models import ExecResult
+from ..shared.instance_control_models import InstanceExecResult
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel
 from ..shared.workflow_persistence import WorkflowRecordUnavailableError
@@ -96,7 +96,7 @@ class BackendClient:
         code: str,
         workflow_id: str,
         name: str = "",
-    ) -> ExecResult:
+    ) -> InstanceExecResult:
         resp = await self._roundtrip(
             ControlExecuteRequest(
                 instance_id=instance_id,
@@ -106,7 +106,7 @@ class BackendClient:
             )
         )
         self._raise_if_error(resp)
-        assert isinstance(resp, ExecResult)
+        assert isinstance(resp, InstanceExecResult)
         return resp
 
     async def get_workflow_overview(self, workflow_id: str) -> GetWorkflowOverviewResponse:

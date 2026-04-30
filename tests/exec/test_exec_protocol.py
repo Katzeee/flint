@@ -11,7 +11,7 @@ from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import Registry
-from python_bridge_mcp.shared.exec_models import ExecStatus
+from python_bridge_mcp.shared.instance_control_models import InstanceExecStatus
 from python_bridge_mcp.shared.workflow_models import WorkflowRecord
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
@@ -64,7 +64,7 @@ def connected_system(port: int) -> Iterator[tuple]:
         server.stop()
 
 
-def _read_exec_status(wf_id: str) -> ExecStatus:
+def _read_exec_status(wf_id: str) -> InstanceExecStatus:
     path = WorkflowPersistence.resolve(wf_id)
     with open(path, encoding="utf-8") as f:
         record = WorkflowRecord.from_dict(json.load(f))
@@ -84,7 +84,7 @@ def test_exec_hello_world(connected_system) -> None:
 
     result = server.run_async(control.execute("c1", 'print("hello")', wf_id))
 
-    assert result.status == ExecStatus.SUCCEEDED
+    assert result.status == InstanceExecStatus.SUCCEEDED
     assert result.traceback is None
     entry = _read_first_exec(wf_id)
     assert entry.stdout == "hello\n"
@@ -97,7 +97,7 @@ def test_exec_exception(connected_system) -> None:
 
     result = server.run_async(control.execute("c1", "raise ValueError('boom')", wf_id))
 
-    assert result.status == ExecStatus.FAILED
+    assert result.status == InstanceExecStatus.FAILED
     assert result.traceback is not None
     assert "ValueError" in result.traceback
     assert "boom" in result.traceback
@@ -110,9 +110,9 @@ def test_exec_namespace_persists(connected_system) -> None:
     first = server.run_async(control.execute("c1", "x = 42", wf_id))
     second = server.run_async(control.execute("c1", "print(x)", wf_id))
 
-    assert first.status == ExecStatus.SUCCEEDED
-    assert second.status == ExecStatus.SUCCEEDED
-    assert _read_first_exec(wf_id).status == ExecStatus.SUCCEEDED
+    assert first.status == InstanceExecStatus.SUCCEEDED
+    assert second.status == InstanceExecStatus.SUCCEEDED
+    assert _read_first_exec(wf_id).status == InstanceExecStatus.SUCCEEDED
     record = WorkflowPersistence.load(wf_id)
     assert record.execs[1].stdout == "42\n"
 
@@ -131,9 +131,9 @@ def test_exec_concurrent_rejects_busy(connected_system) -> None:
 
     first, second = server.run_async(_run())
 
-    assert first.status == ExecStatus.SUCCEEDED
+    assert first.status == InstanceExecStatus.SUCCEEDED
     assert _read_first_exec(wf_id).stdout.strip() == "a"
-    assert second.status == ExecStatus.FAILED
+    assert second.status == InstanceExecStatus.FAILED
     assert second.error == "busy"
 
 
@@ -150,8 +150,8 @@ def test_early_return_result_persisted_to_disk(connected_system) -> None:
         )
     )
 
-    assert result.status == ExecStatus.RUNNING
-    assert wait_for(lambda: _read_exec_status(wf_id) == ExecStatus.SUCCEEDED)
+    assert result.status == InstanceExecStatus.RUNNING
+    assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.SUCCEEDED)
 
 
 def test_set_alias_roundtrip(connected_system) -> None:
@@ -177,9 +177,9 @@ def test_disconnect_marks_running_execution_failed(connected_system) -> None:
             early_return_window=0.05,
         )
     )
-    assert result.status == ExecStatus.RUNNING
+    assert result.status == InstanceExecStatus.RUNNING
 
     client.stop()
 
-    assert wait_for(lambda: _read_exec_status(wf_id) == ExecStatus.FAILED)
+    assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.FAILED)
     assert wait_for(lambda: "c1" not in registry.list_clients())

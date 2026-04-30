@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from python_bridge_mcp.shared.exec_models import ExecStatus
+from python_bridge_mcp.shared.instance_control_models import InstanceExecStatus
 from python_bridge_mcp.shared.workflow_models import WorkflowRecord
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
@@ -61,7 +61,7 @@ def test_append_running_execution() -> None:
     assert entry.workflow_id == wf_id
     assert entry.instance_id == "c1"
     assert entry.code == "print(1)"
-    assert entry.status == ExecStatus.RUNNING
+    assert entry.status == InstanceExecStatus.RUNNING
     assert entry.stdout == ""
     assert entry.stderr == ""
 
@@ -97,7 +97,7 @@ def test_update_execution_output() -> None:
     entry = record.execs[0]
     assert entry.stdout == "hello\n"
     assert entry.stderr == "warn\n"
-    assert entry.status == ExecStatus.RUNNING
+    assert entry.status == InstanceExecStatus.RUNNING
 
 
 def test_append_execution_output_adds_deltas() -> None:
@@ -111,7 +111,7 @@ def test_append_execution_output_adds_deltas() -> None:
     entry = record.execs[0]
     assert entry.stdout == "hello\n"
     assert entry.stderr == "warn\n"
-    assert entry.status == ExecStatus.RUNNING
+    assert entry.status == InstanceExecStatus.RUNNING
 
 
 def test_finalize_execution_result_preserves_output() -> None:
@@ -122,13 +122,13 @@ def test_finalize_execution_result_preserves_output() -> None:
     WorkflowPersistence.finalize_execution_result(
         wf_id,
         exec_id,
-        ExecStatus.SUCCEEDED,
+        InstanceExecStatus.SUCCEEDED,
         "2023-11-14T22:13:20+00:00",
     )
 
     record = _read_record(wf_id)
     entry = record.execs[0]
-    assert entry.status == ExecStatus.SUCCEEDED
+    assert entry.status == InstanceExecStatus.SUCCEEDED
     assert entry.stdout == "hello\n"
     assert entry.finished_at == "2023-11-14T22:13:20+00:00"
 
@@ -138,13 +138,13 @@ def test_update_execution_result() -> None:
     exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
 
     WorkflowPersistence.update_execution_result(
-        wf_id, exec_id, ExecStatus.SUCCEEDED,
+        wf_id, exec_id, InstanceExecStatus.SUCCEEDED,
         "hello\n", "", "2023-11-14T22:13:20+00:00",
     )
 
     record = _read_record(wf_id)
     entry = record.execs[0]
-    assert entry.status == ExecStatus.SUCCEEDED
+    assert entry.status == InstanceExecStatus.SUCCEEDED
     assert entry.stdout == "hello\n"
     assert entry.finished_at == "2023-11-14T22:13:20+00:00"
     assert entry.traceback is None
@@ -156,7 +156,7 @@ def test_update_execution_result_with_error() -> None:
     exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "raise ValueError()")
 
     WorkflowPersistence.update_execution_result(
-        wf_id, exec_id, ExecStatus.FAILED,
+        wf_id, exec_id, InstanceExecStatus.FAILED,
         "", "", "2023-11-14T22:13:20+00:00",
         traceback="Traceback ...\nValueError\n",
         error="ValueError",
@@ -164,7 +164,7 @@ def test_update_execution_result_with_error() -> None:
 
     record = _read_record(wf_id)
     entry = record.execs[0]
-    assert entry.status == ExecStatus.FAILED
+    assert entry.status == InstanceExecStatus.FAILED
     assert entry.traceback is not None
     assert "ValueError" in entry.traceback
     assert entry.error == "ValueError"
@@ -235,7 +235,7 @@ def test_update_execution_result_sets_updated_at() -> None:
     exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
     finished = "2024-01-01T12:00:00+00:00"
     WorkflowPersistence.update_execution_result(
-        wf_id, exec_id, ExecStatus.SUCCEEDED, "hello\n", "", finished,
+        wf_id, exec_id, InstanceExecStatus.SUCCEEDED, "hello\n", "", finished,
     )
     record = _read_record(wf_id)
     assert record.execs[0].updated_at == finished
@@ -247,15 +247,15 @@ def test_multiple_execs_in_one_workflow() -> None:
     id2 = WorkflowPersistence.append_running_execution(wf_id, "second", "c2", "x = 2")
 
     WorkflowPersistence.update_execution_result(
-        wf_id, id1, ExecStatus.SUCCEEDED, "1\n", "", "2023-11-14T22:13:20+00:00",
+        wf_id, id1, InstanceExecStatus.SUCCEEDED, "1\n", "", "2023-11-14T22:13:20+00:00",
     )
     WorkflowPersistence.update_execution_result(
-        wf_id, id2, ExecStatus.FAILED, "", "err", "2023-11-14T22:13:21+00:00",
+        wf_id, id2, InstanceExecStatus.FAILED, "", "err", "2023-11-14T22:13:21+00:00",
         error="RuntimeError",
     )
 
     record = _read_record(wf_id)
     assert len(record.execs) == 2
-    assert record.execs[0].status == ExecStatus.SUCCEEDED
-    assert record.execs[1].status == ExecStatus.FAILED
+    assert record.execs[0].status == InstanceExecStatus.SUCCEEDED
+    assert record.execs[1].status == InstanceExecStatus.FAILED
     assert set(record.instance_ids) == {"c1", "c2"}
