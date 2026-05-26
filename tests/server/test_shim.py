@@ -8,11 +8,8 @@ import pytest
 from python_bridge_mcp.server.backend_client import BackendClient
 from python_bridge_mcp.server.control_models import (
     GetWorkflowExecutionResponse,
-    GetWorkflowOverviewResponse,
     ListInstancesResponse,
-    SetInstanceAliasResponse,
     InstanceInfo,
-    InstanceSummary,
 )
 from python_bridge_mcp.server.shim import mcp as shim_mcp
 from python_bridge_mcp.shared.instance_control_models import InstanceExecError, InstanceExecResult, InstanceExecStatus
@@ -32,9 +29,7 @@ EXPECTED_TOOLS = {
     "list_instances",
     "exec_python",
     "start_workflow",
-    "get_workflow_overview",
     "get_workflow_execution",
-    "set_instance_alias",
 }
 
 
@@ -178,52 +173,7 @@ def test_start_workflow_creates_file(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# E5 — get_workflow_overview
-# ---------------------------------------------------------------------------
-
-def test_get_workflow_overview_existing(monkeypatch) -> None:
-    overview = GetWorkflowOverviewResponse(
-        workflow_id="wf-1", name="my-wf", description="desc",
-        execution_count=0, created_at="2024-01-01T00:00:00+00:00",
-    )
-    client = _mock_client(get_workflow_overview=overview)
-    _patch(monkeypatch, client)
-
-    result = asyncio.run(shim_mcp.call_tool("get_workflow_overview", {
-        "workflow_id": "wf-1",
-    }))
-    assert result.isError is False
-    assert result.structuredContent["workflow_id"] == "wf-1"
-    assert result.structuredContent["name"] == "my-wf"
-
-
-def test_get_workflow_overview_not_found(monkeypatch) -> None:
-    client = AsyncMock(spec=BackendClient)
-    client.get_workflow_overview.side_effect = WorkflowRecordUnavailableError("not found")
-    _patch(monkeypatch, client)
-
-    result = asyncio.run(shim_mcp.call_tool("get_workflow_overview", {
-        "workflow_id": "nonexistent",
-    }))
-    assert result.isError is True
-    assert result.structuredContent["error_code"] == "workflow_not_found"
-
-
-def test_get_workflow_overview_returns_structured_error(monkeypatch) -> None:
-    client = AsyncMock(spec=BackendClient)
-    client.get_workflow_overview.side_effect = WorkflowRecordUnavailableError("not found")
-    _patch(monkeypatch, client)
-
-    result = asyncio.run(shim_mcp.call_tool("get_workflow_overview", {"workflow_id": "wf-missing"}))
-    assert result.isError is True
-    assert result.structuredContent == {
-        "error_code": "workflow_not_found",
-        "message": "not found",
-    }
-
-
-# ---------------------------------------------------------------------------
-# E6 — get_workflow_execution
+# E5 — get_workflow_execution
 # ---------------------------------------------------------------------------
 
 def test_get_workflow_execution_full_view(monkeypatch) -> None:
@@ -273,30 +223,3 @@ def test_get_workflow_execution_not_found(monkeypatch) -> None:
     assert result.structuredContent["error_code"] == "execution_not_found"
 
 
-# ---------------------------------------------------------------------------
-# E7 — set_instance_alias
-# ---------------------------------------------------------------------------
-
-def test_set_instance_alias_updates_alias(monkeypatch) -> None:
-    resp = SetInstanceAliasResponse(success=True, instance_id="c1", alias="my-alias")
-    client = _mock_client(set_alias=resp)
-    _patch(monkeypatch, client)
-
-    result = asyncio.run(shim_mcp.call_tool("set_instance_alias", {
-        "instance_id": "c1",
-        "alias": "my-alias",
-    }))
-    assert result.structuredContent["alias"] == "my-alias"
-    client.set_alias.assert_called_once_with("c1", "my-alias")
-
-
-def test_set_instance_alias_none(monkeypatch) -> None:
-    resp = SetInstanceAliasResponse(success=True, instance_id="c1", alias=None)
-    client = _mock_client(set_alias=resp)
-    _patch(monkeypatch, client)
-
-    result = asyncio.run(shim_mcp.call_tool("set_instance_alias", {
-        "instance_id": "c1",
-        "alias": None,
-    }))
-    assert result.structuredContent["alias"] is None

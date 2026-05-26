@@ -68,21 +68,6 @@ class InstanceExecRequest(InstanceControlWireModel):
 
 @wire_model
 @dataclass
-class InstanceSetAliasRequest(InstanceControlWireModel):
-    alias: Optional[str] = None
-    request_id: Optional[str] = None
-
-
-@wire_model
-@dataclass
-class InstanceSetAliasResult(InstanceControlWireModel):
-    success: bool = False
-    alias: Optional[str] = None
-    request_id: Optional[str] = None
-
-
-@wire_model
-@dataclass
 class InstanceExecOutputUpdate(InstanceControlWireModel):
     execution_id: str
     workflow_id: str

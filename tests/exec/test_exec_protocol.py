@@ -154,17 +154,6 @@ def test_early_return_result_persisted_to_disk(connected_system) -> None:
     assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.SUCCEEDED)
 
 
-def test_set_alias_roundtrip(connected_system) -> None:
-    server, registry, control, client = connected_system
-
-    result = server.run_async(control.set_alias("c1", "lighting"))
-
-    assert result.success is True
-    assert result.alias == "lighting"
-    assert client._current_alias() == "lighting"
-    assert registry.list_clients()["c1"].alias == "lighting"
-
-
 def test_disconnect_marks_running_execution_failed(connected_system) -> None:
     server, registry, control, client = connected_system
     wf_id = WorkflowPersistence.create_workflow("disconnect-test")

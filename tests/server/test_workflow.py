@@ -265,35 +265,3 @@ def test_request_id_persisted_in_exec_entry(
     assert len(entry.request_id) > 0
 
 
-# ---------------------------------------------------------------------------
-# 2.3 — per-instance summaries in get_workflow_overview
-# ---------------------------------------------------------------------------
-
-def test_get_workflow_overview_instance_summaries(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    """get_workflow_overview includes per-instance exec_count and latest_status."""
-    registry, control, app_run = app_runner
-    _bg_register(discovery_port, exec_port)
-    wf_id = control.start_workflow("overview-test")
-
-    app_run.run_async(control.execute("c1", 'print("a")', wf_id))
-    app_run.run_async(control.execute("c1", 'print("b")', wf_id))
-
-    overview = control.get_workflow_overview(wf_id)
-    assert len(overview.instance_summaries) == 1
-    summary = overview.instance_summaries[0]
-    assert summary.instance_id == "c1"
-    assert summary.exec_count == 2
-    assert summary.active_count == 0
-    assert summary.latest_status == "succeeded"
-
-
-def test_get_workflow_overview_instance_summaries_in_dict(app_runner) -> None:
-    """instance_summaries appears in the serialized overview dict."""
-    registry, control, _ = app_runner
-    wf_id = control.start_workflow("overview-dict-test")
-    overview = control.get_workflow_overview(wf_id)
-    data = overview.to_dict(exclude_none=True)
-    assert "instance_summaries" in data
-    assert data["instance_summaries"] == []

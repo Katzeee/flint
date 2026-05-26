@@ -16,8 +16,6 @@ from ..shared.instance_control_models import (
     InstanceAck,
     InstanceHeartbeat,
     InstanceRegister,
-    InstanceSetAliasRequest,
-    InstanceSetAliasResult,
 )
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
@@ -208,13 +206,6 @@ class DiscoveryClient:
         alias = alias.strip() if alias is not None else None
         return alias or None
 
-    def _set_alias(self, alias: Optional[str]) -> Optional[str]:
-        normalized = alias.strip() if alias is not None else None
-        normalized = normalized or None
-        with self._alias_lock:
-            self._alias = normalized
-            return self._alias
-
     async def _connect_and_serve(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._execution_lock = asyncio.Lock()
@@ -279,19 +270,8 @@ class DiscoveryClient:
                     raise RuntimeError(msg.message or msg.error_code or "backend rejected request")
             elif isinstance(msg, InstanceExecRequest):
                 asyncio.create_task(self._handle_exec(msg))
-            elif isinstance(msg, InstanceSetAliasRequest):
-                asyncio.create_task(self._handle_set_alias(msg))
             else:
                 raise WireModelError(f"unexpected message type: {type(msg).__name__}")
-
-    async def _handle_set_alias(self, msg: InstanceSetAliasRequest) -> None:
-        await self._send(
-            InstanceSetAliasResult(
-                success=True,
-                alias=self._set_alias(msg.alias),
-                request_id=msg.request_id,
-            )
-        )
 
     async def _handle_exec(self, msg: InstanceExecRequest) -> None:
         assert self._execution_lock is not None

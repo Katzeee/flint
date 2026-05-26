@@ -7,14 +7,10 @@ from python_bridge_mcp.server.control_models import (
     ErrorResponse,
     GetWorkflowExecutionRequest,
     GetWorkflowExecutionResponse,
-    GetWorkflowOverviewRequest,
-    GetWorkflowOverviewResponse,
     ListInstancesRequest,
     ListInstancesResponse,
     PingRequest,
     PingResponse,
-    SetInstanceAliasRequest,
-    SetInstanceAliasResponse,
     StartWorkflowRequest,
     StartWorkflowResponse,
     InstanceInfo,
@@ -81,38 +77,6 @@ def test_start_workflow_response_roundtrip() -> None:
 
 
 # ---------------------------------------------------------------------------
-# GetWorkflowOverview
-# ---------------------------------------------------------------------------
-
-def test_get_workflow_overview_request_roundtrip() -> None:
-    req = GetWorkflowOverviewRequest(workflow_id="wf-123")
-    data = req.to_dict()
-    parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, GetWorkflowOverviewRequest)
-    assert parsed.workflow_id == "wf-123"
-
-
-def test_get_workflow_overview_response_roundtrip() -> None:
-    resp = GetWorkflowOverviewResponse(
-        workflow_id="wf-123",
-        name="my-wf",
-        execution_count=3,
-        created_at="2024-01-01T00:00:00+00:00",
-        description="a test workflow",
-        instance_ids=["c1", "c2"],
-    )
-    data = resp.to_dict()
-    parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, GetWorkflowOverviewResponse)
-    assert parsed.workflow_id == "wf-123"
-    assert parsed.name == "my-wf"
-    assert parsed.execution_count == 3
-    assert parsed.created_at == "2024-01-01T00:00:00+00:00"
-    assert parsed.description == "a test workflow"
-    assert parsed.instance_ids == ["c1", "c2"]
-
-
-# ---------------------------------------------------------------------------
 # GetWorkflowExecution
 # ---------------------------------------------------------------------------
 
@@ -162,37 +126,6 @@ def test_get_workflow_execution_response_code_none_in_summary() -> None:
     assert "code" not in data
 
 
-# ---------------------------------------------------------------------------
-# SetInstanceAlias
-# ---------------------------------------------------------------------------
-
-def test_set_instance_alias_request_roundtrip() -> None:
-    req = SetInstanceAliasRequest(instance_id="c1", alias="my-maya")
-    data = req.to_dict()
-    parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, SetInstanceAliasRequest)
-    assert parsed.instance_id == "c1"
-    assert parsed.alias == "my-maya"
-
-
-def test_set_instance_alias_request_clear_alias() -> None:
-    req = SetInstanceAliasRequest(instance_id="c1", alias=None)
-    data = req.to_dict()
-    parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, SetInstanceAliasRequest)
-    assert parsed.alias is None
-
-
-def test_set_instance_alias_response_roundtrip() -> None:
-    resp = SetInstanceAliasResponse(success=True, instance_id="c1", alias="my-maya")
-    data = resp.to_dict()
-    parsed = VersionedWireModel.parse_versioned(data)
-    assert isinstance(parsed, SetInstanceAliasResponse)
-    assert parsed.success is True
-    assert parsed.instance_id == "c1"
-    assert parsed.alias == "my-maya"
-
-
 def test_ping_roundtrip() -> None:
     payload = PingRequest().to_dict()
     parsed = VersionedWireModel.parse_versioned(payload)
@@ -217,8 +150,3 @@ def test_error_response_roundtrip_casts_control_error() -> None:
     assert payload["error_code"] == "workflow_not_found"
 
 
-def test_set_instance_alias_response_cleared_alias() -> None:
-    resp = SetInstanceAliasResponse(success=True, instance_id="c1", alias=None)
-    data = resp.to_dict(exclude_none=True)
-    parsed = VersionedWireModel.parse_versioned(data)
-    assert parsed.alias is None

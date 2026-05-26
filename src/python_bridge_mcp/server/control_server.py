@@ -10,8 +10,6 @@ from ..shared.instance_control_models import (
     InstanceExecRequest,
     InstanceExecResult,
     InstanceExecStatus,
-    InstanceSetAliasRequest,
-    InstanceSetAliasResult,
 )
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
@@ -22,18 +20,13 @@ from .control_models import (
     ErrorResponse,
     GetWorkflowExecutionRequest,
     GetWorkflowExecutionResponse,
-    GetWorkflowOverviewRequest,
-    GetWorkflowOverviewResponse,
     ListInstancesRequest,
     ListInstancesResponse,
     PingRequest,
     PingResponse,
-    SetInstanceAliasRequest,
-    SetInstanceAliasResponse,
     StartWorkflowRequest,
     StartWorkflowResponse,
     InstanceInfo,
-    InstanceSummary,
 )
 from .registry import Registry
 
@@ -109,12 +102,6 @@ class ControlServer:
             except KeyError as exc:
                 return ErrorResponse(error_code=ControlError.UNKNOWN_CLIENT, message=str(exc))
 
-        if isinstance(request, GetWorkflowOverviewRequest):
-            try:
-                return self.get_workflow_overview(request.workflow_id)
-            except WorkflowRecordUnavailableError as exc:
-                return ErrorResponse(error_code=ControlError.WORKFLOW_NOT_FOUND, message=str(exc))
-
         if isinstance(request, GetWorkflowExecutionRequest):
             try:
                 return self.get_workflow_execution(request.workflow_id, request.execution_id, request.view)
@@ -122,12 +109,6 @@ class ControlServer:
                 return ErrorResponse(error_code=ControlError.WORKFLOW_NOT_FOUND, message=str(exc))
             except KeyError as exc:
                 return ErrorResponse(error_code=ControlError.EXECUTION_NOT_FOUND, message=str(exc))
-
-        if isinstance(request, SetInstanceAliasRequest):
-            try:
-                return await self.set_alias(request.instance_id, request.alias)
-            except KeyError as exc:
-                return ErrorResponse(error_code=ControlError.UNKNOWN_CLIENT, message=str(exc))
 
         if isinstance(request, PingRequest):
             return PingResponse()
@@ -149,52 +130,6 @@ class ControlServer:
             for e in clients.values()
         ]
         return ListInstancesResponse(instances=instances)
-
-    async def set_alias(self, instance_id: str, alias: Optional[str]) -> SetInstanceAliasResponse:
-        return await self._set_alias_remote(instance_id, alias)
-
-    async def _set_alias_remote(
-        self,
-        instance_id: str,
-        alias: Optional[str],
-        *,
-        connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
-    ) -> SetInstanceAliasResponse:
-        entry = self._discovery.get_client(instance_id)
-        if entry is None:
-            raise KeyError(f"unknown client: {instance_id}")
-
-        result = await self._discovery.request(
-            instance_id,
-            InstanceSetAliasRequest(alias=alias),
-            timeout=connect_timeout,
-        )
-        if not isinstance(result, InstanceSetAliasResult):
-            raise WireModelError(f"unexpected response: {type(result).__name__}")
-        self._discovery.set_alias(instance_id, result.alias)
-        return SetInstanceAliasResponse(success=True, instance_id=instance_id, alias=result.alias)
-
-    def get_workflow_overview(self, workflow_id: str) -> GetWorkflowOverviewResponse:
-        record = WorkflowPersistence.load(workflow_id)
-        raw_summaries = WorkflowPersistence.get_instance_summaries(record)
-        instance_summaries = [
-            InstanceSummary(
-                instance_id=iid,
-                exec_count=s["exec_count"],
-                active_count=s["active_count"],
-                latest_status=s["latest_status"],
-            )
-            for iid, s in raw_summaries.items()
-        ]
-        return GetWorkflowOverviewResponse(
-            workflow_id=record.workflow_id,
-            name=record.name,
-            description=record.description,
-            execution_count=record.execution_count,
-            created_at=record.created_at,
-            instance_ids=list(record.instance_ids),
-            instance_summaries=instance_summaries,
-        )
 
     def get_workflow_execution(
         self,

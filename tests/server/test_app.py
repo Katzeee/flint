@@ -12,8 +12,8 @@ from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.shared.instance_control_models import InstanceExecStatus
-from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
-from python_bridge_mcp.server.control_models import ListInstancesResponse, SetInstanceAliasResponse
+from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
+from python_bridge_mcp.server.control_models import ListInstancesResponse
 
 from conftest import AsyncRunner, free_port, wait_for
 
@@ -152,33 +152,6 @@ def test_alias_from_registration(
     assert clients["c1"].alias == "my-alias"
 
 
-def test_set_alias(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    registry, control, runner = app_runner
-    _bg_register(discovery_port, exec_port)
-
-    assert registry.list_clients()["c1"].alias is None
-    runner.run_async(control.set_alias("c1", "new-alias"))
-    assert registry.list_clients()["c1"].alias == "new-alias"
-
-
-def test_set_alias_clear(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    registry, control, runner = app_runner
-    _bg_register(discovery_port, exec_port, alias="old")
-
-    runner.run_async(control.set_alias("c1", None))
-    assert registry.list_clients()["c1"].alias is None
-
-
-def test_set_alias_unknown_client(app_runner) -> None:
-    registry, control, runner = app_runner
-    with pytest.raises(KeyError, match="unknown client"):
-        runner.run_async(control.set_alias("nonexistent", "alias"))
-
-
 def test_client_disconnect_removes_entry(
     app_runner, discovery_port: int, exec_port: int,
 ) -> None:
@@ -256,24 +229,6 @@ def test_same_pid_deduplication(
     assert "old" not in clients
 
 
-def test_set_alias_empty_string_becomes_none(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    registry, control, runner = app_runner
-    _bg_register(discovery_port, exec_port, alias="initial")
-    runner.run_async(control.set_alias("c1", ""))
-    assert registry.list_clients()["c1"].alias is None
-
-
-def test_set_alias_whitespace_becomes_none(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    registry, control, runner = app_runner
-    _bg_register(discovery_port, exec_port, alias="initial")
-    runner.run_async(control.set_alias("c1", "  "))
-    assert registry.list_clients()["c1"].alias is None
-
-
 # ---------------------------------------------------------------------------
 # D1 — list_instances
 # ---------------------------------------------------------------------------
@@ -313,30 +268,7 @@ def test_list_instances_filters_by_type(
 
 
 # ---------------------------------------------------------------------------
-# D2 — get_workflow_overview
-# ---------------------------------------------------------------------------
-
-def test_get_workflow_overview_existing(app_runner) -> None:
-    registry, control, _ = app_runner
-    wf_id = control.start_workflow("my-wf", "some description")
-
-    overview = control.get_workflow_overview(wf_id)
-    assert overview.workflow_id == wf_id
-    assert overview.name == "my-wf"
-    assert overview.description == "some description"
-    assert overview.execution_count == 0
-    assert overview.created_at != ""
-    assert overview.instance_ids == []
-
-
-def test_get_workflow_overview_not_found(app_runner) -> None:
-    registry, control, _ = app_runner
-    with pytest.raises(WorkflowRecordUnavailableError):
-        control.get_workflow_overview("nonexistent-wf-id")
-
-
-# ---------------------------------------------------------------------------
-# D3 — get_workflow_execution
+# D2 — get_workflow_execution
 # ---------------------------------------------------------------------------
 
 def test_get_workflow_execution_full_view(app_runner) -> None:
@@ -372,42 +304,3 @@ def test_get_workflow_execution_not_found(app_runner) -> None:
         control.get_workflow_execution(wf_id, "9999", view="summary")
 
 
-# ---------------------------------------------------------------------------
-# D4 — set_alias returns SetInstanceAliasResponse
-# ---------------------------------------------------------------------------
-
-def test_set_alias_returns_response_with_normalized_alias(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    registry, control, runner = app_runner
-    _bg_register(discovery_port, exec_port)
-
-    response = runner.run_async(control.set_alias("c1", ""))
-    assert isinstance(response, SetInstanceAliasResponse)
-    assert response.success is True
-    assert response.instance_id == "c1"
-    assert response.alias is None
-
-
-def test_set_alias_returns_response_with_alias_value(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    registry, control, runner = app_runner
-    _bg_register(discovery_port, exec_port)
-
-    response = runner.run_async(control.set_alias("c1", "my-alias"))
-    assert response.success is True
-    assert response.instance_id == "c1"
-    assert response.alias == "my-alias"
-
-
-def test_set_alias_updates_listener_then_registry(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    registry, control, runner = app_runner
-    _bg_register(discovery_port, exec_port, instance_id="c1")
-
-    response = runner.run_async(control.set_alias("c1", "lighting"))
-    assert response.success is True
-    assert response.alias == "lighting"
-    assert registry.list_clients()["c1"].alias == "lighting"

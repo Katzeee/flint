@@ -7,14 +7,10 @@ from .control_models import (
     ErrorResponse,
     GetWorkflowExecutionRequest,
     GetWorkflowExecutionResponse,
-    GetWorkflowOverviewRequest,
-    GetWorkflowOverviewResponse,
     ListInstancesRequest,
     ListInstancesResponse,
     PingRequest,
     PingResponse,
-    SetInstanceAliasRequest,
-    SetInstanceAliasResponse,
     StartWorkflowRequest,
     StartWorkflowResponse,
 )
@@ -109,12 +105,6 @@ class BackendClient:
         assert isinstance(resp, InstanceExecResult)
         return resp
 
-    async def get_workflow_overview(self, workflow_id: str) -> GetWorkflowOverviewResponse:
-        resp = await self._roundtrip(GetWorkflowOverviewRequest(workflow_id=workflow_id))
-        self._raise_if_error(resp)
-        assert isinstance(resp, GetWorkflowOverviewResponse)
-        return resp
-
     async def get_workflow_execution(
         self,
         workflow_id: str,
@@ -132,12 +122,3 @@ class BackendClient:
         assert isinstance(resp, GetWorkflowExecutionResponse)
         return resp
 
-    async def set_alias(
-        self, instance_id: str, alias: Optional[str] = None
-    ) -> SetInstanceAliasResponse:
-        resp = await self._roundtrip(
-            SetInstanceAliasRequest(instance_id=instance_id, alias=alias)
-        )
-        self._raise_if_error(resp)
-        assert isinstance(resp, SetInstanceAliasResponse)
-        return resp

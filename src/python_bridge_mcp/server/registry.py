@@ -13,7 +13,6 @@ from ..shared.instance_control_models import (
     InstanceControlError,
     InstanceHeartbeat,
     InstanceRegister,
-    InstanceSetAliasResult,
 )
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
@@ -176,15 +175,6 @@ class Registry:
         self._close_sessions(stale_sessions, "client heartbeat timed out")
         return ok
 
-    def set_alias(self, instance_id: str, alias: Optional[str]) -> None:
-        stale_sessions: List[ControlSession]
-        with self._lock:
-            stale_sessions = self._evict_stale()
-            if instance_id not in self._clients:
-                raise KeyError(f"unknown client: {instance_id}")
-            self._clients[instance_id].alias = alias if alias and alias.strip() else None
-        self._close_sessions(stale_sessions, "client heartbeat timed out")
-
     async def request(
         self,
         instance_id: str,
@@ -339,7 +329,7 @@ class Registry:
                         return
                     await session.send(InstanceAck(success=True))
 
-                elif isinstance(msg, (InstanceExecResult, InstanceSetAliasResult)):
+                elif isinstance(msg, InstanceExecResult):
                     if session is None or not session.resolve(msg):
                         log.warning("Dropping unmatched response from %s: %s", instance_id, type(msg).__name__)
 

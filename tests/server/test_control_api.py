@@ -181,24 +181,6 @@ def test_execute_unknown_instance_raises(backend, client) -> None:
 
 
 # ---------------------------------------------------------------------------
-# get_workflow_overview
-# ---------------------------------------------------------------------------
-
-def test_get_workflow_overview(backend, client) -> None:
-    wf_id = asyncio.run(client.start_workflow("overview-wf", "desc"))
-    overview = asyncio.run(client.get_workflow_overview(wf_id))
-    assert overview.workflow_id == wf_id
-    assert overview.name == "overview-wf"
-    assert overview.description == "desc"
-    assert overview.execution_count == 0
-
-
-def test_get_workflow_overview_not_found(backend, client) -> None:
-    with pytest.raises(WorkflowRecordUnavailableError):
-        asyncio.run(client.get_workflow_overview("nonexistent"))
-
-
-# ---------------------------------------------------------------------------
 # get_workflow_execution
 # ---------------------------------------------------------------------------
 
@@ -233,24 +215,8 @@ def test_get_workflow_execution_not_found(backend, client) -> None:
         asyncio.run(client.get_workflow_execution(wf_id, "9999"))
 
 
-# ---------------------------------------------------------------------------
-# set_alias
-# ---------------------------------------------------------------------------
-
-def test_set_alias(backend, client, listener_runner, discovery_port: int, exec_port: int) -> None:
-    _bg_register(discovery_port, exec_port, instance_id="c1")
-    resp = asyncio.run(client.set_alias("c1", "my-alias"))
-    assert resp.success is True
-    assert resp.alias == "my-alias"
-
-
 def test_backend_client_ping(backend, client) -> None:
     assert asyncio.run(client.ping()) is True
-
-
-def test_set_alias_unknown_instance(backend, client) -> None:
-    with pytest.raises(KeyError):
-        asyncio.run(client.set_alias("nonexistent", "alias"))
 
 
 # ---------------------------------------------------------------------------
@@ -258,13 +224,6 @@ def test_set_alias_unknown_instance(backend, client) -> None:
 # ---------------------------------------------------------------------------
 
 def test_backend_error_propagated(backend, client) -> None:
-    """Unknown request type triggers BackendError."""
-    from python_bridge_mcp.server.control_models import ErrorResponse, ControlWireModel
-    from dataclasses import dataclass
-    from typing import ClassVar
-
-    # Inject an unregistered type into the registry to simulate unknown request
-    with pytest.raises((BackendError, Exception)):
-        # Sending a raw workflow overview request to a nonexistent workflow
-        # triggers workflow_not_found which is re-raised as WorkflowRecordUnavailableError
-        asyncio.run(client.get_workflow_overview("does-not-exist"))
+    """WorkflowRecordUnavailableError is re-raised through the client."""
+    with pytest.raises(WorkflowRecordUnavailableError):
+        asyncio.run(client.get_workflow_execution("does-not-exist", "0001"))

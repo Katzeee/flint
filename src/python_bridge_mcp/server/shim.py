@@ -8,7 +8,7 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, TextContent
 
-from .backend_client import BackendClient, BackendError
+from .backend_client import BackendClient
 from .control_models import ControlError
 from .launcher import BackendLauncher
 from ..shared.workflow_persistence import WorkflowRecordUnavailableError
@@ -96,21 +96,6 @@ async def start_workflow(name: str, description: str = ""):
 
 
 @mcp.tool()
-async def get_workflow_overview(workflow_id: str):
-    """Get overview of a workflow (name, description, execution count, etc.).
-
-    Args:
-        workflow_id: The workflow ID to look up.
-    """
-    client = await _get_backend_client()
-    try:
-        overview = await client.get_workflow_overview(workflow_id)
-    except WorkflowRecordUnavailableError as exc:
-        return _tool_error(ControlError.WORKFLOW_NOT_FOUND, str(exc))
-    return _tool_ok(overview.to_dict(exclude_none=True))
-
-
-@mcp.tool()
 async def get_workflow_execution(workflow_id: str, execution_id: str, view: str = "summary"):
     """Get details of a specific execution within a workflow.
 
@@ -127,24 +112,6 @@ async def get_workflow_execution(workflow_id: str, execution_id: str, view: str 
     except KeyError as exc:
         return _tool_error(ControlError.EXECUTION_NOT_FOUND, str(exc))
     return _tool_ok(response.to_dict(exclude_none=True))
-
-
-@mcp.tool()
-async def set_instance_alias(instance_id: str, alias: Optional[str] = None):
-    """Set or clear the alias for a registered instance.
-
-    Args:
-        instance_id: Instance to update.
-        alias: New alias value, or None/empty to clear.
-    """
-    client = await _get_backend_client()
-    try:
-        response = await client.set_alias(instance_id, alias)
-    except KeyError as exc:
-        return _tool_error(ControlError.INSTANCE_OFFLINE, str(exc))
-    except BackendError as exc:
-        return _tool_error(exc.error_code, str(exc))
-    return _tool_ok(response.to_dict())
 
 
 def main() -> None:
