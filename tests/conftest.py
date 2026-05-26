@@ -30,44 +30,45 @@ def wait_for(condition, timeout: float = 3.0, poll: float = 0.05) -> bool:
 
 
 class AsyncRunner:
-    """Runs an async coroutine in a background thread with its own event loop."""
+    """Runs an async coroutine in a background thread with proper shutdown.
+
+    Uses asyncio.run() internally so the event loop, transports, and the
+    Windows IOCP proactor are cleaned up correctly on all platforms.
+    """
 
     def __init__(self) -> None:
         self._loop: asyncio.AbstractEventLoop
         self._thread: threading.Thread
+        self._request_stop = None  # callable, set inside _main
 
     def start(self, coro_fn) -> None:
         ready = threading.Event()
 
         def _thread_target() -> None:
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-            try:
-                self._loop.run_until_complete(self._boot(coro_fn, ready))
-            except (asyncio.CancelledError, RuntimeError):
-                pass
-            finally:
-                pending = asyncio.all_tasks(self._loop)
-                if pending:
-                    for t in pending:
-                        t.cancel()
-                    self._loop.run_until_complete(
-                        asyncio.gather(*pending, return_exceptions=True)
-                    )
-                self._loop.close()
+            async def _main() -> None:
+                self._loop = asyncio.get_running_loop()
+                stop_event = asyncio.Event()
+                self._request_stop = lambda: self._loop.call_soon_threadsafe(stop_event.set)
+
+                task = asyncio.ensure_future(coro_fn())
+                await asyncio.sleep(0.05)
+                ready.set()
+
+                stop_task = asyncio.create_task(stop_event.wait())
+                await asyncio.wait(
+                    [task, stop_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+            asyncio.run(_main())
 
         self._thread = threading.Thread(target=_thread_target, daemon=True)
         self._thread.start()
         assert ready.wait(timeout=5), "server did not start in time"
 
-    async def _boot(self, coro_fn, ready: threading.Event) -> None:
-        task = asyncio.ensure_future(coro_fn())
-        await asyncio.sleep(0.05)
-        ready.set()
-        await task
-
     def stop(self) -> None:
-        self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._request_stop is not None:
+            self._request_stop()
         self._thread.join(timeout=5)
 
     def run_async(self, coro):

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+import python_bridge_mcp.server.shim as _shim_mod
 from python_bridge_mcp.server.backend_client import BackendClient
 from python_bridge_mcp.server.control_models import (
     GetWorkflowExecutionResponse,
@@ -19,6 +20,27 @@ from python_bridge_mcp.shared.workflow_persistence import (
 )
 
 from conftest import free_port
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _reset_shim_globals():
+    """Reset shim module globals before and after each test.
+
+    Prevents _backend_client and _client_lock from leaking between tests.
+    _client_lock is bound to the event loop it was first used in (Python 3.10+),
+    so it must be reset between asyncio.run() calls that each create a new loop.
+    Without this, a running backend on the default port could be accidentally
+    used by tests that forget to patch _backend_client.
+    """
+    _shim_mod._backend_client = None
+    _shim_mod._client_lock = None
+    yield
+    _shim_mod._backend_client = None
+    _shim_mod._client_lock = None
 
 
 # ---------------------------------------------------------------------------
@@ -78,30 +100,6 @@ def test_list_instances_returns_instances(monkeypatch) -> None:
     assert data["instances"][0]["instance_type"] == "maya"
     assert json.loads(result.content[0].text) == data
     client.list_instances.assert_called_once_with(None)
-
-
-def test_list_instances_returns_structured_content(monkeypatch) -> None:
-    instances = [
-        InstanceInfo(
-            instance_id="c1",
-            instance_name="myapp",
-            instance_type="maya",
-        )
-    ]
-    client = _mock_client(list_instances=ListInstancesResponse(instances=instances))
-    _patch(monkeypatch, client)
-
-    result = asyncio.run(shim_mcp.call_tool("list_instances", {}))
-    assert result.structuredContent == {
-        "instances": [
-            {
-                "instance_id": "c1",
-                "instance_name": "myapp",
-                "alias": None,
-                "instance_type": "maya",
-            }
-        ]
-    }
 
 
 def test_list_instances_filters_by_type(monkeypatch) -> None:

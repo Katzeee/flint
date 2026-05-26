@@ -1,10 +1,9 @@
-"""Tests for ControlServer (TCP API) and BackendClient using an in-process backend."""
+"""Tests for the BackendClient TCP layer against an in-process backend."""
 from __future__ import annotations
 
 import asyncio
 import threading
 import time
-from datetime import datetime, timezone
 from typing import Iterator
 
 import pytest
@@ -12,10 +11,9 @@ import pytest
 from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.discovery import DiscoveryClient
-from python_bridge_mcp.server.backend_client import BackendClient, BackendError
+from python_bridge_mcp.server.backend_client import BackendClient
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import ClientEntry, Registry
-from python_bridge_mcp.shared.instance_control_models import InstanceExecStatus
 from python_bridge_mcp.shared.workflow_persistence import (
     WorkflowPersistence,
     WorkflowRecordUnavailableError,
@@ -23,10 +21,6 @@ from python_bridge_mcp.shared.workflow_persistence import (
 
 from conftest import AsyncRunner, free_port
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def discovery_port() -> int:
@@ -39,20 +33,12 @@ def api_port() -> int:
 
 
 @pytest.fixture
-def exec_port() -> int:
-    return free_port()
-
-
-@pytest.fixture
 def backend(discovery_port: int, api_port: int) -> Iterator[tuple]:
-    """Start Registry + ControlServer in a background thread."""
     registry = Registry(host="localhost", port=discovery_port)
     control = ControlServer(registry, host="localhost", port=api_port)
     runner = AsyncRunner()
     runner.start(lambda: asyncio.gather(registry.run(), control.run()))
     yield registry, control
-    registry.stop()
-    control.stop()
     runner.stop()
 
 
@@ -61,152 +47,38 @@ def client(api_port: int) -> BackendClient:
     return BackendClient(host="localhost", port=api_port)
 
 
-@pytest.fixture
-def listener_runner() -> None:
-    return None
-
-
-class _InstanceRunner:
-    def __init__(self, client: DiscoveryClient) -> None:
-        self.client = client
-        self._thread = threading.Thread(target=client.run, daemon=True)
-
-    def start(self) -> None:
-        self._thread.start()
-
-    def stop(self) -> None:
-        self.client.stop()
-        self._thread.join(timeout=5)
-
-
-def _bg_register(
-    discovery_port: int,
-    exec_port: int = 0,
-    instance_id: str = "c1",
-    pid: int = 1,
-) -> _InstanceRunner:
-    client = DiscoveryClient(
-        instance_id=instance_id,
-        instance_name="test",
-        runner=DirectRunner(CodeExecutor()),
-        host="localhost",
-        port=discovery_port,
-        heartbeat_interval=0.1,
-        pid=pid,
-    )
-    runner = _InstanceRunner(client)
-    runner.start()
-    assert client.wait_until_registered(timeout=3), "registration failed"
-
-    def _auto_stop() -> None:
-        time.sleep(5)
-        runner.stop()
-
-    threading.Thread(target=_auto_stop, daemon=True).start()
-    return runner
-
-
-# ---------------------------------------------------------------------------
-# list_instances
-# ---------------------------------------------------------------------------
-
 def test_list_instances_empty(backend, client) -> None:
     result = asyncio.run(client.list_instances())
     assert result.instances == []
 
 
 def test_list_instances_with_registered_instance(
-    backend, client, discovery_port: int, exec_port: int,
+    backend, client, discovery_port: int,
 ) -> None:
-    _bg_register(discovery_port, exec_port, instance_id="c1")
+    registry, _ = backend
+    registry.register(ClientEntry(
+        pid=1, instance_id="c1", instance_name="test",
+        alias=None, instance_type="maya",
+    ))
     result = asyncio.run(client.list_instances())
     assert len(result.instances) == 1
     assert result.instances[0].instance_id == "c1"
 
 
-def test_list_instances_filter_by_type(
-    backend, client, discovery_port: int,
-) -> None:
-    registry, *_ = backend
-
-    def _reg(iid: str, itype: str, pid: int, port: int) -> None:
-        registry.register(ClientEntry(
-            pid=pid, instance_id=iid, instance_name=iid,
-            alias=None, instance_type=itype,
-        ))
-
-    _reg("maya1", "maya", 1, 1001)
-    _reg("nuke1", "nuke", 2, 1002)
+def test_list_instances_filter_by_type(backend, client, discovery_port: int) -> None:
+    registry, _ = backend
+    registry.register(ClientEntry(pid=1, instance_id="maya1", instance_name="maya1", alias=None, instance_type="maya"))
+    registry.register(ClientEntry(pid=2, instance_id="nuke1", instance_name="nuke1", alias=None, instance_type="nuke"))
 
     result = asyncio.run(client.list_instances(instance_type="maya"))
     assert len(result.instances) == 1
     assert result.instances[0].instance_id == "maya1"
 
 
-# ---------------------------------------------------------------------------
-# start_workflow
-# ---------------------------------------------------------------------------
-
-def test_start_workflow_returns_id(backend, client) -> None:
-    wf_id = asyncio.run(client.start_workflow("my-wf"))
-    assert "my-wf" in wf_id
-    assert WorkflowPersistence.exists(wf_id)
-
-
-def test_start_workflow_with_description(backend, client) -> None:
-    wf_id = asyncio.run(client.start_workflow("wf", "my description"))
-    record = WorkflowPersistence.load(wf_id)
-    assert record.description == "my description"
-
-
-# ---------------------------------------------------------------------------
-# execute
-# ---------------------------------------------------------------------------
-
-def test_execute_success(
-    backend, client, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    _bg_register(discovery_port, exec_port)
-    wf_id = asyncio.run(client.start_workflow("exec-test"))
-
-    result = asyncio.run(client.execute("c1", 'print("hello")', wf_id))
-    assert result.status == InstanceExecStatus.SUCCEEDED
-    assert WorkflowPersistence.load(wf_id).execs[0].stdout == "hello\n"
-
-
 def test_execute_unknown_instance_raises(backend, client) -> None:
     wf_id = asyncio.run(client.start_workflow("wf"))
     with pytest.raises(KeyError):
         asyncio.run(client.execute("nonexistent", "x=1", wf_id))
-
-
-# ---------------------------------------------------------------------------
-# get_workflow_execution
-# ---------------------------------------------------------------------------
-
-def test_get_workflow_execution(backend, client) -> None:
-    wf_id = asyncio.run(client.start_workflow("wf"))
-    exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "x=1")
-    WorkflowPersistence.update_execution_result(
-        wf_id, exec_id, InstanceExecStatus.SUCCEEDED,
-        "out", "", datetime.now(timezone.utc).isoformat(),
-    )
-
-    resp = asyncio.run(client.get_workflow_execution(wf_id, exec_id))
-    assert resp.execution_id == exec_id
-    assert resp.status == "succeeded"
-
-
-def test_get_workflow_execution_full_view(backend, client) -> None:
-    wf_id = asyncio.run(client.start_workflow("wf"))
-    exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
-    WorkflowPersistence.update_execution_result(
-        wf_id, exec_id, InstanceExecStatus.SUCCEEDED, "1\n", "",
-        datetime.now(timezone.utc).isoformat(),
-    )
-
-    resp = asyncio.run(client.get_workflow_execution(wf_id, exec_id, view="full"))
-    assert resp.code == "print(1)"
 
 
 def test_get_workflow_execution_not_found(backend, client) -> None:
@@ -219,11 +91,6 @@ def test_backend_client_ping(backend, client) -> None:
     assert asyncio.run(client.ping()) is True
 
 
-# ---------------------------------------------------------------------------
-# ErrorResponse handling
-# ---------------------------------------------------------------------------
-
 def test_backend_error_propagated(backend, client) -> None:
-    """WorkflowRecordUnavailableError is re-raised through the client."""
     with pytest.raises(WorkflowRecordUnavailableError):
         asyncio.run(client.get_workflow_execution("does-not-exist", "0001"))

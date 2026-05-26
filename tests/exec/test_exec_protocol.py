@@ -60,7 +60,6 @@ def connected_system(port: int) -> Iterator[tuple]:
         yield server, registry, control, client
     finally:
         client_runner.stop()
-        registry.stop()
         server.stop()
 
 

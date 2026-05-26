@@ -1,6 +1,7 @@
 import subprocess
 
 from python_bridge_mcp.server.launcher import BackendLauncher
+from python_bridge_mcp.shared.constants import CONTROL_API_PORT
 
 
 def test_dev_backend_command_reuses_sys_executable(monkeypatch):
@@ -13,7 +14,7 @@ def test_dev_backend_command_reuses_sys_executable(monkeypatch):
         "-m",
         "python_bridge_mcp.server.backend",
         "--api-port",
-        "6322",
+        str(CONTROL_API_PORT),
     ]
     assert cwd == r"D:\codes\python-bridge-mcp"
 

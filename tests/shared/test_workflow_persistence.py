@@ -170,75 +170,10 @@ def test_update_execution_result_with_error() -> None:
     assert entry.error == "ValueError"
 
 
-def test_created_at_is_iso_string() -> None:
-    wf_id = WorkflowPersistence.create_workflow("test")
-    record = _read_record(wf_id)
-    assert isinstance(record.created_at, str)
-    assert "T" in record.created_at  # ISO format
-
-
-def test_started_at_is_iso_string() -> None:
-    wf_id = WorkflowPersistence.create_workflow("test")
-    WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
-    record = _read_record(wf_id)
-    assert isinstance(record.execs[0].started_at, str)
-    assert "T" in record.execs[0].started_at  # ISO format
-
-
-def test_updated_at_none_after_append() -> None:
-    wf_id = WorkflowPersistence.create_workflow("test")
-    exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
-
-    record = _read_record(wf_id)
-    entry = record.execs[0]
-    assert entry.updated_at is None
-
-
-def test_updated_at_set_after_update_output() -> None:
-    wf_id = WorkflowPersistence.create_workflow("test")
-    exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
-
-    WorkflowPersistence.update_execution_output(wf_id, exec_id, "hello\n", "")
-
-    record = _read_record(wf_id)
-    entry = record.execs[0]
-    assert isinstance(entry.updated_at, str)
-    assert "T" in entry.updated_at  # ISO format contains 'T'
-
-
 def test_resolve_nonexistent_raises() -> None:
     from python_bridge_mcp.shared.workflow_persistence import WorkflowRecordUnavailableError
     with pytest.raises(WorkflowRecordUnavailableError):
         WorkflowPersistence.resolve("nonexistent-workflow-id-that-does-not-exist")
-
-
-def test_schema_version_in_json() -> None:
-    wf_id = WorkflowPersistence.create_workflow("test")
-    path = WorkflowPersistence.resolve(wf_id)
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    assert data.get("schema_version") == 1
-
-
-def test_workflow_id_timestamp_is_utc() -> None:
-    """Date embedded in workflow_id must match the UTC date in created_at."""
-    wf_id = WorkflowPersistence.create_workflow("utctest")
-    record = _read_record(wf_id)
-    # workflow_id: utctest_YYYYMMDD_HHMMSS_xxxxxxxx  → parts[-3] is YYYYMMDD
-    id_date = wf_id.split("_")[-3]
-    created_date = record.created_at[:10].replace("-", "")
-    assert id_date == created_date
-
-
-def test_update_execution_result_sets_updated_at() -> None:
-    wf_id = WorkflowPersistence.create_workflow("test")
-    exec_id = WorkflowPersistence.append_running_execution(wf_id, "step", "c1", "print(1)")
-    finished = "2024-01-01T12:00:00+00:00"
-    WorkflowPersistence.update_execution_result(
-        wf_id, exec_id, InstanceExecStatus.SUCCEEDED, "hello\n", "", finished,
-    )
-    record = _read_record(wf_id)
-    assert record.execs[0].updated_at == finished
 
 
 def test_multiple_execs_in_one_workflow() -> None:

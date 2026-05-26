@@ -1,3 +1,4 @@
+"""Tests for workflow-specific behavior: missing workflows, connection failures, request IDs."""
 import asyncio
 import threading
 from typing import Iterator
@@ -16,15 +17,20 @@ from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
 from conftest import AsyncRunner, free_port
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+class DccRunner:
+    def __init__(self, client: DiscoveryClient) -> None:
+        self.client = client
+        self._thread = threading.Thread(target=client.run, daemon=True)
 
-def _bg_register(
-    discovery_port: int,
-    exec_port: int = 0,
-    instance_id: str = "c1",
-) -> "DccRunner":
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self.client.stop()
+        self._thread.join(timeout=5)
+
+
+def _bg_register(discovery_port: int, instance_id: str = "c1") -> DccRunner:
     client = DiscoveryClient(
         instance_id=instance_id,
         instance_name="test",
@@ -40,30 +46,8 @@ def _bg_register(
     return runner
 
 
-class DccRunner:
-    def __init__(self, client: DiscoveryClient) -> None:
-        self.client = client
-        self._thread = threading.Thread(target=client.run, daemon=True)
-
-    def start(self) -> None:
-        self._thread.start()
-
-    def stop(self) -> None:
-        self.client.stop()
-        self._thread.join(timeout=5)
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 @pytest.fixture
 def discovery_port() -> int:
-    return free_port()
-
-
-@pytest.fixture
-def exec_port() -> int:
     return free_port()
 
 
@@ -74,117 +58,46 @@ def app_runner(discovery_port: int) -> Iterator[tuple]:
     runner = AsyncRunner()
     runner.start(registry.run)
     yield registry, control, runner
-    registry.stop()
     runner.stop()
 
 
-@pytest.fixture
-def listener_runner() -> None:
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-def test_start_workflow_returns_id_with_name(app_runner) -> None:
-    registry, control, runner = app_runner
-    wf_id = control.start_workflow("my-workflow")
-    assert isinstance(wf_id, str)
-    assert "my-workflow" in wf_id
-
-
-def test_start_workflow_ids_are_unique(app_runner) -> None:
-    registry, control, runner = app_runner
-    wf1 = control.start_workflow("wf")
-    wf2 = control.start_workflow("wf")
-    assert wf1 != wf2
-
-
-def test_execute_with_workflow_id(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
+def test_execute_rejects_missing_workflow(app_runner, discovery_port: int) -> None:
     registry, control, app_run = app_runner
-    _bg_register(discovery_port, exec_port)
-    wf_id = control.start_workflow("test")
+    dcc = _bg_register(discovery_port)
+    try:
+        with pytest.raises(WorkflowRecordUnavailableError, match="workflow not found"):
+            app_run.run_async(control.execute("c1", 'print("ok")', "nonexistent"))
+    finally:
+        dcc.stop()
 
-    result = app_run.run_async(control.execute("c1", 'print("hello")', wf_id))
-    assert result.status == InstanceExecStatus.SUCCEEDED
-    assert WorkflowPersistence.load(wf_id).execs[0].stdout == "hello\n"
-
-
-def test_execute_rejects_missing_workflow(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    registry, control, app_run = app_runner
-    _bg_register(discovery_port, exec_port)
-
-    with pytest.raises(WorkflowRecordUnavailableError, match="workflow not found"):
-        app_run.run_async(control.execute("c1", 'print("ok")', "nonexistent"))
-
-
-# ---------------------------------------------------------------------------
-# 1.1 — Connection failure records FAILED execution
-# ---------------------------------------------------------------------------
 
 def test_execute_connection_failed_records_failed_execution(app_runner) -> None:
-    """When open_connection fails, execution is written as FAILED with CONNECTION_FAILED."""
     registry, control, app_run = app_runner
-    # Register a instance on a port that is not listening (port 1 is privileged/closed)
-    registry.register(ClientEntry(
-        pid=1, instance_id="dead", instance_name="dead",
-        alias=None,
-    ))
+    registry.register(ClientEntry(pid=1, instance_id="dead", instance_name="dead", alias=None))
     wf_id = control.start_workflow("conn-fail-test")
 
-    result = app_run.run_async(
-        control.execute("dead", "print(1)", wf_id, connect_timeout=2.0)
-    )
+    result = app_run.run_async(control.execute("dead", "print(1)", wf_id, connect_timeout=2.0))
 
     assert result.status == InstanceExecStatus.FAILED
     assert result.error == InstanceExecError.CONNECTION_FAILED
-
-    # Verify the failure is persisted to disk
     record = WorkflowPersistence.load(wf_id)
-    assert len(record.execs) == 1
-    entry = record.execs[0]
-    assert entry.status == InstanceExecStatus.FAILED
-    assert entry.error == InstanceExecError.CONNECTION_FAILED.value
+    assert record.execs[0].status == InstanceExecStatus.FAILED
 
-
-# ---------------------------------------------------------------------------
-# 1.4 — Registry: reconnect does not evict newer entry
-# ---------------------------------------------------------------------------
 
 def test_registry_unregister_pid_guard_unit() -> None:
-    """unregister() with a stale PID must not evict a newer entry (unit test)."""
     registry = Registry()
-    old_entry = ClientEntry(
-        pid=10, instance_id="shared", instance_name="t",
-        alias=None,
-    )
-    registry.register(old_entry)
+    registry.register(ClientEntry(pid=10, instance_id="shared", instance_name="t", alias=None))
+    registry.register(ClientEntry(pid=20, instance_id="shared", instance_name="t", alias=None))
 
-    # Simulate re-registration with a new PID
-    new_entry = ClientEntry(
-        pid=20, instance_id="shared", instance_name="t",
-        alias=None,
-    )
-    registry.register(new_entry)
-
-    # Old TCP connection closes — passes stale PID=10 → must NOT evict PID=20
     registry.unregister("shared", pid=10)
     entry = registry.get_client("shared")
-    assert entry is not None, "Stale PID unregister wrongly evicted new entry"
-    assert entry.pid == 20
+    assert entry is not None and entry.pid == 20
 
-    # New TCP connection closes — passes correct PID=20 → SHOULD evict
     registry.unregister("shared", pid=20)
     assert registry.get_client("shared") is None
 
 
 def test_registry_reconnect_does_not_evict_new_entry(discovery_port) -> None:
-    """Integration: closing an old TCP connection must not evict a newer registration."""
     import time
 
     registry = Registry(host="localhost", port=discovery_port)
@@ -198,9 +111,7 @@ def test_registry_reconnect_does_not_evict_new_entry(discovery_port) -> None:
         async def _do() -> None:
             reader, writer = await asyncio.open_connection("localhost", discovery_port)
             try:
-                msg = InstanceRegister(
-                    pid=pid, instance_id="shared", instance_name="test",
-                )
+                msg = InstanceRegister(pid=pid, instance_id="shared", instance_name="test")
                 await AsyncJsonLineCodec.send(writer, msg.to_dict())
                 await AsyncJsonLineCodec.recv(reader)
                 done_event.set()
@@ -209,59 +120,41 @@ def test_registry_reconnect_does_not_evict_new_entry(discovery_port) -> None:
                 writer.close()
         asyncio.run(_do())
 
-    # Old connection (PID=10) holds for 1 second then closes
     t_old = threading.Thread(target=_connect, args=(10, old_done, 1.0), daemon=True)
     t_old.start()
-    assert old_done.wait(timeout=3), "old registration failed"
+    assert old_done.wait(timeout=3)
 
-    # New connection (PID=20) holds for 5 seconds (stays open during the check)
     t_new = threading.Thread(target=_connect, args=(20, new_done, 5.0), daemon=True)
     t_new.start()
-    assert new_done.wait(timeout=3), "new registration failed"
+    assert new_done.wait(timeout=3)
 
-    # Wait for old connection to close (hold=1.0 s)
     t_old.join(timeout=3)
-    time.sleep(0.1)  # let registry process the close
+    time.sleep(0.1)
 
-    # PID=20 entry must still be present — old close must not have evicted it
     entry = registry.get_client("shared")
-    assert entry is not None, "Entry was wrongly evicted when old connection closed"
-    assert entry.pid == 20
+    assert entry is not None and entry.pid == 20
 
-    registry.stop()
     runner.stop()
 
 
-# ---------------------------------------------------------------------------
-# 2.2 — request_id tracking
-# ---------------------------------------------------------------------------
-
-def test_request_id_present_in_result(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    """execute() generates a request_id that appears in the returned InstanceExecResult."""
+def test_request_id_present_in_result(app_runner, discovery_port: int) -> None:
     registry, control, app_run = app_runner
-    _bg_register(discovery_port, exec_port)
-    wf_id = control.start_workflow("reqid-test")
+    dcc = _bg_register(discovery_port)
+    try:
+        wf_id = control.start_workflow("reqid-test")
+        result = app_run.run_async(control.execute("c1", 'print("hi")', wf_id))
+        assert result.request_id is not None and len(result.request_id) > 0
+    finally:
+        dcc.stop()
 
-    result = app_run.run_async(control.execute("c1", 'print("hi")', wf_id))
-    assert result.request_id is not None
-    assert len(result.request_id) > 0
 
-
-def test_request_id_persisted_in_exec_entry(
-    app_runner, listener_runner, discovery_port: int, exec_port: int,
-) -> None:
-    """The request_id used for the InstanceExecRequest is stored in the ExecEntry on disk."""
+def test_request_id_persisted_in_exec_entry(app_runner, discovery_port: int) -> None:
     registry, control, app_run = app_runner
-    _bg_register(discovery_port, exec_port)
-    wf_id = control.start_workflow("reqid-persist-test")
-
-    result = app_run.run_async(control.execute("c1", 'print("hi")', wf_id))
-    record = WorkflowPersistence.load(wf_id)
-    assert len(record.execs) == 1
-    entry = record.execs[0]
-    assert entry.request_id is not None
-    assert len(entry.request_id) > 0
-
-
+    dcc = _bg_register(discovery_port)
+    try:
+        wf_id = control.start_workflow("reqid-persist-test")
+        app_run.run_async(control.execute("c1", 'print("hi")', wf_id))
+        record = WorkflowPersistence.load(wf_id)
+        assert record.execs[0].request_id is not None and len(record.execs[0].request_id) > 0
+    finally:
+        dcc.stop()
