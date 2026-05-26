@@ -11,6 +11,9 @@ python-bridge-backend = "python_bridge_mcp.server.backend:_cli"
 build = ["pyinstaller>=6"]
 dev = ["pytest>=8"]
 
+[tool.setuptools.packages.find]
+include = ["python_bridge_mcp*"]
+
 [tool.ruff]
 line-length = 120
 

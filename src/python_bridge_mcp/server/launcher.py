@@ -1,11 +1,25 @@
 import asyncio
+from dataclasses import dataclass
 import logging
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, Dict, List, Mapping, Optional
 
 log = logging.getLogger(__name__)
+
+EXPLICIT_BACKEND_COMMAND_ENV = "PYTHON_BRIDGE_BACKEND_COMMAND"
+EXPLICIT_BACKEND_CWD_ENV = "PYTHON_BRIDGE_BACKEND_CWD"
+PACKAGED_BACKEND_EXE_NAME = "backend.exe"
+
+
+@dataclass(frozen=True)
+class BackendLaunchSpec:
+    command: List[str]
+    cwd: str
+    env: Optional[Dict[str, str]] = None
 
 
 class BackendLauncher:
@@ -18,9 +32,84 @@ class BackendLauncher:
         self,
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
+        popen_factory: Callable[..., subprocess.Popen] = subprocess.Popen,
     ) -> None:
         self._host = host
         self._port = port
+        self._popen_factory = popen_factory
+
+    @classmethod
+    def build_command(
+        cls,
+        runtime_root: str,
+        port: int = DEFAULT_PORT,
+        env: Optional[Mapping[str, str]] = None,
+    ) -> tuple:
+        spec = cls.resolve_launch_spec(runtime_root, port=port, env=env)
+        return spec.command, spec.cwd
+
+    @classmethod
+    def resolve_launch_spec(
+        cls,
+        runtime_root: str,
+        port: int = DEFAULT_PORT,
+        env: Optional[Mapping[str, str]] = None,
+    ) -> BackendLaunchSpec:
+        launch_env = os.environ if env is None else env
+        explicit_spec = cls._explicit_launch_spec(runtime_root, launch_env)
+        if explicit_spec is not None:
+            return explicit_spec
+
+        packaged_spec = cls._packaged_launch_spec(runtime_root, port)
+        if packaged_spec is not None:
+            return packaged_spec
+
+        return cls._development_launch_spec(runtime_root, port)
+
+    @classmethod
+    def _explicit_launch_spec(
+        cls,
+        runtime_root: str,
+        env: Mapping[str, str],
+    ) -> Optional[BackendLaunchSpec]:
+        raw_command = env.get(EXPLICIT_BACKEND_COMMAND_ENV, "").strip()
+        if not raw_command:
+            return None
+
+        command = shlex.split(raw_command)
+        if not command:
+            raise ValueError("%s must not be empty." % EXPLICIT_BACKEND_COMMAND_ENV)
+
+        cwd = env.get(EXPLICIT_BACKEND_CWD_ENV) or runtime_root
+        return BackendLaunchSpec(command=command, cwd=cwd)
+
+    @staticmethod
+    def _packaged_launch_spec(runtime_root: str, port: int) -> Optional[BackendLaunchSpec]:
+        backend_exe = Path(runtime_root) / PACKAGED_BACKEND_EXE_NAME
+        if not backend_exe.exists():
+            return None
+        return BackendLaunchSpec(command=[str(backend_exe), "--api-port", str(port)], cwd=runtime_root)
+
+    @staticmethod
+    def _development_launch_spec(runtime_root: str, port: int) -> BackendLaunchSpec:
+        return BackendLaunchSpec(
+            command=[
+                sys.executable,
+                "-X",
+                "utf8",
+                "-m",
+                "python_bridge_mcp.server.backend",
+                "--api-port",
+                str(port),
+            ],
+            cwd=runtime_root,
+        )
+
+    @staticmethod
+    def resolve_runtime_root() -> str:
+        if getattr(sys, "frozen", False):
+            return str(Path(sys.executable).resolve().parent)
+        return str(Path(__file__).resolve().parents[3])
 
     async def ensure_running(self) -> None:
         if await self._is_running():
@@ -50,23 +139,20 @@ class BackendLauncher:
             return False
 
     def _start_subprocess(self) -> None:
-        custom = os.environ.get("PYTHON_BRIDGE_BACKEND_COMMAND")
-        if custom:
-            args = custom.split()
-        else:
-            args = [
-                sys.executable, "-X", "utf8", "-m", "python_bridge_mcp.server.backend",
-                "--api-port", str(self._port),
-            ]
-        log.info("Starting backend subprocess: %s", args)
+        spec = self.resolve_launch_spec(self.resolve_runtime_root(), port=self._port)
+        log.info("Starting backend subprocess: %s", spec.command)
+        kwargs = {
+            "cwd": spec.cwd,
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "start_new_session": True,
+        }
+        if spec.env:
+            merged_env = dict(os.environ)
+            merged_env.update(spec.env)
+            kwargs["env"] = merged_env
         try:
-            subprocess.Popen(
-                args,
-                cwd=str(Path(__file__).resolve().parents[3]),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+            self._popen_factory(spec.command, **kwargs)
         except OSError as exc:
-            raise RuntimeError(f"Failed to launch backend process {args!r}: {exc}") from exc
+            raise RuntimeError(f"Failed to launch backend process {spec.command!r}: {exc}") from exc

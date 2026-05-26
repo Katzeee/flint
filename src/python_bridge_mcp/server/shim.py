@@ -147,10 +147,14 @@ async def set_instance_alias(instance_id: str, alias: Optional[str] = None):
     return _tool_ok(response.to_dict())
 
 
-if __name__ == "__main__":
+def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     )
     asyncio.run(BackendLauncher().ensure_running())
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()
