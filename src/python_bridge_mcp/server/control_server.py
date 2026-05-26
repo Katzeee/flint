@@ -97,7 +97,7 @@ class ControlServer:
 
         if isinstance(request, ControlExecuteRequest):
             try:
-                return await self.execute(request.instance_id, request.code, request.workflow_id, request.name)
+                return await self.execute(request.instance_id, request.code, request.workflow_id, request.name, request.filename)
             except KeyError as exc:
                 return ErrorResponse(error_code=ControlError.UNKNOWN_CLIENT, message=str(exc))
 
@@ -165,6 +165,7 @@ class ControlServer:
         code: str,
         workflow_id: str,
         name: str = "",
+        filename: Optional[str] = None,
         *,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
         early_return_window: float = DEFAULT_EARLY_RETURN_WINDOW,
@@ -194,6 +195,7 @@ class ControlServer:
             code=code,
             workflow_id=workflow_id,
             execution_name=name or None,
+            filename=filename or None,
             request_id=request_id,
         )
 

@@ -33,6 +33,7 @@ class CodeRunner(ABC):
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
+        filename: Optional[str] = None,
     ) -> InstanceExecResult: ...
 
     async def async_execute(
@@ -41,10 +42,11 @@ class CodeRunner(ABC):
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
+        filename: Optional[str] = None,
     ) -> InstanceExecResult:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            None, functools.partial(self.execute, execution_id, code, out=out, err=err),
+            None, functools.partial(self.execute, execution_id, code, out=out, err=err, filename=filename),
         )
 
 
@@ -57,8 +59,9 @@ class DirectRunner(CodeRunner):
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
+        filename: Optional[str] = None,
     ) -> InstanceExecResult:
-        return self._executor.execute(execution_id, code, out=out, err=err)
+        return self._executor.execute(execution_id, code, out=out, err=err, filename=filename)
 
 
 class MainThreadRunner(CodeRunner):
@@ -81,12 +84,13 @@ class MainThreadRunner(CodeRunner):
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
+        filename: Optional[str] = None,
     ) -> InstanceExecResult:
         result_event = threading.Event()
         holder: list = [None]
 
         def _task() -> None:
-            holder[0] = self._executor.execute(execution_id, code, out=out, err=err)
+            holder[0] = self._executor.execute(execution_id, code, out=out, err=err, filename=filename)
             result_event.set()
 
         self._queue.put(_task)
@@ -163,9 +167,10 @@ class QtMainThreadRunner(CodeRunner):
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
+        filename: Optional[str] = None,
     ) -> InstanceExecResult:
         return self._executor_bridge.run(
-            lambda: self._executor.execute(execution_id, code, out=out, err=err)
+            lambda: self._executor.execute(execution_id, code, out=out, err=err, filename=filename)
         )
 
     @staticmethod

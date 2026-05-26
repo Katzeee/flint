@@ -63,6 +63,7 @@ class InstanceExecRequest(InstanceControlWireModel):
     code: str
     workflow_id: str
     execution_name: Optional[str] = None
+    filename: Optional[str] = None
     request_id: Optional[str] = None
 
 

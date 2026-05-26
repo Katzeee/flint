@@ -88,6 +88,7 @@ class ControlExecuteRequest(ControlWireModel):
     code: str = ""
     workflow_id: str = ""
     name: str = ""
+    filename: Optional[str] = None
 
 
 @wire_model

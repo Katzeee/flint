@@ -6,6 +6,7 @@ dependencies = ["mcp>=1.12.4", "dacite>=1.8", "filelock>=3.12", "platformdirs>=3
 
 [project.scripts]
 python-bridge-backend = "python_bridge_mcp.server.backend:_cli"
+python-bridge = "python_bridge_mcp.client.cli:main"
 
 [project.optional-dependencies]
 build = ["pyinstaller>=6"]

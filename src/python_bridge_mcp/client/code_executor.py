@@ -18,12 +18,14 @@ class CodeExecutor:
         code: str,
         out: Optional[ThreadSafeTextBuffer] = None,
         err: Optional[ThreadSafeTextBuffer] = None,
+        filename: Optional[str] = None,
     ) -> InstanceExecResult:
         out = out or ThreadSafeTextBuffer()
         err = err or ThreadSafeTextBuffer()
+        compiled = compile(code, filename or "<string>", "exec")
         with redirect_stdout(out), redirect_stderr(err):
             try:
-                exec(code, self._ns, self._ns)
+                exec(compiled, self._ns, self._ns)
                 status = InstanceExecStatus.SUCCEEDED
                 traceback = None
             except Exception:

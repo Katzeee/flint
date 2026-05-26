@@ -149,6 +149,10 @@ class DiscoveryClient:
     # ------------------------------------------------------------------
 
     @property
+    def instance_id(self) -> str:
+        return self._instance_id
+
+    @property
     def state(self) -> DiscoveryState:
         with self._state_lock:
             return self._state
@@ -303,6 +307,7 @@ class DiscoveryClient:
                     msg.code,
                     out,
                     err,
+                    filename=msg.filename,
                 )
                 result.request_id = msg.request_id
             except Exception as exc:
