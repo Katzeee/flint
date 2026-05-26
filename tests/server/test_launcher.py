@@ -29,9 +29,9 @@ def test_build_command_uses_explicit_backend_command():
 
 
 def test_build_command_prefers_backend_exe_in_runtime_dir(tmp_path):
-    (tmp_path / "backend.exe").write_text("", encoding="utf-8")
+    (tmp_path / "python-bridge-mcp-backend.exe").write_text("", encoding="utf-8")
     command, cwd = BackendLauncher.build_command(str(tmp_path), port=7012, env={})
-    assert command == [str(tmp_path / "backend.exe"), "--api-port", "7012"]
+    assert command == [str(tmp_path / "python-bridge-mcp-backend.exe"), "--api-port", "7012"]
     assert cwd == str(tmp_path)
 
 

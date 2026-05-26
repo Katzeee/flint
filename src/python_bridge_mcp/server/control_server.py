@@ -28,14 +28,13 @@ from .control_models import (
     StartWorkflowResponse,
     InstanceInfo,
 )
+from ..shared.constants import DEFAULT_HOST, CONTROL_API_PORT
 from .registry import Registry
 
 log = logging.getLogger(__name__)
 
 
 class ControlServer:
-    DEFAULT_HOST: str = "localhost"
-    DEFAULT_PORT: int = 6322
     DEFAULT_CONNECT_TIMEOUT: float = 10.0
     DEFAULT_EARLY_RETURN_WINDOW: float = 5.0
     BACKGROUND_EXEC_TIMEOUT: float = 600.0
@@ -44,7 +43,7 @@ class ControlServer:
         self,
         discovery: Registry,
         host: str = DEFAULT_HOST,
-        port: int = DEFAULT_PORT,
+        port: int = CONTROL_API_PORT,
     ) -> None:
         self._discovery = discovery
         self._host = host

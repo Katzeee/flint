@@ -25,7 +25,7 @@ Current features:
 
 ## Quick Start
 
-For normal use, the recommended approach is to build the packaged executables first and then point your MCP client directly at `shim.exe`.
+For normal use, the recommended approach is to build the packaged executables first and then point your MCP client directly at `python-bridge-mcp-shim.exe`.
 
 ### 1. Set up the environment
 
@@ -47,12 +47,12 @@ tools\bundle\build.bat
 
 After the build, the outputs are at:
 
-- `dist/python-bridge-mcp/shim.exe`
-- `dist/python-bridge-mcp/backend.exe`
+- `dist/python-bridge-mcp/python-bridge-mcp-shim.exe`
+- `dist/python-bridge-mcp/python-bridge-mcp-backend.exe`
 
 `tools\bundle\build.bat` only handles packaging; it always uses the `.venv` in the repository root.
 
-If the build fails with an error about not being able to clean the output directory, the old `shim.exe` or `backend.exe` is still running — stop it and retry.
+If the build fails with an error about not being able to clean the output directory, the old `python-bridge-mcp-shim.exe` or `python-bridge-mcp-backend.exe` is still running — stop it and retry.
 
 ### 3. Add the output directory to `PATH`
 
@@ -62,9 +62,9 @@ Add the following directory to your user or system `PATH`:
 
 Notes:
 
-- `shim.exe` and `backend.exe` must live in the same directory
-- The MCP client only needs to launch `shim.exe`
-- `shim.exe` looks for `backend.exe` next to itself and starts it automatically
+- `python-bridge-mcp-shim.exe` and `python-bridge-mcp-backend.exe` must live in the same directory
+- The MCP client only needs to launch `python-bridge-mcp-shim.exe`
+- `python-bridge-mcp-shim.exe` looks for `python-bridge-mcp-backend.exe` next to itself and starts it automatically
 
 ### 4. Configure your MCP client
 
@@ -75,7 +75,7 @@ For Cursor (`.cursor/mcp.json`):
   "mcpServers": {
     "python-bridge-mcp": {
       "type": "stdio",
-      "command": "shim.exe",
+      "command": "python-bridge-mcp-shim.exe",
       "args": []
     }
   }
@@ -247,10 +247,10 @@ python-bridge-mcp/
 │  ├─ bundle/
 │  │  ├─ build.bat              # Windows build wrapper
 │  │  ├─ build.py               # PyInstaller orchestration script
-│  │  ├─ windows_bundle.spec    # PyInstaller spec: shim.exe + backend.exe
+│  │  ├─ windows_bundle.spec    # PyInstaller spec: python-bridge-mcp-shim.exe + python-bridge-mcp-backend.exe
 │  │  └─ entrypoints/
-│  │     ├─ backend_entry.py    # backend.exe entry point
-│  │     └─ shim_entry.py       # shim.exe entry point
+│  │     ├─ backend_entry.py    # python-bridge-mcp-backend.exe entry point
+│  │     └─ shim_entry.py       # python-bridge-mcp-shim.exe entry point
 │  └─ setup_env.bat             # venv creation and dependency installation
 ├─ docs/
 └─ pyproject.toml

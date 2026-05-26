@@ -8,11 +8,13 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional
 
+from ..shared.constants import DEFAULT_HOST, CONTROL_API_PORT
+
 log = logging.getLogger(__name__)
 
 EXPLICIT_BACKEND_COMMAND_ENV = "PYTHON_BRIDGE_BACKEND_COMMAND"
 EXPLICIT_BACKEND_CWD_ENV = "PYTHON_BRIDGE_BACKEND_CWD"
-PACKAGED_BACKEND_EXE_NAME = "backend.exe"
+PACKAGED_BACKEND_EXE_NAME = "python-bridge-mcp-backend.exe"
 
 
 @dataclass(frozen=True)
@@ -23,15 +25,13 @@ class BackendLaunchSpec:
 
 
 class BackendLauncher:
-    DEFAULT_HOST = "localhost"
-    DEFAULT_PORT = 6322
     START_TIMEOUT = 10.0
     POLL_INTERVAL = 0.1
 
     def __init__(
         self,
         host: str = DEFAULT_HOST,
-        port: int = DEFAULT_PORT,
+        port: int = CONTROL_API_PORT,
         popen_factory: Callable[..., subprocess.Popen] = subprocess.Popen,
     ) -> None:
         self._host = host
@@ -42,7 +42,7 @@ class BackendLauncher:
     def build_command(
         cls,
         runtime_root: str,
-        port: int = DEFAULT_PORT,
+        port: int = CONTROL_API_PORT,
         env: Optional[Mapping[str, str]] = None,
     ) -> tuple:
         spec = cls.resolve_launch_spec(runtime_root, port=port, env=env)
@@ -52,7 +52,7 @@ class BackendLauncher:
     def resolve_launch_spec(
         cls,
         runtime_root: str,
-        port: int = DEFAULT_PORT,
+        port: int = CONTROL_API_PORT,
         env: Optional[Mapping[str, str]] = None,
     ) -> BackendLaunchSpec:
         launch_env = os.environ if env is None else env

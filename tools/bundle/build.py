@@ -60,7 +60,7 @@ def generate_spec(project_root: Path) -> str:
             shim_analysis.scripts,
             [],
             exclude_binaries=True,
-            name="shim",
+            name="python-bridge-mcp-shim",
             console=True,
         )
 
@@ -69,7 +69,7 @@ def generate_spec(project_root: Path) -> str:
             backend_analysis.scripts,
             [],
             exclude_binaries=True,
-            name="backend",
+            name="python-bridge-mcp-backend",
             console=True,
         )
 

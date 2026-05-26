@@ -3,6 +3,7 @@ import threading
 from dataclasses import dataclass
 from typing import Callable, Optional, cast
 
+from ..shared.constants import DEFAULT_HOST, REGISTRY_PORT
 from .code_runner import CodeRunner
 from .discovery import DiscoveryClient
 
@@ -33,8 +34,8 @@ def start_control_client_service(
     instance_name: str,
     instance_type: str = "",
     runner: Optional[CodeRunner] = None,
-    discovery_host: str = DiscoveryClient.DEFAULT_HOST,
-    discovery_port: int = DiscoveryClient.DEFAULT_PORT,
+    discovery_host: str = DEFAULT_HOST,
+    discovery_port: int = REGISTRY_PORT,
     heartbeat_interval: float = DiscoveryClient.HEARTBEAT_INTERVAL,
     alias: Optional[str] = None,
     alias_getter: Optional[Callable[[], Optional[str]]] = None,

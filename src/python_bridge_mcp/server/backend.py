@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 
+from ..shared.constants import DEFAULT_HOST, REGISTRY_PORT, CONTROL_API_PORT
 from .control_server import ControlServer
 from .registry import Registry
 
@@ -10,10 +11,10 @@ log = logging.getLogger(__name__)
 
 async def main(
     *,
-    registry_host: str = Registry.DEFAULT_HOST,
-    registry_port: int = Registry.DEFAULT_PORT,
-    api_host: str = ControlServer.DEFAULT_HOST,
-    api_port: int = ControlServer.DEFAULT_PORT,
+    registry_host: str = DEFAULT_HOST,
+    registry_port: int = REGISTRY_PORT,
+    api_host: str = DEFAULT_HOST,
+    api_port: int = CONTROL_API_PORT,
 ) -> None:
     registry = Registry(host=registry_host, port=registry_port)
     control = ControlServer(registry, host=api_host, port=api_port)
@@ -26,8 +27,8 @@ async def main(
 
 def _cli() -> None:
     parser = argparse.ArgumentParser(description="python-bridge-mcp backend process")
-    parser.add_argument("--registry-port", type=int, default=Registry.DEFAULT_PORT)
-    parser.add_argument("--api-port", type=int, default=ControlServer.DEFAULT_PORT)
+    parser.add_argument("--registry-port", type=int, default=REGISTRY_PORT)
+    parser.add_argument("--api-port", type=int, default=CONTROL_API_PORT)
     args = parser.parse_args()
     logging.basicConfig(
         level=logging.INFO,

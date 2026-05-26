@@ -14,6 +14,7 @@ from .control_models import (
     StartWorkflowRequest,
     StartWorkflowResponse,
 )
+from ..shared.constants import DEFAULT_HOST, CONTROL_API_PORT
 from ..shared.instance_control_models import InstanceExecResult
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel
@@ -27,13 +28,10 @@ class BackendError(Exception):
 
 
 class BackendClient:
-    DEFAULT_HOST = "localhost"
-    DEFAULT_PORT = 6322
-
     def __init__(
         self,
         host: str = DEFAULT_HOST,
-        port: int = DEFAULT_PORT,
+        port: int = CONTROL_API_PORT,
     ) -> None:
         self._host = host
         self._port = port

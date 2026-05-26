@@ -14,6 +14,7 @@ from ..shared.instance_control_models import (
     InstanceHeartbeat,
     InstanceRegister,
 )
+from ..shared.constants import DEFAULT_HOST, REGISTRY_PORT
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
 
@@ -79,14 +80,12 @@ class ControlSession:
 
 
 class Registry:
-    DEFAULT_HOST = "localhost"
-    DEFAULT_PORT = 6321
     DEFAULT_STALE_TIMEOUT = 15.0
 
     def __init__(
         self,
         host: str = DEFAULT_HOST,
-        port: int = DEFAULT_PORT,
+        port: int = REGISTRY_PORT,
         stale_timeout: float = DEFAULT_STALE_TIMEOUT,
     ):
         self._host = host

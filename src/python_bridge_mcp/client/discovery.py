@@ -7,6 +7,7 @@ import threading
 from enum import Enum
 from typing import Awaitable, Callable, Optional, Tuple, Union
 
+from ..shared.constants import DEFAULT_HOST, REGISTRY_PORT
 from ..shared.instance_control_models import (
     InstanceExecError,
     InstanceExecOutputUpdate,
@@ -104,8 +105,6 @@ class _OutputUpdateFlusher:
 
 
 class DiscoveryClient:
-    DEFAULT_HOST = "localhost"
-    DEFAULT_PORT = 6321
     HEARTBEAT_INTERVAL = 5
     MAX_BACKOFF = 30
     OUTPUT_FLUSH_INTERVAL = 2.0
@@ -120,7 +119,7 @@ class DiscoveryClient:
         alias_getter: Optional[Callable[[], Optional[str]]] = None,
         instance_type: str = "",
         host: str = DEFAULT_HOST,
-        port: int = DEFAULT_PORT,
+        port: int = REGISTRY_PORT,
         heartbeat_interval: float = HEARTBEAT_INTERVAL,
         pid: Optional[int] = None,
     ):
