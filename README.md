@@ -197,6 +197,25 @@ Or start only the shim (it will launch the backend for you):
 python -X utf8 -m python_bridge_mcp.server.shim
 ```
 
+### Debug CLI
+
+`client/cli.py` is the human-operable equivalent of the MCP shim. It connects to the running backend and lets you list instances and execute code or files without an AI agent.
+
+It is designed as a standalone script with no package context required — only stdlib is needed, so it runs under any Python interpreter including `mayapy` or `3dsmaxpy`:
+
+```powershell
+# List online instances
+python src\python_bridge_mcp\client\cli.py list
+
+# Execute a code snippet
+python src\python_bridge_mcp\client\cli.py exec --instance-id maya-1234 --code "print('hello')"
+
+# Execute a file (original path is passed to compile() so debugpy breakpoints work)
+python src\python_bridge_mcp\client\cli.py exec --instance-id maya-1234 --file path\to\script.py
+```
+
+`--host` and `--port` override the backend address (default `localhost:6322`).
+
 ## Architecture
 
 ```
@@ -215,6 +234,7 @@ python-bridge-mcp/
 ├─ src/python_bridge_mcp/
 │  ├─ client/
 │  │  ├─ bootstrap.py           # start/stop_control_client_service lifecycle helpers
+│  │  ├─ cli.py                 # debug CLI — human-operable equivalent of the shim
 │  │  ├─ code_executor.py       # low-level code execution with stdout/stderr capture
 │  │  ├─ code_runner.py         # runner abstraction: DirectRunner and QtMainThreadRunner
 │  │  ├─ discovery.py           # registry client: registration, heartbeat, exec dispatch
@@ -229,9 +249,11 @@ python-bridge-mcp/
 │  │  ├─ shim.py                # stdio MCP entry: ensures backend running, exposes tools
 │  │  └─ __init__.py
 │  ├─ shared/
+│  │  ├─ backend_client.py      # minimal sync client for the control API (used by cli.py)
+│  │  ├─ constants.py           # shared network constants (ports, default host)
 │  │  ├─ file_writer.py         # thread-safe atomic file writes via filelock
 │  │  ├─ instance_control_models.py  # wire protocol between client and registry
-│  │  ├─ jsonline.py            # async JSON-line socket codec
+│  │  ├─ jsonline.py            # JSON-line socket codec (sync + async)
 │  │  ├─ model_base.py          # base dataclass model with serialization
 │  │  ├─ text_buffer.py         # thread-safe stdout/stderr accumulation buffer
 │  │  ├─ workflow_models.py     # persistent workflow data structures
