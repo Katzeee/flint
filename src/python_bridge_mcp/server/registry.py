@@ -348,4 +348,7 @@ class Registry:
                 # A re-registration with a new PID must not be evicted by the
                 # stale connection's close.
                 self.unregister(instance_id, pid=registered_pid, session=session)
-            writer.close()
+            if session is None:
+                # session.close() handles writer teardown for registered connections;
+                # only close directly when the connection dropped before registration.
+                writer.close()
