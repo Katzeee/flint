@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import threading
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
@@ -36,14 +35,13 @@ class ControlSession:
         self._writer = writer
         self._write_lock = asyncio.Lock()
         self._pending: Dict[str, asyncio.Future] = {}
-        self._loop = asyncio.get_running_loop()
 
     async def send(self, msg: VersionedWireModel) -> None:
         async with self._write_lock:
             await AsyncJsonLineCodec.send(self._writer, msg.to_dict())
 
     def track(self, request_id: str) -> asyncio.Future:
-        future = self._loop.create_future()
+        future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
         return future
 
@@ -61,22 +59,14 @@ class ControlSession:
         return True
 
     def fail_pending(self, exc: Exception) -> None:
-        def _fail() -> None:
-            pending = list(self._pending.values())
-            self._pending.clear()
-            for future in pending:
-                if not future.done():
-                    future.set_exception(exc)
-
-        if self._loop.is_running():
-            self._loop.call_soon_threadsafe(_fail)
+        pending = list(self._pending.values())
+        self._pending.clear()
+        for future in pending:
+            if not future.done():
+                future.set_exception(exc)
 
     def close(self) -> None:
-        def _close() -> None:
-            self._writer.close()
-
-        if self._loop.is_running():
-            self._loop.call_soon_threadsafe(_close)
+        self._writer.close()
 
 
 class Registry:
@@ -94,7 +84,6 @@ class Registry:
         self._clients: Dict[str, ClientEntry] = {}
         self._sessions: Dict[str, ControlSession] = {}
         self._output_update_handler: Optional[Callable[[InstanceExecOutputUpdate], None]] = None
-        self._lock = threading.Lock()
         self._server: Optional[asyncio.AbstractServer] = None
 
     # ------------------------------------------------------------------
@@ -102,37 +91,31 @@ class Registry:
     # ------------------------------------------------------------------
 
     def get_client(self, instance_id: str) -> Optional[ClientEntry]:
-        stale_sessions: List[ControlSession]
-        with self._lock:
-            stale_sessions = self._evict_stale()
-            entry = self._clients.get(instance_id)
+        stale_sessions = self._evict_stale()
+        entry = self._clients.get(instance_id)
         self._close_sessions(stale_sessions, "client heartbeat timed out")
         return entry
 
     def list_clients(self, instance_type: Optional[str] = None) -> Dict[str, ClientEntry]:
-        stale_sessions: List[ControlSession]
-        with self._lock:
-            stale_sessions = self._evict_stale()
-            if instance_type is None:
-                result = dict(self._clients)
-            else:
-                result = {k: v for k, v in self._clients.items() if v.instance_type == instance_type}
+        stale_sessions = self._evict_stale()
+        if instance_type is None:
+            result = dict(self._clients)
+        else:
+            result = {k: v for k, v in self._clients.items() if v.instance_type == instance_type}
         self._close_sessions(stale_sessions, "client heartbeat timed out")
         return result
 
     def register(self, entry: ClientEntry, session: Optional[ControlSession] = None) -> None:
-        old_sessions: List[ControlSession]
-        with self._lock:
-            old_sessions = self._evict_stale()
-            for iid, existing in list(self._clients.items()):
-                if existing.pid == entry.pid or iid == entry.instance_id:
-                    old_session = self._sessions.pop(iid, None)
-                    if old_session is not None:
-                        old_sessions.append(old_session)
-                    del self._clients[iid]
-            self._clients[entry.instance_id] = entry
-            if session is not None:
-                self._sessions[entry.instance_id] = session
+        old_sessions = self._evict_stale()
+        for iid, existing in list(self._clients.items()):
+            if existing.pid == entry.pid or iid == entry.instance_id:
+                old_session = self._sessions.pop(iid, None)
+                if old_session is not None:
+                    old_sessions.append(old_session)
+                del self._clients[iid]
+        self._clients[entry.instance_id] = entry
+        if session is not None:
+            self._sessions[entry.instance_id] = session
         self._close_sessions(old_sessions, "client replaced by a new session")
         log.info(
             "Registered client %s (pid=%d, type=%s)",
@@ -145,32 +128,27 @@ class Registry:
         pid: Optional[int] = None,
         session: Optional[ControlSession] = None,
     ) -> None:
-        removed = False
-        removed_session: Optional[ControlSession] = None
-        with self._lock:
-            if pid is not None:
-                entry = self._clients.get(instance_id)
-                if entry is None or entry.pid != pid:
-                    return
-            if session is not None and self._sessions.get(instance_id) is not session:
+        if pid is not None:
+            entry = self._clients.get(instance_id)
+            if entry is None or entry.pid != pid:
                 return
-            removed = self._clients.pop(instance_id, None) is not None
-            removed_session = self._sessions.pop(instance_id, None)
+        if session is not None and self._sessions.get(instance_id) is not session:
+            return
+        removed = self._clients.pop(instance_id, None) is not None
+        removed_session = self._sessions.pop(instance_id, None)
         if removed_session is not None:
             self._close_sessions([removed_session], "client session closed")
         if removed:
             log.info("Unregistered client %s", instance_id)
 
     def heartbeat(self, instance_id: str) -> bool:
-        stale_sessions: List[ControlSession]
-        with self._lock:
-            stale_sessions = self._evict_stale()
-            if instance_id not in self._clients:
-                log.debug("Heartbeat from unregistered client %s", instance_id)
-                ok = False
-            else:
-                self._clients[instance_id].last_heartbeat = time.monotonic()
-                ok = True
+        stale_sessions = self._evict_stale()
+        if instance_id not in self._clients:
+            log.debug("Heartbeat from unregistered client %s", instance_id)
+            ok = False
+        else:
+            self._clients[instance_id].last_heartbeat = time.monotonic()
+            ok = True
         self._close_sessions(stale_sessions, "client heartbeat timed out")
         return ok
 
@@ -185,9 +163,8 @@ class Registry:
             raise WireModelError(f"message type cannot be correlated: {type(msg).__name__}")
         setattr(msg, "request_id", request_id)
 
-        with self._lock:
-            stale_sessions = self._evict_stale()
-            session = self._sessions.get(instance_id)
+        stale_sessions = self._evict_stale()
+        session = self._sessions.get(instance_id)
         self._close_sessions(stale_sessions, "client heartbeat timed out")
         if session is None:
             raise KeyError(f"unknown client: {instance_id}")
@@ -249,10 +226,7 @@ class Registry:
         interval = max(self._stale_timeout / 2, 1.0)
         while True:
             await asyncio.sleep(interval)
-            sessions: List[ControlSession]
-            with self._lock:
-                evicted = self._evict_stale()
-                sessions = evicted
+            sessions = self._evict_stale()
             if sessions:
                 self._close_sessions(sessions, "client heartbeat timed out")
                 log.info("Evicted %d stale client session(s)", len(sessions))

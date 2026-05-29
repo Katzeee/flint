@@ -143,6 +143,7 @@ class DiscoveryClient:
         self._writer: Optional[asyncio.StreamWriter] = None
         self._write_lock: Optional[asyncio.Lock] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._cancel: Optional[asyncio.Event] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -192,8 +193,12 @@ class DiscoveryClient:
     def stop(self) -> None:
         """Signal the client to stop and return from run()."""
         self._stop_event.set()
-        if self._loop is not None and self._writer is not None:
-            self._loop.call_soon_threadsafe(self._writer.close)
+        loop, writer, cancel = self._loop, self._writer, self._cancel
+        if loop is not None:
+            if cancel is not None:
+                loop.call_soon_threadsafe(cancel.set)
+            if writer is not None:
+                loop.call_soon_threadsafe(writer.close)
         self._set_state(DiscoveryState.STOPPED)
 
     # ------------------------------------------------------------------
@@ -212,6 +217,8 @@ class DiscoveryClient:
     async def _connect_and_serve(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._execution_lock = asyncio.Lock()
+        cancel = asyncio.Event()
+        self._cancel = cancel
         reader, writer = await asyncio.open_connection(
             self._host,
             self._port,
@@ -243,9 +250,9 @@ class DiscoveryClient:
                 self._instance_id,
             )
 
-            heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            heartbeat_task = asyncio.create_task(self._heartbeat_loop(cancel))
             try:
-                await self._read_loop(reader)
+                await self._read_loop(reader, cancel)
             finally:
                 heartbeat_task.cancel()
                 await asyncio.gather(heartbeat_task, return_exceptions=True)
@@ -254,18 +261,21 @@ class DiscoveryClient:
             await writer.wait_closed()
             self._writer = None
             self._write_lock = None
+            self._cancel = None
             self._loop = None
             self._set_state(DiscoveryState.CONNECTING if not self._stop_event.is_set() else DiscoveryState.STOPPED)
 
-    async def _heartbeat_loop(self) -> None:
-        while not self._stop_event.is_set():
-            await asyncio.sleep(self._heartbeat_interval)
-            if self._stop_event.is_set():
-                return
+    async def _heartbeat_loop(self, cancel: asyncio.Event) -> None:
+        while True:
+            try:
+                await asyncio.wait_for(cancel.wait(), timeout=self._heartbeat_interval)
+                return  # cancel was set
+            except asyncio.TimeoutError:
+                pass
             await self._send(InstanceHeartbeat(instance_id=self._instance_id))
 
-    async def _read_loop(self, reader: asyncio.StreamReader) -> None:
-        while not self._stop_event.is_set():
+    async def _read_loop(self, reader: asyncio.StreamReader, cancel: asyncio.Event) -> None:
+        while not cancel.is_set():
             data = await AsyncJsonLineCodec.recv(reader)
             msg = VersionedWireModel.parse_versioned(data)
             if isinstance(msg, InstanceAck):
