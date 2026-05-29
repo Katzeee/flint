@@ -38,16 +38,16 @@ class _ClientRunner:
         self._thread.join(timeout=5)
 
 
-def _client(port: int, instance_id: str, instance_name: str = "Test Client", pid: Optional[int] = None, instance_type: str = "") -> DiscoveryClient:
+def _client(port: int, name_hint: str, instance_name: str = "Test Client", pid: Optional[int] = None, instance_type: str = "") -> DiscoveryClient:
     return DiscoveryClient(
-        instance_id=instance_id,
+        name_hint=name_hint,
         instance_name=instance_name,
         runner=DirectRunner(CodeExecutor()),
         instance_type=instance_type,
         host="localhost",
         port=port,
         heartbeat_interval=HEARTBEAT,
-        pid=pid if pid is not None else abs(hash(instance_id)) % 100000,
+        pid=pid if pid is not None else abs(hash(name_hint)) % 100000,
     )
 
 
@@ -83,7 +83,7 @@ def test_client_connects_and_is_registered(srv, port: int) -> None:
         assert _wait_connected(c), "client did not connect"
         assert c.state == DiscoveryState.CONNECTED
         clients = server.list_clients()
-        entry = clients["c1"]
+        entry = clients[c.instance_id]
         assert entry.instance_name == "Test Client"
     finally:
         r.stop()
@@ -106,11 +106,12 @@ def test_client_disconnect_removes_entry_from_server(srv, port: int) -> None:
     r = _ClientRunner(c)
     r.start()
     assert _wait_connected(c)
-    assert "c1" in server.list_clients()
+    assigned_id = c.instance_id
+    assert assigned_id in server.list_clients()
 
     r.stop()
 
-    assert wait_for(lambda: "c1" not in server.list_clients()), \
+    assert wait_for(lambda: assigned_id not in server.list_clients()), \
         "server did not remove client entry after disconnect"
 
 
@@ -153,7 +154,7 @@ def test_client_reconnects_after_server_restart(port: int) -> None:
         try:
             assert _wait_connected(c, timeout=5), "client did not reconnect after server restart"
             assert c.state == DiscoveryState.CONNECTED
-            assert "c1" in server2.list_clients()
+            assert c.instance_id in server2.list_clients()
         finally:
             runner2.stop()
     finally:
@@ -168,10 +169,10 @@ def test_multiple_clients_all_registered(srv, port: int) -> None:
         r.start()
     try:
         for r in runners:
-            assert _wait_connected(r.client), f"{r.client._instance_id} did not connect"
+            assert _wait_connected(r.client), f"{r.client.instance_id} did not connect"
         registered = server.list_clients()
-        for cid in ids:
-            assert cid in registered
+        for r in runners:
+            assert r.client.instance_id in registered
     finally:
         for r in runners:
             r.stop()
@@ -187,7 +188,7 @@ def test_server_stop_with_no_clients(port: int) -> None:
 
 def test_register_discovery_pid_is_int() -> None:
     msg = InstanceRegister(
-        pid=1234, instance_id="c1", instance_name="test",
+        pid=1234, name_hint="c1", instance_name="test",
     )
     data = msg.to_dict()
     assert isinstance(data["pid"], int)
@@ -213,8 +214,8 @@ def test_instance_type_filtering_via_discovery_client(srv, port: int) -> None:
         assert _wait_connected(maya)
         assert _wait_connected(blender)
         result = server.list_clients("maya")
-        assert "maya1" in result
-        assert "blender1" not in result
+        assert maya.instance_id in result
+        assert blender.instance_id not in result
     finally:
         rm.stop()
         rb.stop()
@@ -224,7 +225,7 @@ def test_register_uses_live_alias_getter(srv, port: int) -> None:
     server, srv_runner = srv
     alias_box = {"value": "lookdev"}
     client = DiscoveryClient(
-        instance_id="c1",
+        name_hint="c1",
         instance_name="Test Client",
         runner=DirectRunner(CodeExecutor()),
         host="localhost",
@@ -237,9 +238,26 @@ def test_register_uses_live_alias_getter(srv, port: int) -> None:
     try:
         assert _wait_connected(client)
         clients = server.list_clients()
-        assert clients["c1"].alias == "lookdev"
+        assert clients[client.instance_id].alias == "lookdev"
     finally:
         r.stop()
+
+
+def test_same_name_hint_produces_unique_ids(srv, port: int) -> None:
+    server, _ = srv
+    c1 = _client(port, "maya", pid=1001)
+    c2 = _client(port, "maya", pid=1002)
+    r1, r2 = _ClientRunner(c1), _ClientRunner(c2)
+    r1.start()
+    r2.start()
+    try:
+        assert _wait_connected(c1)
+        assert _wait_connected(c2)
+        assert c1.instance_id != c2.instance_id
+        assert len(server.list_clients()) == 2
+    finally:
+        r1.stop()
+        r2.stop()
 
 
 def test_client_state_sequence(srv, port: int) -> None:

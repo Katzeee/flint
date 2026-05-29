@@ -112,7 +112,7 @@ class DiscoveryClient:
 
     def __init__(
         self,
-        instance_id: str,
+        name_hint: str,
         instance_name: str,
         runner: CodeRunner,
         alias: Optional[str] = None,
@@ -123,7 +123,7 @@ class DiscoveryClient:
         heartbeat_interval: float = HEARTBEAT_INTERVAL,
         pid: Optional[int] = None,
     ):
-        self._instance_id = instance_id
+        self._instance_id = name_hint
         self._instance_name = instance_name
         self._runner = runner
         self._alias = alias
@@ -230,7 +230,7 @@ class DiscoveryClient:
             await self._send(
                 InstanceRegister(
                     pid=self._pid,
-                    instance_id=self._instance_id,
+                    name_hint=self._instance_id,
                     instance_name=self._instance_name,
                     alias=self._current_alias(),
                     instance_type=self._instance_type,
@@ -242,6 +242,8 @@ class DiscoveryClient:
             if not ack.success:
                 error = ack.message or ack.error_code or "unknown error"
                 raise RuntimeError(f"Registration rejected: {error}")
+            if ack.instance_id:
+                self._instance_id = ack.instance_id
             self._set_state(DiscoveryState.CONNECTED)
             log.info(
                 "Discovery connected to %s:%d as %s",

@@ -85,6 +85,7 @@ class Registry:
         self._sessions: Dict[str, ControlSession] = {}
         self._output_update_handler: Optional[Callable[[InstanceExecOutputUpdate], None]] = None
         self._server: Optional[asyncio.AbstractServer] = None
+        self._id_counter: int = 0
 
     # ------------------------------------------------------------------
     # Public API
@@ -184,6 +185,10 @@ class Registry:
     # Internal
     # ------------------------------------------------------------------
 
+    def _assign_instance_id(self, name_hint: str) -> str:
+        self._id_counter += 1
+        return f"{name_hint}-{self._id_counter:04d}"
+
     def _evict_stale(self) -> List[ControlSession]:
         """Remove clients whose last heartbeat exceeds stale_timeout. Must be called with lock held."""
         now = time.monotonic()
@@ -272,17 +277,18 @@ class Registry:
                             error_code=InstanceControlError.ALREADY_REGISTERED,
                         ))
                         return
-                    instance_id = msg.instance_id
+                    assigned_id = self._assign_instance_id(msg.name_hint)
+                    instance_id = assigned_id
                     registered_pid = msg.pid
                     session = ControlSession(writer)
                     self.register(ClientEntry(
                         pid=msg.pid,
-                        instance_id=msg.instance_id,
+                        instance_id=assigned_id,
                         instance_name=msg.instance_name,
                         alias=msg.alias,
                         instance_type=msg.instance_type,
                     ), session)
-                    await session.send(InstanceAck(success=True))
+                    await session.send(InstanceAck(success=True, instance_id=assigned_id))
 
                 elif isinstance(msg, InstanceHeartbeat):
                     if session is None:

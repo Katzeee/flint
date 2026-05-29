@@ -29,14 +29,14 @@ class InstanceControlError(str, Enum):
 
 @dataclass
 class InstanceControlWireModel(VersionedWireModel):
-    PROTOCOL_VERSION: ClassVar[int] = 3
+    PROTOCOL_VERSION: ClassVar[int] = 4
 
 
 @wire_model
 @dataclass
 class InstanceRegister(InstanceControlWireModel):
     pid: int
-    instance_id: str
+    name_hint: str
     instance_name: str
     alias: Optional[str] = None
     instance_type: str = ""
@@ -54,6 +54,7 @@ class InstanceAck(InstanceControlWireModel):
     success: bool
     error_code: Optional[InstanceControlError] = None
     message: str = ""
+    instance_id: str = ""
 
 
 @wire_model

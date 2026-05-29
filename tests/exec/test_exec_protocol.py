@@ -44,7 +44,7 @@ def connected_system(port: int) -> Iterator[tuple]:
     server.start(registry.run)
 
     client = DiscoveryClient(
-        instance_id="c1",
+        name_hint="c1",
         instance_name="test",
         runner=DirectRunner(CodeExecutor()),
         host="localhost",
@@ -78,10 +78,10 @@ def _read_first_exec(wf_id: str):
 
 
 def test_exec_hello_world(connected_system) -> None:
-    server, _, control, _ = connected_system
+    server, _, control, client = connected_system
     wf_id = WorkflowPersistence.create_workflow("exec-test")
 
-    result = server.run_async(control.execute("c1", 'print("hello")', wf_id))
+    result = server.run_async(control.execute(client.instance_id, 'print("hello")', wf_id))
 
     assert result.status == InstanceExecStatus.SUCCEEDED
     assert result.traceback is None
@@ -91,10 +91,10 @@ def test_exec_hello_world(connected_system) -> None:
 
 
 def test_exec_exception(connected_system) -> None:
-    server, _, control, _ = connected_system
+    server, _, control, client = connected_system
     wf_id = WorkflowPersistence.create_workflow("exec-error-test")
 
-    result = server.run_async(control.execute("c1", "raise ValueError('boom')", wf_id))
+    result = server.run_async(control.execute(client.instance_id, "raise ValueError('boom')", wf_id))
 
     assert result.status == InstanceExecStatus.FAILED
     assert result.traceback is not None
@@ -103,11 +103,11 @@ def test_exec_exception(connected_system) -> None:
 
 
 def test_exec_namespace_persists(connected_system) -> None:
-    server, _, control, _ = connected_system
+    server, _, control, client = connected_system
     wf_id = WorkflowPersistence.create_workflow("namespace-test")
 
-    first = server.run_async(control.execute("c1", "x = 42", wf_id))
-    second = server.run_async(control.execute("c1", "print(x)", wf_id))
+    first = server.run_async(control.execute(client.instance_id, "x = 42", wf_id))
+    second = server.run_async(control.execute(client.instance_id, "print(x)", wf_id))
 
     assert first.status == InstanceExecStatus.SUCCEEDED
     assert second.status == InstanceExecStatus.SUCCEEDED
@@ -117,15 +117,15 @@ def test_exec_namespace_persists(connected_system) -> None:
 
 
 def test_exec_concurrent_rejects_busy(connected_system) -> None:
-    server, _, control, _ = connected_system
+    server, _, control, client = connected_system
     wf_id = WorkflowPersistence.create_workflow("busy-test")
 
     async def _run():
         first = asyncio.create_task(
-            control.execute("c1", 'import time; time.sleep(0.3); print("a")', wf_id)
+            control.execute(client.instance_id, 'import time; time.sleep(0.3); print("a")', wf_id)
         )
         await asyncio.sleep(0.05)
-        second = asyncio.create_task(control.execute("c1", 'print("b")', wf_id))
+        second = asyncio.create_task(control.execute(client.instance_id, 'print("b")', wf_id))
         return await asyncio.gather(first, second)
 
     first, second = server.run_async(_run())
@@ -137,12 +137,12 @@ def test_exec_concurrent_rejects_busy(connected_system) -> None:
 
 
 def test_early_return_result_persisted_to_disk(connected_system) -> None:
-    server, _, control, _ = connected_system
+    server, _, control, client = connected_system
     wf_id = WorkflowPersistence.create_workflow("early-return-test")
 
     result = server.run_async(
         control.execute(
-            "c1",
+            client.instance_id,
             'import time; time.sleep(0.3); print("done")',
             wf_id,
             early_return_window=0.05,
@@ -157,9 +157,10 @@ def test_disconnect_marks_running_execution_failed(connected_system) -> None:
     server, registry, control, client = connected_system
     wf_id = WorkflowPersistence.create_workflow("disconnect-test")
 
+    instance_id = client.instance_id
     result = server.run_async(
         control.execute(
-            "c1",
+            instance_id,
             'import time; time.sleep(1.0); print("late")',
             wf_id,
             early_return_window=0.05,
@@ -170,4 +171,4 @@ def test_disconnect_marks_running_execution_failed(connected_system) -> None:
     client.stop()
 
     assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.FAILED)
-    assert wait_for(lambda: "c1" not in registry.list_clients())
+    assert wait_for(lambda: instance_id not in registry.list_clients())

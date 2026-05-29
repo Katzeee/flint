@@ -30,9 +30,9 @@ class DccRunner:
         self._thread.join(timeout=5)
 
 
-def _bg_register(discovery_port: int, instance_id: str = "c1") -> DccRunner:
+def _bg_register(discovery_port: int, name_hint: str = "c1") -> DccRunner:
     client = DiscoveryClient(
-        instance_id=instance_id,
+        name_hint=name_hint,
         instance_name="test",
         runner=DirectRunner(CodeExecutor()),
         host="localhost",
@@ -66,7 +66,7 @@ def test_execute_rejects_missing_workflow(app_runner, discovery_port: int) -> No
     dcc = _bg_register(discovery_port)
     try:
         with pytest.raises(WorkflowRecordUnavailableError, match="workflow not found"):
-            app_run.run_async(control.execute("c1", 'print("ok")', "nonexistent"))
+            app_run.run_async(control.execute(dcc.client.instance_id, 'print("ok")', "nonexistent"))
     finally:
         dcc.stop()
 
@@ -111,7 +111,7 @@ def test_registry_reconnect_does_not_evict_new_entry(discovery_port) -> None:
         async def _do() -> None:
             reader, writer = await asyncio.open_connection("localhost", discovery_port)
             try:
-                msg = InstanceRegister(pid=pid, instance_id="shared", instance_name="test")
+                msg = InstanceRegister(pid=pid, name_hint="shared", instance_name="test")
                 await AsyncJsonLineCodec.send(writer, msg.to_dict())
                 await AsyncJsonLineCodec.recv(reader)
                 done_event.set()
@@ -131,8 +131,9 @@ def test_registry_reconnect_does_not_evict_new_entry(discovery_port) -> None:
     t_old.join(timeout=3)
     time.sleep(0.1)
 
-    entry = registry.get_client("shared")
-    assert entry is not None and entry.pid == 20
+    clients = registry.list_clients()
+    remaining = [e for e in clients.values() if e.pid == 20]
+    assert len(remaining) == 1
 
     runner.stop()
 
@@ -142,7 +143,7 @@ def test_request_id_present_in_result(app_runner, discovery_port: int) -> None:
     dcc = _bg_register(discovery_port)
     try:
         wf_id = control.start_workflow("reqid-test")
-        result = app_run.run_async(control.execute("c1", 'print("hi")', wf_id))
+        result = app_run.run_async(control.execute(dcc.client.instance_id, 'print("hi")', wf_id))
         assert result.request_id is not None and len(result.request_id) > 0
     finally:
         dcc.stop()
@@ -153,7 +154,7 @@ def test_request_id_persisted_in_exec_entry(app_runner, discovery_port: int) -> 
     dcc = _bg_register(discovery_port)
     try:
         wf_id = control.start_workflow("reqid-persist-test")
-        app_run.run_async(control.execute("c1", 'print("hi")', wf_id))
+        app_run.run_async(control.execute(dcc.client.instance_id, 'print("hi")', wf_id))
         record = WorkflowPersistence.load(wf_id)
         assert record.execs[0].request_id is not None and len(record.execs[0].request_id) > 0
     finally:

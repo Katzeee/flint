@@ -30,7 +30,7 @@ def get_control_client_service() -> Optional[ControlClientService]:
 
 
 def start_control_client_service(
-    instance_id: str,
+    name_hint: str,
     instance_name: str,
     instance_type: str = "",
     runner: Optional[CodeRunner] = None,
@@ -49,7 +49,7 @@ def start_control_client_service(
         runner = CodeRunner.create_default()
 
     client = DiscoveryClient(
-        instance_id=instance_id,
+        name_hint=name_hint,
         instance_name=instance_name,
         runner=runner,
         alias=alias,
