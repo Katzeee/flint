@@ -186,6 +186,26 @@ def test_server_stop_with_no_clients(port: int) -> None:
     runner.stop()
 
 
+def test_stop_after_server_disconnect(port: int) -> None:
+    """Regression: stop() must not raise when server has already disconnected."""
+    server = Registry(host="localhost", port=port)
+    runner = AsyncRunner()
+    runner.start(server.run)
+
+    c = _client(port, "c1")
+    r = _ClientRunner(c)
+    r.start()
+    assert _wait_connected(c)
+
+    server.stop()
+    runner.stop()
+
+    assert wait_for(lambda: c.state == DiscoveryState.CONNECTING)
+
+    r.stop()
+    assert c.state == DiscoveryState.STOPPED
+
+
 def test_register_discovery_pid_is_int() -> None:
     msg = InstanceRegister(
         pid=1234, name_hint="c1", instance_name="test",

@@ -175,8 +175,9 @@ class DiscoveryClient:
         backoff = 0
         while not self._stop_event.is_set():
             self._set_state(DiscoveryState.CONNECTING)
+            loop = asyncio.new_event_loop()
             try:
-                asyncio.run(self._connect_and_serve())
+                loop.run_until_complete(self._connect_and_serve())
                 backoff = 0
             except Exception as exc:
                 if self._stop_event.is_set():
@@ -184,6 +185,15 @@ class DiscoveryClient:
                 backoff = min(backoff * 2 + 1, self.MAX_BACKOFF)
                 log.debug("Discovery disconnected (%s); retrying in %ds", exc, backoff)
                 self._stop_event.wait(backoff)
+            finally:
+                # Clear refs BEFORE closing the loop — guarantees that whenever
+                # self._loop is non-None the loop is still open, so stop() can
+                # call_soon_threadsafe without racing against loop.close().
+                self._loop = None
+                self._cancel = None
+                self._writer = None
+                self._write_lock = None
+                loop.close()
 
     def stop(self) -> None:
         """Signal the client to stop and return from run()."""
@@ -246,10 +256,6 @@ class DiscoveryClient:
         finally:
             writer.close()
             await writer.wait_closed()
-            self._writer = None
-            self._write_lock = None
-            self._cancel = None
-            self._loop = None
             self._set_state(DiscoveryState.CONNECTING if not self._stop_event.is_set() else DiscoveryState.STOPPED)
 
     async def _heartbeat_loop(self, cancel: asyncio.Event) -> None:
