@@ -47,11 +47,9 @@ def cmd_list(args: argparse.Namespace) -> None:
         return
 
     for inst in instances:
-        alias = inst.get("alias")
-        alias_str = f" ({alias})" if alias else ""
         itype = inst.get("instance_type") or ""
         itype_str = f"  [{itype}]" if itype else ""
-        print(f"{inst['instance_id']}{alias_str}{itype_str}  {inst.get('instance_name', '')}")
+        print(f"{inst['instance_id']}{itype_str}  {inst.get('instance_name', '')}")
 
 
 def cmd_exec(args: argparse.Namespace) -> None:

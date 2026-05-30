@@ -25,7 +25,6 @@ class ClientEntry:
     pid: int
     instance_id: str
     instance_name: str
-    alias: Optional[str]
     instance_type: str = ""
     last_heartbeat: float = field(default_factory=time.monotonic)
 
@@ -285,7 +284,6 @@ class Registry:
                         pid=msg.pid,
                         instance_id=assigned_id,
                         instance_name=msg.instance_name,
-                        alias=msg.alias,
                         instance_type=msg.instance_type,
                     ), session)
                     await session.send(InstanceAck(success=True, instance_id=assigned_id))

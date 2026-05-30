@@ -123,7 +123,6 @@ class ControlServer:
             InstanceInfo(
                 instance_id=e.instance_id,
                 instance_name=e.instance_name,
-                alias=e.alias,
                 instance_type=e.instance_type,
             )
             for e in clients.values()

@@ -115,8 +115,6 @@ class DiscoveryClient:
         name_hint: str,
         instance_name: str,
         runner: CodeRunner,
-        alias: Optional[str] = None,
-        alias_getter: Optional[Callable[[], Optional[str]]] = None,
         instance_type: str = "",
         host: str = DEFAULT_HOST,
         port: int = REGISTRY_PORT,
@@ -126,8 +124,6 @@ class DiscoveryClient:
         self._instance_id = name_hint
         self._instance_name = instance_name
         self._runner = runner
-        self._alias = alias
-        self._alias_getter = alias_getter
         self._instance_type = instance_type
         self._host = host
         self._port = port
@@ -138,7 +134,6 @@ class DiscoveryClient:
         self._connected_event = threading.Event()
         self._state_lock = threading.Lock()
         self._state = DiscoveryState.STOPPED
-        self._alias_lock = threading.Lock()
         self._execution_lock: Optional[asyncio.Lock] = None
         self._writer: Optional[asyncio.StreamWriter] = None
         self._write_lock: Optional[asyncio.Lock] = None
@@ -205,15 +200,6 @@ class DiscoveryClient:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _current_alias(self) -> Optional[str]:
-        if self._alias_getter is not None:
-            alias = self._alias_getter()
-        else:
-            with self._alias_lock:
-                alias = self._alias
-        alias = alias.strip() if alias is not None else None
-        return alias or None
-
     async def _connect_and_serve(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._execution_lock = asyncio.Lock()
@@ -232,7 +218,6 @@ class DiscoveryClient:
                     pid=self._pid,
                     name_hint=self._instance_id,
                     instance_name=self._instance_name,
-                    alias=self._current_alias(),
                     instance_type=self._instance_type,
                 )
             )

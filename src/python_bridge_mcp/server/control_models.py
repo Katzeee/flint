@@ -26,7 +26,6 @@ class ControlError(str, Enum):
 class InstanceInfo(BaseModel):
     instance_id: str
     instance_name: str
-    alias: Optional[str] = None
     instance_type: str = ""
 
 

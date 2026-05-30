@@ -197,8 +197,8 @@ def test_register_discovery_pid_is_int() -> None:
 
 def test_client_entry_pid_equality() -> None:
     from python_bridge_mcp.server.registry import ClientEntry
-    e1 = ClientEntry(pid=42, instance_id="c1", instance_name="t", alias=None)
-    e2 = ClientEntry(pid=42, instance_id="c2", instance_name="t", alias=None)
+    e1 = ClientEntry(pid=42, instance_id="c1", instance_name="t")
+    e2 = ClientEntry(pid=42, instance_id="c2", instance_name="t")
     assert e1.pid == e2.pid
 
 
@@ -220,27 +220,6 @@ def test_instance_type_filtering_via_discovery_client(srv, port: int) -> None:
         rm.stop()
         rb.stop()
 
-
-def test_register_uses_live_alias_getter(srv, port: int) -> None:
-    server, srv_runner = srv
-    alias_box = {"value": "lookdev"}
-    client = DiscoveryClient(
-        name_hint="c1",
-        instance_name="Test Client",
-        runner=DirectRunner(CodeExecutor()),
-        host="localhost",
-        port=port,
-        heartbeat_interval=0.1,
-        alias_getter=lambda: alias_box["value"],
-    )
-    r = _ClientRunner(client)
-    r.start()
-    try:
-        assert _wait_connected(client)
-        clients = server.list_clients()
-        assert clients[client.instance_id].alias == "lookdev"
-    finally:
-        r.stop()
 
 
 def test_same_name_hint_produces_unique_ids(srv, port: int) -> None:

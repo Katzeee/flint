@@ -1,7 +1,7 @@
 import sys
 import threading
 from dataclasses import dataclass
-from typing import Callable, Optional, cast
+from typing import Optional, cast
 
 from ..shared.constants import DEFAULT_HOST, REGISTRY_PORT
 from .code_runner import CodeRunner
@@ -37,8 +37,6 @@ def start_control_client_service(
     discovery_host: str = DEFAULT_HOST,
     discovery_port: int = REGISTRY_PORT,
     heartbeat_interval: float = DiscoveryClient.HEARTBEAT_INTERVAL,
-    alias: Optional[str] = None,
-    alias_getter: Optional[Callable[[], Optional[str]]] = None,
 ) -> ControlClientService:
     # Reload-safe: replace an existing service so code changes pick up immediately.
     current = get_control_client_service()
@@ -52,8 +50,6 @@ def start_control_client_service(
         name_hint=name_hint,
         instance_name=instance_name,
         runner=runner,
-        alias=alias,
-        alias_getter=alias_getter,
         instance_type=instance_type,
         host=discovery_host,
         port=discovery_port,

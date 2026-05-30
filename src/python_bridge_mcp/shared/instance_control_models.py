@@ -38,7 +38,6 @@ class InstanceRegister(InstanceControlWireModel):
     pid: int
     name_hint: str
     instance_name: str
-    alias: Optional[str] = None
     instance_type: str = ""
 
 

@@ -57,8 +57,7 @@ def test_list_instances_with_registered_instance(
 ) -> None:
     registry, _ = backend
     registry.register(ClientEntry(
-        pid=1, instance_id="c1", instance_name="test",
-        alias=None, instance_type="maya",
+        pid=1, instance_id="c1", instance_name="test", instance_type="maya",
     ))
     result = asyncio.run(client.list_instances())
     assert len(result.instances) == 1
@@ -67,8 +66,8 @@ def test_list_instances_with_registered_instance(
 
 def test_list_instances_filter_by_type(backend, client, discovery_port: int) -> None:
     registry, _ = backend
-    registry.register(ClientEntry(pid=1, instance_id="maya1", instance_name="maya1", alias=None, instance_type="maya"))
-    registry.register(ClientEntry(pid=2, instance_id="nuke1", instance_name="nuke1", alias=None, instance_type="nuke"))
+    registry.register(ClientEntry(pid=1, instance_id="maya1", instance_name="maya1", instance_type="maya"))
+    registry.register(ClientEntry(pid=2, instance_id="nuke1", instance_name="nuke1", instance_type="nuke"))
 
     result = asyncio.run(client.list_instances(instance_type="maya"))
     assert len(result.instances) == 1

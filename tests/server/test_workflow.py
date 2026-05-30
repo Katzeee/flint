@@ -73,7 +73,7 @@ def test_execute_rejects_missing_workflow(app_runner, discovery_port: int) -> No
 
 def test_execute_connection_failed_records_failed_execution(app_runner) -> None:
     registry, control, app_run = app_runner
-    registry.register(ClientEntry(pid=1, instance_id="dead", instance_name="dead", alias=None))
+    registry.register(ClientEntry(pid=1, instance_id="dead", instance_name="dead"))
     wf_id = control.start_workflow("conn-fail-test")
 
     result = app_run.run_async(control.execute("dead", "print(1)", wf_id, connect_timeout=2.0))
@@ -86,8 +86,8 @@ def test_execute_connection_failed_records_failed_execution(app_runner) -> None:
 
 def test_registry_unregister_pid_guard_unit() -> None:
     registry = Registry()
-    registry.register(ClientEntry(pid=10, instance_id="shared", instance_name="t", alias=None))
-    registry.register(ClientEntry(pid=20, instance_id="shared", instance_name="t", alias=None))
+    registry.register(ClientEntry(pid=10, instance_id="shared", instance_name="t"))
+    registry.register(ClientEntry(pid=20, instance_id="shared", instance_name="t"))
 
     registry.unregister("shared", pid=10)
     entry = registry.get_client("shared")
