@@ -22,3 +22,6 @@ class ThreadSafeTextBuffer:
 
     def flush(self) -> None:
         pass
+
+    def isatty(self) -> bool:
+        return False
