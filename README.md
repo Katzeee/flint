@@ -15,11 +15,11 @@ Current features:
 - Multiple MCP client instances share a single backend process (shared instance registry)
 - The shim auto-starts the backend on startup; if the backend crashes, it is relaunched on the next shim start
 - Per-instance serial execution
-- `exec_python` returns `stdout`, `stderr`, and `traceback`
+- `exec_python` returns `execution_id`, `status`, and `traceback`/`error` on failure; full `stdout`, `stderr`, and `traceback` are available via `get_workflow_execution`
 - Execution runs in an isolated namespace
 - Structured workflow recording: multiple `exec_python` calls are grouped into a single workflow JSON file
 - 5-second early return: long-running executions do not block the MCP caller; they return `status: "running"` immediately and can be polled via lookup tools
-- 500 ms periodic output flush from the client side; in-flight output is visible in the workflow file incrementally
+- 2-second periodic output flush from the client side; in-flight output is visible in the workflow file incrementally
 - Cross-instance workflows: a single workflow can include executions on different Python instances
 - Workflow file persistence: after a backend restart, the lookup tools recover workflow state from disk
 
@@ -94,21 +94,21 @@ If the MCP loads correctly but `list_instances` returns an empty list, that mean
 The minimal integration is to call `start_control_client_service` once after your process starts:
 
 ```python
-import threading
 from python_bridge_mcp.client.bootstrap import start_control_client_service
 
-start_control_client_service(
-    instance_id="my-script-001",   # unique ID for this process
-    instance_name="My Script",     # human-readable label
-    instance_type="python",        # arbitrary type tag, e.g. "maya", "max", "blender"
+service = start_control_client_service(
+    name_hint="my-script",       # hint for server-assigned instance ID
+    instance_name="My Script",   # human-readable label
+    instance_type="python",      # arbitrary type tag, e.g. "maya", "max", "blender"
 )
 ```
 
 Notes:
 
-- `instance_id` must be unique across all running instances
+- Instance IDs are assigned by the server in the format `{name_hint}-{counter:04d}` (e.g. `my-script-0001`). Uniqueness is guaranteed by the server — no manual coordination needed
+- After registration, the assigned ID is available as `service.client.instance_id`
 - `instance_type` is used for filtering with `list_instances(instance_type=...)`
-- The default registry endpoint is `127.0.0.1:6321`
+- The default registry endpoint is `localhost:6321`
 - `start_control_client_service` is reload-safe: calling it again replaces the existing service
 
 To stop the service:
@@ -224,7 +224,7 @@ MCP Client B ──stdio──> shim ──────────────�
 ```
 
 - **shim** (`python -m python_bridge_mcp.server.shim`): one per MCP client process. Speaks the MCP stdio protocol and ensures the backend is running before forwarding tool calls.
-- **backend** (`python -m python_bridge_mcp.server.backend`): one shared instance. Binds `127.0.0.1:6322` (control API) and `127.0.0.1:6321` (instance registry).
+- **backend** (`python -m python_bridge_mcp.server.backend`): one shared instance. Binds `localhost:6322` (control API) and `0.0.0.0:6321` (instance registry).
 - **client** (`python_bridge_mcp.client`): one per Python process. Connects to the registry, sends heartbeats, and executes incoming code requests.
 
 ## Project Structure
