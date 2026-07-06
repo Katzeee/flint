@@ -11,6 +11,7 @@ from ..shared.constants import DEFAULT_HOST, REGISTRY_PORT
 from ..shared.instance_control_models import (
     InstanceExecError,
     InstanceExecOutputUpdate,
+    InstanceExecRegister,
     InstanceExecRequest,
     InstanceExecResult,
     InstanceExecStatus,
@@ -121,6 +122,9 @@ class DiscoveryClient:
         heartbeat_interval: float = HEARTBEAT_INTERVAL,
         pid: Optional[int] = None,
     ):
+        # Resent on every (re)registration so the server-assigned id never
+        # accumulates suffixes on reconnect.
+        self._name_hint = name_hint
         self._instance_id = name_hint
         self._instance_name = instance_name
         self._runner = runner
@@ -135,10 +139,14 @@ class DiscoveryClient:
         self._state_lock = threading.Lock()
         self._state = DiscoveryState.STOPPED
         self._execution_lock: Optional[asyncio.Lock] = None
-        self._writer: Optional[asyncio.StreamWriter] = None
-        self._write_lock: Optional[asyncio.Lock] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._cancel: Optional[asyncio.Event] = None
+        # Two long connections: control (register/heartbeat) and exec (execution
+        # traffic), so a long/blocked run can't stall heartbeats on one socket.
+        self._ctrl_writer: Optional[asyncio.StreamWriter] = None
+        self._ctrl_write_lock: Optional[asyncio.Lock] = None
+        self._exec_writer: Optional[asyncio.StreamWriter] = None
+        self._exec_write_lock: Optional[asyncio.Lock] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -191,19 +199,22 @@ class DiscoveryClient:
                 # call_soon_threadsafe without racing against loop.close().
                 self._loop = None
                 self._cancel = None
-                self._writer = None
-                self._write_lock = None
+                self._ctrl_writer = None
+                self._ctrl_write_lock = None
+                self._exec_writer = None
+                self._exec_write_lock = None
                 loop.close()
 
     def stop(self) -> None:
         """Signal the client to stop and return from run()."""
         self._stop_event.set()
-        loop, writer, cancel = self._loop, self._writer, self._cancel
+        loop, cancel = self._loop, self._cancel
         if loop is not None:
             if cancel is not None:
                 loop.call_soon_threadsafe(cancel.set)
-            if writer is not None:
-                loop.call_soon_threadsafe(writer.close)
+            for writer in (self._ctrl_writer, self._exec_writer):
+                if writer is not None:
+                    loop.call_soon_threadsafe(writer.close)
         self._set_state(DiscoveryState.STOPPED)
 
     # ------------------------------------------------------------------
@@ -215,23 +226,31 @@ class DiscoveryClient:
         self._execution_lock = asyncio.Lock()
         cancel = asyncio.Event()
         self._cancel = cancel
-        reader, writer = await asyncio.open_connection(
+
+        # control connection
+        ctrl_reader, ctrl_writer = await asyncio.open_connection(
             self._host,
             self._port,
             limit=AsyncJsonLineCodec.READER_LIMIT,
         )
-        self._writer = writer
-        self._write_lock = asyncio.Lock()
+        self._ctrl_writer = ctrl_writer
+        self._ctrl_write_lock = asyncio.Lock()
+
+        exec_reader = None
+        exec_writer = None
+        heartbeat_task = None
+        ctrl_read_task = None
+        exec_read_task = None
         try:
-            await self._send(
+            await self._send_control(
                 InstanceRegister(
                     pid=self._pid,
-                    name_hint=self._instance_id,
+                    name_hint=self._name_hint,
                     instance_name=self._instance_name,
                     instance_type=self._instance_type,
                 )
             )
-            ack = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(reader))
+            ack = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(ctrl_reader))
             if not isinstance(ack, InstanceAck):
                 raise RuntimeError("Registration rejected: unexpected response")
             if not ack.success:
@@ -239,6 +258,25 @@ class DiscoveryClient:
                 raise RuntimeError(f"Registration rejected: {error}")
             if ack.instance_id:
                 self._instance_id = ack.instance_id
+
+            # exec connection (opened once we know the assigned instance id)
+            exec_reader, exec_writer = await asyncio.open_connection(
+                self._host,
+                self._port,
+                limit=AsyncJsonLineCodec.READER_LIMIT,
+            )
+            self._exec_writer = exec_writer
+            self._exec_write_lock = asyncio.Lock()
+            await self._send_exec(
+                InstanceExecRegister(instance_id=self._instance_id, pid=self._pid)
+            )
+            exec_ack = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(exec_reader))
+            if not isinstance(exec_ack, InstanceAck) or not exec_ack.success:
+                error = getattr(exec_ack, "message", "") or getattr(exec_ack, "error_code", "") or "unknown error"
+                raise RuntimeError(f"Exec channel rejected: {error}")
+
+            # Both channels up — advertise connectivity now, so a caller waiting
+            # on wait_until_registered() can execute immediately.
             self._set_state(DiscoveryState.CONNECTED)
             log.info(
                 "Discovery connected to %s:%d as %s",
@@ -248,15 +286,36 @@ class DiscoveryClient:
             )
 
             heartbeat_task = asyncio.create_task(self._heartbeat_loop(cancel))
-            try:
-                await self._read_loop(reader, cancel)
-            finally:
-                heartbeat_task.cancel()
-                await asyncio.gather(heartbeat_task, return_exceptions=True)
+            ctrl_read_task = asyncio.create_task(self._control_read_loop(ctrl_reader, cancel))
+            exec_read_task = asyncio.create_task(self._exec_read_loop(exec_reader, cancel))
+
+            done, _pending = await asyncio.wait(
+                {ctrl_read_task, exec_read_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            # Re-raise the exited read loop's exception so run() applies backoff.
+            for task in done:
+                exc = task.exception()
+                if exc is not None and not isinstance(exc, asyncio.CancelledError):
+                    raise exc
         finally:
-            writer.close()
-            await writer.wait_closed()
-            self._set_state(DiscoveryState.CONNECTING if not self._stop_event.is_set() else DiscoveryState.STOPPED)
+            cancel.set()
+            for task in (heartbeat_task, ctrl_read_task, exec_read_task):
+                if task is not None:
+                    task.cancel()
+            for task in (heartbeat_task, ctrl_read_task, exec_read_task):
+                if task is not None:
+                    await asyncio.gather(task, return_exceptions=True)
+            for writer in (ctrl_writer, exec_writer):
+                if writer is not None:
+                    writer.close()
+                    try:
+                        await writer.wait_closed()
+                    except Exception:
+                        pass
+            self._set_state(
+                DiscoveryState.CONNECTING if not self._stop_event.is_set() else DiscoveryState.STOPPED
+            )
 
     async def _heartbeat_loop(self, cancel: asyncio.Event) -> None:
         while True:
@@ -265,24 +324,33 @@ class DiscoveryClient:
                 return  # cancel was set
             except asyncio.TimeoutError:
                 pass
-            await self._send(InstanceHeartbeat(instance_id=self._instance_id))
+            await self._send_control(InstanceHeartbeat(instance_id=self._instance_id))
 
-    async def _read_loop(self, reader: asyncio.StreamReader, cancel: asyncio.Event) -> None:
+    async def _control_read_loop(self, reader: asyncio.StreamReader, cancel: asyncio.Event) -> None:
         while not cancel.is_set():
-            data = await AsyncJsonLineCodec.recv(reader)
-            msg = VersionedWireModel.parse_versioned(data)
+            msg = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(reader))
             if isinstance(msg, InstanceAck):
                 if not msg.success:
                     raise RuntimeError(msg.message or msg.error_code or "backend rejected request")
-            elif isinstance(msg, InstanceExecRequest):
+            else:
+                raise WireModelError(
+                    f"unexpected message type on control channel: {type(msg).__name__}"
+                )
+
+    async def _exec_read_loop(self, reader: asyncio.StreamReader, cancel: asyncio.Event) -> None:
+        while not cancel.is_set():
+            msg = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(reader))
+            if isinstance(msg, InstanceExecRequest):
                 asyncio.create_task(self._handle_exec(msg))
             else:
-                raise WireModelError(f"unexpected message type: {type(msg).__name__}")
+                raise WireModelError(
+                    f"unexpected message type on exec channel: {type(msg).__name__}"
+                )
 
     async def _handle_exec(self, msg: InstanceExecRequest) -> None:
         assert self._execution_lock is not None
         if self._execution_lock.locked():
-            await self._send(
+            await self._send_exec(
                 InstanceExecResult(
                     execution_id=msg.execution_id,
                     status=InstanceExecStatus.FAILED,
@@ -299,7 +367,7 @@ class DiscoveryClient:
                 msg,
                 out,
                 err,
-                self._send,
+                self._send_exec,
                 self.OUTPUT_FLUSH_INTERVAL,
                 self.OUTPUT_UPDATE_MAX_CHARS,
             )
@@ -322,13 +390,19 @@ class DiscoveryClient:
                 )
             finally:
                 await flusher.stop()
-        await self._send(result)
+        await self._send_exec(result)
 
-    async def _send(self, msg: VersionedWireModel) -> None:
-        if self._writer is None or self._write_lock is None:
+    async def _send_control(self, msg: VersionedWireModel) -> None:
+        if self._ctrl_writer is None or self._ctrl_write_lock is None:
             raise ConnectionError("not connected")
-        async with self._write_lock:
-            await AsyncJsonLineCodec.send(self._writer, msg.to_dict())
+        async with self._ctrl_write_lock:
+            await AsyncJsonLineCodec.send(self._ctrl_writer, msg.to_dict())
+
+    async def _send_exec(self, msg: VersionedWireModel) -> None:
+        if self._exec_writer is None or self._exec_write_lock is None:
+            raise ConnectionError("not connected")
+        async with self._exec_write_lock:
+            await AsyncJsonLineCodec.send(self._exec_writer, msg.to_dict())
 
     def _set_state(self, state: DiscoveryState) -> None:
         with self._state_lock:

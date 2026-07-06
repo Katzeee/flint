@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 from typing import Iterator, Optional
 
@@ -155,6 +156,40 @@ def test_client_reconnects_after_server_restart(port: int) -> None:
             assert _wait_connected(c, timeout=5), "client did not reconnect after server restart"
             assert c.state == DiscoveryState.CONNECTED
             assert c.instance_id in server2.list_clients()
+        finally:
+            runner2.stop()
+    finally:
+        r.stop()
+
+
+def test_reconnect_does_not_chain_instance_id_suffix(port: int) -> None:
+    """Regression: the server-assigned id must never be re-sent as name_hint on
+    reconnect, which previously produced suffix chaining (c1-0001-0002-...)."""
+    server = Registry(host="localhost", port=port)
+    runner = AsyncRunner()
+    runner.start(server.run)
+
+    c = _client(port, "c1")
+    r = _ClientRunner(c)
+    r.start()
+    try:
+        assert _wait_connected(c)
+        first_id = c.instance_id
+        assert re.match(r"^[^-]+-\d{4}$", first_id), first_id
+
+        # Restart the server so the client reconnects with _instance_id already
+        # set to the previously-assigned id.
+        runner.stop()
+        assert wait_for(lambda: c.state == DiscoveryState.CONNECTING)
+
+        server2 = Registry(host="localhost", port=port)
+        runner2 = AsyncRunner()
+        runner2.start(server2.run)
+        try:
+            assert _wait_connected(c, timeout=5), "client did not reconnect"
+            second_id = c.instance_id
+            # Must remain a single "{hint}-NNNN"; never nest the previous id.
+            assert re.match(r"^[^-]+-\d{4}$", second_id), second_id
         finally:
             runner2.stop()
     finally:

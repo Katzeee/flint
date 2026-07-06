@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from ..shared.instance_control_models import (
     InstanceExecOutputUpdate,
+    InstanceExecRegister,
     InstanceExecResult,
     InstanceAck,
     InstanceControlError,
@@ -29,7 +30,7 @@ class ClientEntry:
     last_heartbeat: float = field(default_factory=time.monotonic)
 
 
-class ControlSession:
+class ClientSession:
     def __init__(self, writer: asyncio.StreamWriter) -> None:
         self._writer = writer
         self._write_lock = asyncio.Lock()
@@ -81,7 +82,8 @@ class Registry:
         self._port = port
         self._stale_timeout = stale_timeout
         self._clients: Dict[str, ClientEntry] = {}
-        self._sessions: Dict[str, ControlSession] = {}
+        self._control_sessions: Dict[str, ClientSession] = {}
+        self._exec_sessions: Dict[str, ClientSession] = {}
         self._output_update_handler: Optional[Callable[[InstanceExecOutputUpdate], None]] = None
         self._server: Optional[asyncio.AbstractServer] = None
         self._id_counter: int = 0
@@ -105,39 +107,37 @@ class Registry:
         self._close_sessions(stale_sessions, "client heartbeat timed out")
         return result
 
-    def register(self, entry: ClientEntry, session: Optional[ControlSession] = None) -> None:
+    def register(self, entry: ClientEntry, control_session: Optional[ClientSession] = None) -> None:
         old_sessions = self._evict_stale()
         for iid, existing in list(self._clients.items()):
             if existing.pid == entry.pid or iid == entry.instance_id:
-                old_session = self._sessions.pop(iid, None)
-                if old_session is not None:
-                    old_sessions.append(old_session)
+                ctrl = self._control_sessions.pop(iid, None)
+                ex = self._exec_sessions.pop(iid, None)
+                if ctrl is not None:
+                    old_sessions.append(ctrl)
+                if ex is not None:
+                    old_sessions.append(ex)
                 del self._clients[iid]
         self._clients[entry.instance_id] = entry
-        if session is not None:
-            self._sessions[entry.instance_id] = session
+        if control_session is not None:
+            self._control_sessions[entry.instance_id] = control_session
         self._close_sessions(old_sessions, "client replaced by a new session")
         log.info(
             "Registered client %s (pid=%d, type=%s)",
             entry.instance_id, entry.pid, entry.instance_type,
         )
 
-    def unregister(
-        self,
-        instance_id: str,
-        pid: Optional[int] = None,
-        session: Optional[ControlSession] = None,
-    ) -> None:
+    def unregister(self, instance_id: str, pid: Optional[int] = None) -> None:
         if pid is not None:
             entry = self._clients.get(instance_id)
             if entry is None or entry.pid != pid:
                 return
-        if session is not None and self._sessions.get(instance_id) is not session:
-            return
         removed = self._clients.pop(instance_id, None) is not None
-        removed_session = self._sessions.pop(instance_id, None)
-        if removed_session is not None:
-            self._close_sessions([removed_session], "client session closed")
+        ctrl = self._control_sessions.pop(instance_id, None)
+        ex = self._exec_sessions.pop(instance_id, None)
+        sessions = [s for s in (ctrl, ex) if s is not None]
+        if sessions:
+            self._close_sessions(sessions, "client session closed")
         if removed:
             log.info("Unregistered client %s", instance_id)
 
@@ -164,7 +164,7 @@ class Registry:
         setattr(msg, "request_id", request_id)
 
         stale_sessions = self._evict_stale()
-        session = self._sessions.get(instance_id)
+        session = self._exec_sessions.get(instance_id)
         self._close_sessions(stale_sessions, "client heartbeat timed out")
         if session is None:
             raise KeyError(f"unknown client: {instance_id}")
@@ -188,30 +188,33 @@ class Registry:
         self._id_counter += 1
         return f"{name_hint}-{self._id_counter:04d}"
 
-    def _evict_stale(self) -> List[ControlSession]:
+    def _evict_stale(self) -> List[ClientSession]:
         """Remove clients whose last heartbeat exceeds stale_timeout. Must be called with lock held."""
         now = time.monotonic()
         stale = [
             iid for iid, entry in self._clients.items()
             if now - entry.last_heartbeat > self._stale_timeout
         ]
-        sessions: List[ControlSession] = []
+        sessions: List[ClientSession] = []
         for iid in stale:
             del self._clients[iid]
-            session = self._sessions.pop(iid, None)
-            if session is not None:
-                sessions.append(session)
+            ctrl = self._control_sessions.pop(iid, None)
+            ex = self._exec_sessions.pop(iid, None)
+            if ctrl is not None:
+                sessions.append(ctrl)
+            if ex is not None:
+                sessions.append(ex)
         return sessions
 
     @staticmethod
-    def _close_sessions(sessions: List[ControlSession], reason: str) -> None:
+    def _close_sessions(sessions: List[ClientSession], reason: str) -> None:
         for session in sessions:
             session.fail_pending(ConnectionError(reason))
             session.close()
 
     async def run(self) -> None:
         self._server = await asyncio.start_server(
-            self._handle_client, self._host, self._port
+            self._handle_connection, self._host, self._port
         )
         log.info("Registry listening on %s:%d", self._host, self._port)
         async with self._server:
@@ -240,18 +243,71 @@ class Registry:
             self._server.close()
 
     # ------------------------------------------------------------------
-    # Connection handler
+    # Connection handlers
     # ------------------------------------------------------------------
 
-    async def _handle_client(
+    async def _handle_connection(
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
+        try:
+            data = await asyncio.wait_for(AsyncJsonLineCodec.recv(reader), timeout=30)
+            msg = VersionedWireModel.parse_versioned(data)
+        except asyncio.TimeoutError:
+            writer.close()
+            return
+        except (ConnectionError, WireModelError, ValueError) as e:
+            await AsyncJsonLineCodec.send(
+                writer,
+                InstanceAck(
+                    success=False,
+                    error_code=InstanceControlError.PROTOCOL_ERROR,
+                    message=str(e),
+                ).to_dict(),
+            )
+            writer.close()
+            return
+
+        if isinstance(msg, InstanceRegister):
+            await self._handle_control_connection(reader, writer, msg)
+        elif isinstance(msg, InstanceExecRegister):
+            await self._handle_exec_connection(reader, writer, msg)
+        else:
+            await AsyncJsonLineCodec.send(
+                writer,
+                InstanceAck(
+                    success=False,
+                    error_code=InstanceControlError.UNEXPECTED_MESSAGE_TYPE,
+                ).to_dict(),
+            )
+            writer.close()
+
+    async def _handle_control_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        register_msg: InstanceRegister,
+    ) -> None:
         instance_id: Optional[str] = None
         registered_pid: Optional[int] = None
-        session: Optional[ControlSession] = None
+        session: Optional[ClientSession] = None
         try:
+            assigned_id = self._assign_instance_id(register_msg.name_hint)
+            instance_id = assigned_id
+            registered_pid = register_msg.pid
+            session = ClientSession(writer)
+            self.register(
+                ClientEntry(
+                    pid=register_msg.pid,
+                    instance_id=assigned_id,
+                    instance_name=register_msg.instance_name,
+                    instance_type=register_msg.instance_type,
+                ),
+                control_session=session,
+            )
+            await session.send(InstanceAck(success=True, instance_id=assigned_id))
+
             while True:
                 try:
                     data = await asyncio.wait_for(AsyncJsonLineCodec.recv(reader), timeout=30)
@@ -269,35 +325,7 @@ class Registry:
                     )
                     return
 
-                if isinstance(msg, InstanceRegister):
-                    if session is not None:
-                        await session.send(InstanceAck(
-                            success=False,
-                            error_code=InstanceControlError.ALREADY_REGISTERED,
-                        ))
-                        return
-                    assigned_id = self._assign_instance_id(msg.name_hint)
-                    instance_id = assigned_id
-                    registered_pid = msg.pid
-                    session = ControlSession(writer)
-                    self.register(ClientEntry(
-                        pid=msg.pid,
-                        instance_id=assigned_id,
-                        instance_name=msg.instance_name,
-                        instance_type=msg.instance_type,
-                    ), session)
-                    await session.send(InstanceAck(success=True, instance_id=assigned_id))
-
-                elif isinstance(msg, InstanceHeartbeat):
-                    if session is None:
-                        await AsyncJsonLineCodec.send(
-                            writer,
-                            InstanceAck(
-                                success=False,
-                                error_code=InstanceControlError.NOT_REGISTERED,
-                            ).to_dict(),
-                        )
-                        return
+                if isinstance(msg, InstanceHeartbeat):
                     if not self.heartbeat(msg.instance_id):
                         await session.send(InstanceAck(
                             success=False,
@@ -305,54 +333,86 @@ class Registry:
                         ))
                         return
                     await session.send(InstanceAck(success=True))
+                else:
+                    await session.send(InstanceAck(
+                        success=False,
+                        error_code=InstanceControlError.ALREADY_REGISTERED
+                        if isinstance(msg, InstanceRegister)
+                        else InstanceControlError.UNEXPECTED_MESSAGE_TYPE,
+                    ))
+                    return
+        finally:
+            if instance_id is not None:
+                # Only unregister if this connection's PID still owns the entry;
+                # a re-registration with a new PID must not be evicted by the
+                # stale connection's close.
+                self.unregister(instance_id, pid=registered_pid)
+            if session is None:
+                # Registered connections are torn down via unregister()/session.close();
+                # only close directly when registration never completed.
+                writer.close()
 
-                elif isinstance(msg, InstanceExecResult):
-                    if session is None or not session.resolve(msg):
-                        log.warning("Dropping unmatched response from %s: %s", instance_id, type(msg).__name__)
+    async def _handle_exec_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        handshake: InstanceExecRegister,
+    ) -> None:
+        instance_id = handshake.instance_id
+        session: Optional[ClientSession] = None
+        try:
+            entry = self._clients.get(instance_id)
+            if entry is None or entry.pid != handshake.pid:
+                await AsyncJsonLineCodec.send(
+                    writer,
+                    InstanceAck(
+                        success=False,
+                        error_code=InstanceControlError.NOT_REGISTERED,
+                        message="instance not registered or pid mismatch",
+                    ).to_dict(),
+                )
+                return
+            session = ClientSession(writer)
+            self._exec_sessions[instance_id] = session
+            await session.send(InstanceAck(success=True))
 
-                elif isinstance(msg, InstanceExecOutputUpdate):
-                    if session is None:
-                        await AsyncJsonLineCodec.send(
-                            writer,
-                            InstanceAck(
-                                success=False,
-                                error_code=InstanceControlError.NOT_REGISTERED,
-                            ).to_dict(),
+            while True:
+                # No recv timeout: the exec channel is idle between executions;
+                # liveness is driven by the control connection's heartbeats.
+                data = await AsyncJsonLineCodec.recv(reader)
+                msg = VersionedWireModel.parse_versioned(data)
+
+                if isinstance(msg, InstanceExecResult):
+                    if not session.resolve(msg):
+                        log.warning(
+                            "Dropping unmatched response from %s: %s",
+                            instance_id, type(msg).__name__,
                         )
-                        return
+                elif isinstance(msg, InstanceExecOutputUpdate):
                     if self._output_update_handler is not None:
                         try:
                             self._output_update_handler(msg)
                         except Exception:
                             log.warning(
                                 "Failed to handle output update for %s/%s",
-                                msg.workflow_id,
-                                msg.execution_id,
+                                msg.workflow_id, msg.execution_id,
                                 exc_info=True,
                             )
-
                 else:
-                    if session is not None:
-                        await session.send(InstanceAck(
-                            success=False,
-                            error_code=InstanceControlError.UNEXPECTED_MESSAGE_TYPE,
-                        ))
-                    else:
-                        await AsyncJsonLineCodec.send(
-                            writer,
-                            InstanceAck(
-                                success=False,
-                                error_code=InstanceControlError.UNEXPECTED_MESSAGE_TYPE,
-                            ).to_dict(),
-                        )
+                    await session.send(InstanceAck(
+                        success=False,
+                        error_code=InstanceControlError.UNEXPECTED_MESSAGE_TYPE,
+                    ))
                     return
+        except (ConnectionError, WireModelError, ValueError) as e:
+            log.debug("Exec connection for %s ended: %s", instance_id, e)
         finally:
-            if instance_id is not None:
-                # Only unregister if this connection's PID still owns the entry.
-                # A re-registration with a new PID must not be evicted by the
-                # stale connection's close.
-                self.unregister(instance_id, pid=registered_pid, session=session)
-            if session is None:
-                # session.close() handles writer teardown for registered connections;
-                # only close directly when the connection dropped before registration.
+            if session is not None:
+                # Only remove if this session still owns the slot (may have been
+                # replaced by a newer exec connection or popped by unregister()).
+                if self._exec_sessions.get(instance_id) is session:
+                    del self._exec_sessions[instance_id]
+                session.fail_pending(ConnectionError("exec session closed"))
+                session.close()
+            else:
                 writer.close()
