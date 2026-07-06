@@ -11,5 +11,5 @@
 
 ## Testing
 
-- Run tests via: `.venv/Scripts/pytest tests/ -v`
+- Run tests via the venv pytest: `.venv/bin/pytest tests/ -v` (macOS/Linux) or `.venv/Scripts/pytest tests/ -v` (Windows).
 - Do not run Python directly; use pytest via venv path or read code for verification.

@@ -27,6 +27,8 @@ Current features:
 
 For normal use, the recommended approach is to build the packaged executables first and then point your MCP client directly at `python-bridge-mcp-shim.exe`.
 
+> The packaged build below targets **Windows** (produces `.exe` files). On macOS/Linux, run from source as described in [Development](#development).
+
 ### 1. Set up the environment
 
 ```powershell
@@ -150,15 +152,17 @@ Practical tips:
 
 Python 3.10 is recommended for the server. Shared and client modules maintain Python 3.7 compatibility.
 
+On Windows the bundled setup script creates the venv and installs everything:
+
 ```powershell
 tools\setup_env.bat
 ```
 
-Or manually:
+Or manually (cross-platform):
 
-```powershell
+```bash
 python -m venv .venv
-.venv\Scripts\activate
+# activate:  Windows → .venv\Scripts\activate   |  macOS/Linux → source .venv/bin/activate
 pip install -e .[dev,build]
 ```
 
@@ -178,22 +182,23 @@ For Cursor (`.cursor/mcp.json`):
 }
 ```
 
+On macOS/Linux use `${workspaceFolder}/.venv/bin/python` instead of the `.venv/Scripts/python.exe` path.
+
 `-X utf8` prevents GBK encoding issues on Chinese-locale Windows systems where Python defaults stderr to GBK while the MCP client reads UTF-8.
 
 ### Manual startup
 
 In most cases you do not need to start the backend manually — the shim does it automatically.
 
-To debug the backend directly:
+To debug the backend directly (with the venv activated):
 
-```powershell
-.venv\Scripts\activate
+```bash
 python -X utf8 -m python_bridge_mcp.server.backend
 ```
 
 Or start only the shim (it will launch the backend for you):
 
-```powershell
+```bash
 python -X utf8 -m python_bridge_mcp.server.shim
 ```
 
@@ -203,15 +208,15 @@ python -X utf8 -m python_bridge_mcp.server.shim
 
 It is designed as a standalone script with no package context required — only stdlib is needed, so it runs under any Python interpreter including `mayapy` or `3dsmaxpy`:
 
-```powershell
+```bash
 # List online instances
-python src\python_bridge_mcp\client\cli.py list
+python src/python_bridge_mcp/client/cli.py list
 
 # Execute a code snippet
-python src\python_bridge_mcp\client\cli.py exec --instance-id maya-1234 --code "print('hello')"
+python src/python_bridge_mcp/client/cli.py exec --instance-id maya-1234 --code "print('hello')"
 
 # Execute a file (original path is passed to compile() so debugpy breakpoints work)
-python src\python_bridge_mcp\client\cli.py exec --instance-id maya-1234 --file path\to\script.py
+python src/python_bridge_mcp/client/cli.py exec --instance-id maya-1234 --file path/to/script.py
 ```
 
 `--host` and `--port` override the backend address (default `localhost:6322`).
@@ -280,8 +285,9 @@ python-bridge-mcp/
 
 ## Testing
 
-```powershell
-.venv\Scripts\activate
+With the venv activated:
+
+```bash
 pytest tests/ -v
 ```
 
