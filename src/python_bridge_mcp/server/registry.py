@@ -127,8 +127,19 @@ class Registry:
             entry.instance_id, entry.pid, entry.instance_type,
         )
 
-    def unregister(self, instance_id: str, pid: Optional[int] = None) -> None:
-        if pid is not None:
+    def unregister(
+        self,
+        instance_id: str,
+        pid: Optional[int] = None,
+        control_session: Optional[ClientSession] = None,
+    ) -> None:
+        if control_session is not None:
+            # Session guard: only tear down if this control session still owns
+            # the entry. A stale connection closing after a same-pid reconnect
+            # must not evict the newer registration.
+            if self._control_sessions.get(instance_id) is not control_session:
+                return
+        elif pid is not None:
             entry = self._clients.get(instance_id)
             if entry is None or entry.pid != pid:
                 return
@@ -140,6 +151,14 @@ class Registry:
             self._close_sessions(sessions, "client session closed")
         if removed:
             log.info("Unregistered client %s", instance_id)
+
+    def _attach_exec_session(self, instance_id: str, session: ClientSession) -> None:
+        """Store an exec session, failing + closing any session it replaces so a
+        re-attached exec connection does not leak the previous one."""
+        replaced = self._exec_sessions.get(instance_id)
+        self._exec_sessions[instance_id] = session
+        if replaced is not None and replaced is not session:
+            self._close_sessions([replaced], "exec session replaced")
 
     def heartbeat(self, instance_id: str) -> bool:
         stale_sessions = self._evict_stale()
@@ -343,13 +362,10 @@ class Registry:
                     return
         finally:
             if instance_id is not None:
-                # Only unregister if this connection's PID still owns the entry;
-                # a re-registration with a new PID must not be evicted by the
-                # stale connection's close.
-                self.unregister(instance_id, pid=registered_pid)
+                # Session guard: a stale control connection closing after a
+                # same-pid reconnect must not evict the newer registration.
+                self.unregister(instance_id, pid=registered_pid, control_session=session)
             if session is None:
-                # Registered connections are torn down via unregister()/session.close();
-                # only close directly when registration never completed.
                 writer.close()
 
     async def _handle_exec_connection(
@@ -373,7 +389,7 @@ class Registry:
                 )
                 return
             session = ClientSession(writer)
-            self._exec_sessions[instance_id] = session
+            self._attach_exec_session(instance_id, session)
             await session.send(InstanceAck(success=True))
 
             while True:

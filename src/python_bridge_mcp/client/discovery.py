@@ -210,11 +210,16 @@ class DiscoveryClient:
         self._stop_event.set()
         loop, cancel = self._loop, self._cancel
         if loop is not None:
-            if cancel is not None:
-                loop.call_soon_threadsafe(cancel.set)
-            for writer in (self._ctrl_writer, self._exec_writer):
-                if writer is not None:
-                    loop.call_soon_threadsafe(writer.close)
+            try:
+                if cancel is not None:
+                    loop.call_soon_threadsafe(cancel.set)
+                for writer in (self._ctrl_writer, self._exec_writer):
+                    if writer is not None:
+                        loop.call_soon_threadsafe(writer.close)
+            except RuntimeError:
+                # Loop already closed by run()'s teardown — connection is down,
+                # nothing left to signal. _stop_event still lets run() exit.
+                pass
         self._set_state(DiscoveryState.STOPPED)
 
     # ------------------------------------------------------------------
@@ -241,6 +246,7 @@ class DiscoveryClient:
         heartbeat_task = None
         ctrl_read_task = None
         exec_read_task = None
+        exec_tasks = set()  # in-flight _handle_exec tasks, drained before close
         try:
             await self._send_control(
                 InstanceRegister(
@@ -287,7 +293,7 @@ class DiscoveryClient:
 
             heartbeat_task = asyncio.create_task(self._heartbeat_loop(cancel))
             ctrl_read_task = asyncio.create_task(self._control_read_loop(ctrl_reader, cancel))
-            exec_read_task = asyncio.create_task(self._exec_read_loop(exec_reader, cancel))
+            exec_read_task = asyncio.create_task(self._exec_read_loop(exec_reader, cancel, exec_tasks))
 
             done, _pending = await asyncio.wait(
                 {ctrl_read_task, exec_read_task},
@@ -300,12 +306,19 @@ class DiscoveryClient:
                     raise exc
         finally:
             cancel.set()
-            for task in (heartbeat_task, ctrl_read_task, exec_read_task):
-                if task is not None:
-                    task.cancel()
-            for task in (heartbeat_task, ctrl_read_task, exec_read_task):
-                if task is not None:
-                    await asyncio.gather(task, return_exceptions=True)
+            loop_tasks = [t for t in (heartbeat_task, ctrl_read_task, exec_read_task) if t is not None]
+            for task in loop_tasks:
+                task.cancel()
+            # Cancel in-flight executions and drain them BEFORE closing the
+            # writers/loop, so their _OutputUpdateFlusher teardown doesn't fire
+            # on a closed loop ("Task was destroyed but it is pending").
+            for task in list(exec_tasks):
+                task.cancel()
+            if loop_tasks:
+                await asyncio.gather(*loop_tasks, return_exceptions=True)
+            if exec_tasks:
+                await asyncio.gather(*exec_tasks, return_exceptions=True)
+            exec_tasks.clear()
             for writer in (ctrl_writer, exec_writer):
                 if writer is not None:
                     writer.close()
@@ -337,11 +350,18 @@ class DiscoveryClient:
                     f"unexpected message type on control channel: {type(msg).__name__}"
                 )
 
-    async def _exec_read_loop(self, reader: asyncio.StreamReader, cancel: asyncio.Event) -> None:
+    async def _exec_read_loop(
+        self,
+        reader: asyncio.StreamReader,
+        cancel: asyncio.Event,
+        exec_tasks: set,
+    ) -> None:
         while not cancel.is_set():
             msg = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(reader))
             if isinstance(msg, InstanceExecRequest):
-                asyncio.create_task(self._handle_exec(msg))
+                task = asyncio.create_task(self._handle_exec(msg))
+                exec_tasks.add(task)
+                task.add_done_callback(exec_tasks.discard)
             else:
                 raise WireModelError(
                     f"unexpected message type on exec channel: {type(msg).__name__}"

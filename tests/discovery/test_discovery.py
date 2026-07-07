@@ -9,7 +9,7 @@ import pytest
 from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import DirectRunner
 from python_bridge_mcp.client.discovery import DiscoveryClient, DiscoveryState
-from python_bridge_mcp.server.registry import Registry
+from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.shared.instance_control_models import InstanceRegister
 
 from conftest import AsyncRunner, free_port, wait_for
@@ -306,3 +306,52 @@ def test_client_state_sequence(srv, port: int) -> None:
 
     r.stop()
     assert c.state == DiscoveryState.STOPPED
+
+
+# ---------------------------------------------------------------------------
+# Registry lifecycle unit tests (no sockets / no event loop)
+# ---------------------------------------------------------------------------
+
+class _FakeSession:
+    def __init__(self) -> None:
+        self.failed_with = None
+        self.closed = False
+
+    def fail_pending(self, exc: Exception) -> None:
+        self.failed_with = exc
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_unregister_control_session_guard_protects_newer_registration() -> None:
+    """A stale control connection closing after a same-pid reconnect must not
+    evict the newer registration (session guard, not just pid)."""
+    reg = Registry()
+    old, new = _FakeSession(), _FakeSession()
+    reg.register(
+        ClientEntry(pid=1, instance_id="c1", instance_name="t"), control_session=old
+    )
+    # Simulate a reconnect that replaced the control session (same id + pid).
+    reg._control_sessions["c1"] = new
+
+    # Stale OLD connection closes:
+    reg.unregister("c1", pid=1, control_session=old)
+
+    assert reg.get_client("c1") is not None
+    assert reg._control_sessions.get("c1") is new
+    assert not new.closed
+
+
+def test_attach_exec_session_closes_the_one_it_replaces() -> None:
+    """Re-attaching an exec session fails + closes the previous one instead of
+    leaking its reference."""
+    reg = Registry()
+    reg.register(ClientEntry(pid=1, instance_id="c1", instance_name="t"))
+    old, new = _FakeSession(), _FakeSession()
+    reg._attach_exec_session("c1", old)
+    reg._attach_exec_session("c1", new)
+
+    assert reg._exec_sessions.get("c1") is new
+    assert old.closed and old.failed_with is not None
+    assert not new.closed
