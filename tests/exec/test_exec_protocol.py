@@ -172,3 +172,57 @@ def test_disconnect_marks_running_execution_failed(connected_system) -> None:
 
     assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.FAILED)
     assert wait_for(lambda: instance_id not in registry.list_clients())
+
+
+def test_heartbeat_keeps_instance_online_during_long_exec(port: int) -> None:
+    """A long execution runs on the exec channel while heartbeats flow on the
+    control channel. The instance must stay online and its last_heartbeat keep
+    advancing — the exec channel must not starve or block the heartbeat.
+
+    Uses a stale window shorter than the execution so a starved heartbeat would
+    actually evict the instance mid-exec."""
+    STALE = 0.5
+    registry = Registry(host="localhost", port=port, stale_timeout=STALE)
+    control = ControlServer(registry)
+    server = AsyncRunner()
+    server.start(registry.run)
+
+    client = DiscoveryClient(
+        name_hint="c1",
+        instance_name="test",
+        runner=DirectRunner(CodeExecutor()),
+        host="localhost",
+        port=port,
+        heartbeat_interval=0.1,
+        pid=1001,
+    )
+    cr = _ClientRunner(client)
+    cr.start()
+    assert client.wait_until_registered(timeout=3)
+    instance_id = client.instance_id
+
+    try:
+        wf_id = WorkflowPersistence.create_workflow("heartbeat-during-exec")
+        started = server.run_async(
+            control.execute(
+                instance_id,
+                "import time; time.sleep(1.5)",
+                wf_id,
+                early_return_window=0.1,
+            )
+        )
+        assert started.status == InstanceExecStatus.RUNNING
+
+        hb_before = registry.get_client(instance_id).last_heartbeat
+        # Elapse past the stale window while the exec is still running. Without
+        # a fresh heartbeat the periodic eviction would drop the instance here.
+        time.sleep(STALE * 1.5)
+        entry_mid = registry.get_client(instance_id)
+        assert entry_mid is not None, "instance evicted mid-exec (heartbeat starved?)"
+        assert entry_mid.last_heartbeat > hb_before, "no heartbeat arrived during exec"
+
+        assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.SUCCEEDED)
+        assert instance_id in registry.list_clients()
+    finally:
+        cr.stop()
+        server.stop()
