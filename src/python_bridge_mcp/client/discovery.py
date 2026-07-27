@@ -206,21 +206,26 @@ class DiscoveryClient:
                 loop.close()
 
     def stop(self) -> None:
-        """Signal the client to stop and return from run()."""
+        """Close the owned runner and signal the client loop to stop."""
         self._stop_event.set()
-        loop, cancel = self._loop, self._cancel
-        if loop is not None:
-            try:
-                if cancel is not None:
-                    loop.call_soon_threadsafe(cancel.set)
-                for writer in (self._ctrl_writer, self._exec_writer):
-                    if writer is not None:
-                        loop.call_soon_threadsafe(writer.close)
-            except RuntimeError:
-                # Loop already closed by run()'s teardown — connection is down,
-                # nothing left to signal. _stop_event still lets run() exit.
-                pass
-        self._set_state(DiscoveryState.STOPPED)
+        try:
+            # Close the runner before cancelling async execution tasks. A queued
+            # strategy must wake worker threads blocked on an accepted request.
+            self._runner.close()
+        finally:
+            loop, cancel = self._loop, self._cancel
+            if loop is not None:
+                try:
+                    if cancel is not None:
+                        loop.call_soon_threadsafe(cancel.set)
+                    for writer in (self._ctrl_writer, self._exec_writer):
+                        if writer is not None:
+                            loop.call_soon_threadsafe(writer.close)
+                except RuntimeError:
+                    # Loop already closed by run()'s teardown — connection is
+                    # down, nothing left to signal.
+                    pass
+            self._set_state(DiscoveryState.STOPPED)
 
     # ------------------------------------------------------------------
     # Internal helpers

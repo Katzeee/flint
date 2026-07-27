@@ -9,7 +9,8 @@ from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence, WorkflowRecordUnavailableError
 from python_bridge_mcp.client.code_executor import CodeExecutor
-from python_bridge_mcp.client.code_runner import DirectRunner
+from python_bridge_mcp.client.code_runner import CodeRunner
+from python_bridge_mcp.client.execution_strategy import DirectExecutionStrategy
 from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.shared.instance_control_models import InstanceExecError, InstanceExecStatus, InstanceRegister
 from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
@@ -34,7 +35,7 @@ def _bg_register(discovery_port: int, name_hint: str = "c1") -> DccRunner:
     client = DiscoveryClient(
         name_hint=name_hint,
         instance_name="test",
-        runner=DirectRunner(CodeExecutor()),
+        runner=CodeRunner(CodeExecutor(), DirectExecutionStrategy()),
         host="localhost",
         port=discovery_port,
         heartbeat_interval=0.1,

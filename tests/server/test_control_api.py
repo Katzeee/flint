@@ -8,9 +8,6 @@ from typing import Iterator
 
 import pytest
 
-from python_bridge_mcp.client.code_executor import CodeExecutor
-from python_bridge_mcp.client.code_runner import DirectRunner
-from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.server.backend_client import BackendClient
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import ClientEntry, Registry

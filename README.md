@@ -97,10 +97,19 @@ The minimal integration is to call `start_control_client_service` once after you
 
 ```python
 from python_bridge_mcp.client.bootstrap import start_control_client_service
+from python_bridge_mcp.client.code_executor import CodeExecutor
+from python_bridge_mcp.client.code_runner import CodeRunner
+from python_bridge_mcp.client.execution_strategy import DirectExecutionStrategy
+
+runner = CodeRunner(
+    executor=CodeExecutor(),
+    strategy=DirectExecutionStrategy(),
+)
 
 service = start_control_client_service(
     name_hint="my-script",       # hint for server-assigned instance ID
     instance_name="My Script",   # human-readable label
+    runner=runner,               # required host execution policy
     instance_type="python",      # arbitrary type tag, e.g. "maya", "max", "blender"
 )
 ```
@@ -112,6 +121,8 @@ Notes:
 - `instance_type` is used for filtering with `list_instances(instance_type=...)`
 - The default registry endpoint is `localhost:6321`
 - `start_control_client_service` is reload-safe: calling it again replaces the existing service
+- Passing a runner transfers its lifecycle to the client. Stopping the client closes the runner,
+  so a stopped runner must not be reused for another service
 
 To stop the service:
 
@@ -121,7 +132,23 @@ from python_bridge_mcp.client.bootstrap import stop_control_client_service
 stop_control_client_service()
 ```
 
-For Qt applications where code must run on the main thread, import `QtMainThreadRunner` from `python_bridge_mcp.client.code_runner` and pass it as the `runner` argument. The default runner auto-detects Qt; if no Qt is found it falls back to `DirectRunner`.
+The runner is required: the integration must explicitly choose its host-thread execution
+strategy. Use `DirectExecutionStrategy` for ordinary Python processes,
+`QtMainThreadExecutionStrategy` for Qt hosts, or
+`BlenderMainThreadExecutionStrategy` for Blender's `bpy.app.timers` main-thread dispatch.
+
+For Blender:
+
+```python
+from python_bridge_mcp.client.code_executor import CodeExecutor
+from python_bridge_mcp.client.code_runner import CodeRunner
+from python_bridge_mcp.client.execution_strategy import BlenderMainThreadExecutionStrategy
+
+runner = CodeRunner(
+    executor=CodeExecutor(),
+    strategy=BlenderMainThreadExecutionStrategy(),
+)
+```
 
 ### 6. Available tools and typical workflow
 
@@ -241,7 +268,13 @@ python-bridge-mcp/
 │  │  ├─ bootstrap.py           # start/stop_control_client_service lifecycle helpers
 │  │  ├─ cli.py                 # debug CLI — human-operable equivalent of the shim
 │  │  ├─ code_executor.py       # low-level code execution with stdout/stderr capture
-│  │  ├─ code_runner.py         # runner abstraction: DirectRunner and QtMainThreadRunner
+│  │  ├─ code_runner.py         # executes code through an explicit strategy
+│  │  ├─ execution_strategy/    # host-thread strategies
+│  │  │  ├─ base.py             # strategy contract
+│  │  │  ├─ direct.py           # immediate execution
+│  │  │  ├─ queued.py           # application-owned queue dispatch
+│  │  │  ├─ qt.py               # Qt signal-loop dispatch
+│  │  │  └─ blender.py          # bpy.app.timers dispatch
 │  │  ├─ discovery.py           # registry client: registration, heartbeat, exec dispatch
 │  │  └─ __init__.py
 │  ├─ server/

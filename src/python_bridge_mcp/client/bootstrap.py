@@ -32,19 +32,19 @@ def get_control_client_service() -> Optional[ControlClientService]:
 def start_control_client_service(
     name_hint: str,
     instance_name: str,
+    runner: CodeRunner,
     instance_type: str = "",
-    runner: Optional[CodeRunner] = None,
     discovery_host: str = DEFAULT_HOST,
     discovery_port: int = REGISTRY_PORT,
     heartbeat_interval: float = DiscoveryClient.HEARTBEAT_INTERVAL,
 ) -> ControlClientService:
+    if runner is None:
+        raise TypeError("runner is required")
+
     # Reload-safe: replace an existing service so code changes pick up immediately.
     current = get_control_client_service()
     if current is not None:
         current.stop()
-
-    if runner is None:
-        runner = CodeRunner.create_default()
 
     client = DiscoveryClient(
         name_hint=name_hint,

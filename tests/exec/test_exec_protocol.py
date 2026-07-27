@@ -7,7 +7,8 @@ from typing import Iterator
 import pytest
 
 from python_bridge_mcp.client.code_executor import CodeExecutor
-from python_bridge_mcp.client.code_runner import DirectRunner
+from python_bridge_mcp.client.code_runner import CodeRunner
+from python_bridge_mcp.client.execution_strategy import DirectExecutionStrategy
 from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import Registry
@@ -46,7 +47,7 @@ def connected_system(port: int) -> Iterator[tuple]:
     client = DiscoveryClient(
         name_hint="c1",
         instance_name="test",
-        runner=DirectRunner(CodeExecutor()),
+        runner=CodeRunner(CodeExecutor(), DirectExecutionStrategy()),
         host="localhost",
         port=port,
         heartbeat_interval=0.1,
@@ -190,7 +191,7 @@ def test_heartbeat_keeps_instance_online_during_long_exec(port: int) -> None:
     client = DiscoveryClient(
         name_hint="c1",
         instance_name="test",
-        runner=DirectRunner(CodeExecutor()),
+        runner=CodeRunner(CodeExecutor(), DirectExecutionStrategy()),
         host="localhost",
         port=port,
         heartbeat_interval=0.1,

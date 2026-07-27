@@ -7,7 +7,8 @@ from typing import Iterator, Optional
 import pytest
 
 from python_bridge_mcp.client.code_executor import CodeExecutor
-from python_bridge_mcp.client.code_runner import DirectRunner
+from python_bridge_mcp.client.code_runner import CodeRunner
+from python_bridge_mcp.client.execution_strategy import DirectExecutionStrategy
 from python_bridge_mcp.client.discovery import DiscoveryClient, DiscoveryState
 from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.shared.instance_control_models import InstanceRegister
@@ -43,7 +44,7 @@ def _client(port: int, name_hint: str, instance_name: str = "Test Client", pid: 
     return DiscoveryClient(
         name_hint=name_hint,
         instance_name=instance_name,
-        runner=DirectRunner(CodeExecutor()),
+        runner=CodeRunner(CodeExecutor(), DirectExecutionStrategy()),
         instance_type=instance_type,
         host="localhost",
         port=port,
