@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import threading
 from typing import Iterator, Optional
@@ -11,7 +12,13 @@ from python_bridge_mcp.client.code_runner import CodeRunner
 from python_bridge_mcp.client.execution_strategy import DirectExecutionStrategy
 from python_bridge_mcp.client.discovery import DiscoveryClient, DiscoveryState
 from python_bridge_mcp.server.registry import ClientEntry, Registry
-from python_bridge_mcp.shared.instance_control_models import InstanceRegister
+from python_bridge_mcp.shared.instance_control_models import (
+    InstanceAck,
+    InstanceExecRegister,
+    InstanceRegister,
+)
+from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
+from python_bridge_mcp.shared.model_base import VersionedWireModel
 
 from conftest import AsyncRunner, free_port, wait_for
 
@@ -40,7 +47,15 @@ class _ClientRunner:
         self._thread.join(timeout=5)
 
 
-def _client(port: int, name_hint: str, instance_name: str = "Test Client", pid: Optional[int] = None, instance_type: str = "") -> DiscoveryClient:
+def _client(
+    port: int,
+    name_hint: str,
+    instance_name: str = "Test Client",
+    pid: Optional[int] = None,
+    instance_type: str = "",
+    heartbeat_interval: float = HEARTBEAT,
+    **kwargs,
+) -> DiscoveryClient:
     return DiscoveryClient(
         name_hint=name_hint,
         instance_name=instance_name,
@@ -48,8 +63,9 @@ def _client(port: int, name_hint: str, instance_name: str = "Test Client", pid: 
         instance_type=instance_type,
         host="localhost",
         port=port,
-        heartbeat_interval=HEARTBEAT,
+        heartbeat_interval=heartbeat_interval,
         pid=pid if pid is not None else abs(hash(name_hint)) % 100000,
+        **kwargs,
     )
 
 
@@ -356,3 +372,92 @@ def test_attach_exec_session_closes_the_one_it_replaces() -> None:
     assert reg._exec_sessions.get("c1") is new
     assert old.closed and old.failed_with is not None
     assert not new.closed
+
+
+def test_exec_registration_ack_timeout_retries_instead_of_hanging(port: int) -> None:
+    exec_seen = threading.Event()
+    exec_closed = threading.Event()
+
+    async def fake_registry() -> None:
+        async def handle(reader, writer) -> None:
+            msg = VersionedWireModel.parse_versioned(
+                await AsyncJsonLineCodec.recv(reader)
+            )
+            if isinstance(msg, InstanceRegister):
+                await AsyncJsonLineCodec.send(
+                    writer,
+                    InstanceAck(success=True, instance_id="c1-0001").to_dict(),
+                )
+            elif isinstance(msg, InstanceExecRegister):
+                exec_seen.set()
+                # Deliberately never acknowledge the exec registration.
+            try:
+                await reader.read()
+            finally:
+                if isinstance(msg, InstanceExecRegister):
+                    exec_closed.set()
+                writer.close()
+
+        server = await asyncio.start_server(handle, "localhost", port)
+        async with server:
+            await server.serve_forever()
+
+    server_runner = AsyncRunner()
+    server_runner.start(fake_registry)
+    client = _client(port, "c1", registration_timeout=0.15)
+    client_runner = _ClientRunner(client)
+    client_runner.start()
+    try:
+        assert exec_seen.wait(timeout=2)
+        assert exec_closed.wait(timeout=2), "client did not close timed-out exec handshake"
+        assert client.state == DiscoveryState.CONNECTING
+        assert not client.is_online()
+    finally:
+        client_runner.stop()
+        server_runner.stop()
+
+
+def test_missing_heartbeat_ack_forces_reconnect(port: int) -> None:
+    async def fake_registry() -> None:
+        async def handle(reader, writer) -> None:
+            msg = VersionedWireModel.parse_versioned(
+                await AsyncJsonLineCodec.recv(reader)
+            )
+            if isinstance(msg, InstanceRegister):
+                await AsyncJsonLineCodec.send(
+                    writer,
+                    InstanceAck(success=True, instance_id="c1-0001").to_dict(),
+                )
+                # Consume heartbeats without acknowledging them.
+                while True:
+                    await AsyncJsonLineCodec.recv(reader)
+            elif isinstance(msg, InstanceExecRegister):
+                await AsyncJsonLineCodec.send(
+                    writer,
+                    InstanceAck(success=True).to_dict(),
+                )
+                await reader.read()
+
+        server = await asyncio.start_server(handle, "localhost", port)
+        async with server:
+            await server.serve_forever()
+
+    server_runner = AsyncRunner()
+    server_runner.start(fake_registry)
+    client = _client(
+        port,
+        "c1",
+        heartbeat_interval=0.05,
+        heartbeat_ack_timeout=0.1,
+    )
+    client_runner = _ClientRunner(client)
+    client_runner.start()
+    try:
+        assert client.wait_until_registered(timeout=2)
+        assert wait_for(
+            lambda: client.state == DiscoveryState.CONNECTING,
+            timeout=1,
+        ), "missing heartbeat ACK did not trigger reconnect"
+    finally:
+        client_runner.stop()
+        server_runner.stop()

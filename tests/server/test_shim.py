@@ -7,6 +7,7 @@ import pytest
 
 import python_bridge_mcp.server.shim as _shim_mod
 from python_bridge_mcp.server.backend_client import BackendClient
+from python_bridge_mcp.server.launcher import BackendLauncher
 from python_bridge_mcp.server.control_models import (
     GetWorkflowExecutionResponse,
     ListInstancesResponse,
@@ -37,9 +38,11 @@ def _reset_shim_globals():
     used by tests that forget to patch _backend_client.
     """
     _shim_mod._backend_client = None
+    _shim_mod._backend_launcher = None
     _shim_mod._client_lock = None
     yield
     _shim_mod._backend_client = None
+    _shim_mod._backend_launcher = None
     _shim_mod._client_lock = None
 
 
@@ -65,6 +68,8 @@ def _mock_client(**kwargs) -> BackendClient:
 
 def _patch(monkeypatch, client: BackendClient) -> None:
     monkeypatch.setattr("python_bridge_mcp.server.shim._backend_client", client)
+    launcher = AsyncMock(spec=BackendLauncher)
+    monkeypatch.setattr("python_bridge_mcp.server.shim._backend_launcher", launcher)
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +84,20 @@ def test_shim_import_and_mcp_instance() -> None:
 def test_shim_has_all_tools() -> None:
     tool_names = {t.name for t in shim_mcp._tool_manager.list_tools()}
     assert tool_names == EXPECTED_TOOLS
+
+
+def test_backend_liveness_is_checked_for_every_call(monkeypatch) -> None:
+    client = _mock_client()
+    launcher = AsyncMock(spec=BackendLauncher)
+    monkeypatch.setattr(_shim_mod, "_backend_client", client)
+    monkeypatch.setattr(_shim_mod, "_backend_launcher", launcher)
+
+    async def get_twice() -> None:
+        assert await _shim_mod._get_backend_client() is client
+        assert await _shim_mod._get_backend_client() is client
+
+    asyncio.run(get_twice())
+    assert launcher.ensure_running.await_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -219,5 +238,3 @@ def test_get_workflow_execution_not_found(monkeypatch) -> None:
     }))
     assert result.isError is True
     assert result.structuredContent["error_code"] == "execution_not_found"
-
-

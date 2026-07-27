@@ -45,32 +45,54 @@ class ControlServer:
         discovery: Registry,
         host: str = DEFAULT_HOST,
         port: int = CONTROL_API_PORT,
+        ready: bool = True,
     ) -> None:
         self._discovery = discovery
         self._host = host
         self._port = port
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._server: Optional[asyncio.AbstractServer] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._ready = ready
         self._discovery.set_output_update_handler(self.handle_output_update)
 
     async def run(self) -> None:
+        await self.start()
+        await self.serve()
+
+    async def start(self) -> None:
+        if self._server is not None:
+            return
         self._loop = asyncio.get_running_loop()
+        self._server = await asyncio.start_server(
+            self._handle_connection,
+            self._host,
+            self._port,
+            limit=AsyncJsonLineCodec.READER_LIMIT,
+        )
+        log.info("ControlServer listening on %s:%d", self._host, self._port)
+
+    async def serve(self) -> None:
+        if self._server is None:
+            await self.start()
+        assert self._server is not None
+        server = self._server
         try:
-            self._server = await asyncio.start_server(
-                self._handle_connection,
-                self._host,
-                self._port,
-                limit=AsyncJsonLineCodec.READER_LIMIT,
-            )
-            log.info("ControlServer listening on %s:%d", self._host, self._port)
-            async with self._server:
-                await self._server.serve_forever()
+            async with server:
+                await server.serve_forever()
         finally:
-            self._server = None
-            self._loop = None
+            if self._server is server:
+                self._server = None
+                self._loop = None
+
+    def set_ready(self, ready: bool) -> None:
+        self._ready = ready
 
     def stop(self) -> None:
         request_server_close(self._loop, self._server)
+
+    async def wait_closed(self) -> None:
+        if self._server is not None:
+            await self._server.wait_closed()
 
     async def _handle_connection(
         self,
@@ -116,7 +138,7 @@ class ControlServer:
                 return ErrorResponse(error_code=ControlError.EXECUTION_NOT_FOUND, message=str(exc))
 
         if isinstance(request, PingRequest):
-            return PingResponse()
+            return PingResponse(ready=self._ready)
 
         return ErrorResponse(
             error_code=ControlError.UNKNOWN_REQUEST,

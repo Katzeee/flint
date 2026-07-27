@@ -17,16 +17,22 @@ mcp = FastMCP("python-bridge-mcp")
 log = logging.getLogger(__name__)
 
 _backend_client: Optional[BackendClient] = None
+_backend_launcher: Optional[BackendLauncher] = None
 _client_lock: Optional[asyncio.Lock] = None
 
 
 async def _get_backend_client() -> BackendClient:
-    global _backend_client, _client_lock
+    global _backend_client, _backend_launcher, _client_lock
     if _client_lock is None:
         _client_lock = asyncio.Lock()
     async with _client_lock:
+        if _backend_launcher is None:
+            _backend_launcher = BackendLauncher()
+        # BackendClient does not hold a persistent socket. Re-check backend
+        # liveness for every MCP call so a backend that died after the first
+        # request is relaunched without restarting the shim.
+        await _backend_launcher.ensure_running()
         if _backend_client is None:
-            await BackendLauncher().ensure_running()
             _backend_client = BackendClient()
     return _backend_client
 
@@ -115,11 +121,13 @@ async def get_workflow_execution(workflow_id: str, execution_id: str, view: str 
 
 
 def main() -> None:
+    global _backend_launcher
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     )
-    asyncio.run(BackendLauncher().ensure_running())
+    _backend_launcher = BackendLauncher()
+    asyncio.run(_backend_launcher.ensure_running())
     mcp.run()
 
 

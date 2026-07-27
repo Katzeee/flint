@@ -110,6 +110,7 @@ class DiscoveryClient:
     MAX_BACKOFF = 30
     OUTPUT_FLUSH_INTERVAL = 2.0
     OUTPUT_UPDATE_MAX_CHARS = 256 * 1024
+    REGISTRATION_TIMEOUT = 10.0
 
     def __init__(
         self,
@@ -121,6 +122,8 @@ class DiscoveryClient:
         port: int = REGISTRY_PORT,
         heartbeat_interval: float = HEARTBEAT_INTERVAL,
         pid: Optional[int] = None,
+        registration_timeout: float = REGISTRATION_TIMEOUT,
+        heartbeat_ack_timeout: Optional[float] = None,
     ):
         # Resent on every (re)registration so the server-assigned id never
         # accumulates suffixes on reconnect.
@@ -132,6 +135,12 @@ class DiscoveryClient:
         self._host = host
         self._port = port
         self._heartbeat_interval = heartbeat_interval
+        self._registration_timeout = registration_timeout
+        self._heartbeat_ack_timeout = (
+            heartbeat_ack_timeout
+            if heartbeat_ack_timeout is not None
+            else max(heartbeat_interval * 2, 1.0)
+        )
         self._pid = pid if pid is not None else os.getpid()
 
         self._stop_event = threading.Event()
@@ -238,10 +247,13 @@ class DiscoveryClient:
         self._cancel = cancel
 
         # control connection
-        ctrl_reader, ctrl_writer = await asyncio.open_connection(
-            self._host,
-            self._port,
-            limit=AsyncJsonLineCodec.READER_LIMIT,
+        ctrl_reader, ctrl_writer = await asyncio.wait_for(
+            asyncio.open_connection(
+                self._host,
+                self._port,
+                limit=AsyncJsonLineCodec.READER_LIMIT,
+            ),
+            timeout=self._registration_timeout,
         )
         self._ctrl_writer = ctrl_writer
         self._ctrl_write_lock = asyncio.Lock()
@@ -261,7 +273,12 @@ class DiscoveryClient:
                     instance_type=self._instance_type,
                 )
             )
-            ack = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(ctrl_reader))
+            ack = VersionedWireModel.parse_versioned(
+                await AsyncJsonLineCodec.recv(
+                    ctrl_reader,
+                    timeout=self._registration_timeout,
+                )
+            )
             if not isinstance(ack, InstanceAck):
                 raise RuntimeError("Registration rejected: unexpected response")
             if not ack.success:
@@ -271,17 +288,25 @@ class DiscoveryClient:
                 self._instance_id = ack.instance_id
 
             # exec connection (opened once we know the assigned instance id)
-            exec_reader, exec_writer = await asyncio.open_connection(
-                self._host,
-                self._port,
-                limit=AsyncJsonLineCodec.READER_LIMIT,
+            exec_reader, exec_writer = await asyncio.wait_for(
+                asyncio.open_connection(
+                    self._host,
+                    self._port,
+                    limit=AsyncJsonLineCodec.READER_LIMIT,
+                ),
+                timeout=self._registration_timeout,
             )
             self._exec_writer = exec_writer
             self._exec_write_lock = asyncio.Lock()
             await self._send_exec(
                 InstanceExecRegister(instance_id=self._instance_id, pid=self._pid)
             )
-            exec_ack = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(exec_reader))
+            exec_ack = VersionedWireModel.parse_versioned(
+                await AsyncJsonLineCodec.recv(
+                    exec_reader,
+                    timeout=self._registration_timeout,
+                )
+            )
             if not isinstance(exec_ack, InstanceAck) or not exec_ack.success:
                 error = getattr(exec_ack, "message", "") or getattr(exec_ack, "error_code", "") or "unknown error"
                 raise RuntimeError(f"Exec channel rejected: {error}")
@@ -296,12 +321,17 @@ class DiscoveryClient:
                 self._instance_id,
             )
 
-            heartbeat_task = asyncio.create_task(self._heartbeat_loop(cancel))
-            ctrl_read_task = asyncio.create_task(self._control_read_loop(ctrl_reader, cancel))
+            heartbeat_ack = asyncio.Event()
+            heartbeat_task = asyncio.create_task(
+                self._heartbeat_loop(cancel, heartbeat_ack)
+            )
+            ctrl_read_task = asyncio.create_task(
+                self._control_read_loop(ctrl_reader, cancel, heartbeat_ack)
+            )
             exec_read_task = asyncio.create_task(self._exec_read_loop(exec_reader, cancel, exec_tasks))
 
             done, _pending = await asyncio.wait(
-                {ctrl_read_task, exec_read_task},
+                {heartbeat_task, ctrl_read_task, exec_read_task},
                 return_when=asyncio.FIRST_COMPLETED,
             )
             # Re-raise the exited read loop's exception so run() applies backoff.
@@ -335,21 +365,42 @@ class DiscoveryClient:
                 DiscoveryState.CONNECTING if not self._stop_event.is_set() else DiscoveryState.STOPPED
             )
 
-    async def _heartbeat_loop(self, cancel: asyncio.Event) -> None:
+    async def _heartbeat_loop(
+        self,
+        cancel: asyncio.Event,
+        heartbeat_ack: asyncio.Event,
+    ) -> None:
         while True:
             try:
                 await asyncio.wait_for(cancel.wait(), timeout=self._heartbeat_interval)
                 return  # cancel was set
             except asyncio.TimeoutError:
                 pass
+            heartbeat_ack.clear()
             await self._send_control(InstanceHeartbeat(instance_id=self._instance_id))
+            try:
+                await asyncio.wait_for(
+                    heartbeat_ack.wait(),
+                    timeout=self._heartbeat_ack_timeout,
+                )
+            except asyncio.TimeoutError:
+                raise ConnectionError(
+                    "heartbeat acknowledgement timed out after %.1fs"
+                    % self._heartbeat_ack_timeout
+                )
 
-    async def _control_read_loop(self, reader: asyncio.StreamReader, cancel: asyncio.Event) -> None:
+    async def _control_read_loop(
+        self,
+        reader: asyncio.StreamReader,
+        cancel: asyncio.Event,
+        heartbeat_ack: asyncio.Event,
+    ) -> None:
         while not cancel.is_set():
             msg = VersionedWireModel.parse_versioned(await AsyncJsonLineCodec.recv(reader))
             if isinstance(msg, InstanceAck):
                 if not msg.success:
                     raise RuntimeError(msg.message or msg.error_code or "backend rejected request")
+                heartbeat_ack.set()
             else:
                 raise WireModelError(
                     f"unexpected message type on control channel: {type(msg).__name__}"

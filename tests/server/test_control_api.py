@@ -9,6 +9,7 @@ from typing import Iterator
 import pytest
 
 from python_bridge_mcp.server.backend_client import BackendClient
+from python_bridge_mcp.server.control_models import PingRequest
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import ClientEntry, Registry
 from python_bridge_mcp.shared.workflow_persistence import (
@@ -85,6 +86,18 @@ def test_get_workflow_execution_not_found(backend, client) -> None:
 
 def test_backend_client_ping(backend, client) -> None:
     assert asyncio.run(client.ping()) is True
+
+
+def test_ping_reports_not_ready_until_backend_is_fully_started() -> None:
+    registry = Registry()
+    control = ControlServer(registry, ready=False)
+
+    response = asyncio.run(control._dispatch(PingRequest()))
+    assert response.ready is False
+
+    control.set_ready(True)
+    response = asyncio.run(control._dispatch(PingRequest()))
+    assert response.ready is True
 
 
 def test_backend_error_propagated(backend, client) -> None:
