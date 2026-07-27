@@ -417,11 +417,24 @@ class DiscoveryClient:
             if isinstance(msg, InstanceExecRequest):
                 task = asyncio.create_task(self._handle_exec(msg))
                 exec_tasks.add(task)
-                task.add_done_callback(exec_tasks.discard)
+                task.add_done_callback(
+                    lambda completed: self._consume_exec_task(
+                        completed,
+                        exec_tasks,
+                    )
+                )
             else:
                 raise WireModelError(
                     f"unexpected message type on exec channel: {type(msg).__name__}"
                 )
+
+    @staticmethod
+    def _consume_exec_task(task: asyncio.Task, exec_tasks: set) -> None:
+        exec_tasks.discard(task)
+        if not task.cancelled():
+            # Retrieve send/flusher failures so a disconnect while returning a
+            # result does not leave "Task exception was never retrieved".
+            task.exception()
 
     async def _handle_exec(self, msg: InstanceExecRequest) -> None:
         assert self._execution_lock is not None

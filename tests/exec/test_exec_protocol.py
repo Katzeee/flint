@@ -12,7 +12,15 @@ from python_bridge_mcp.client.execution_strategy import DirectExecutionStrategy
 from python_bridge_mcp.client.discovery import DiscoveryClient
 from python_bridge_mcp.server.control_server import ControlServer
 from python_bridge_mcp.server.registry import Registry
-from python_bridge_mcp.shared.instance_control_models import InstanceExecStatus
+from python_bridge_mcp.shared.instance_control_models import (
+    InstanceAck,
+    InstanceExecRegister,
+    InstanceExecResult,
+    InstanceExecStatus,
+    InstanceRegister,
+)
+from python_bridge_mcp.shared.jsonline import AsyncJsonLineCodec
+from python_bridge_mcp.shared.model_base import VersionedWireModel
 from python_bridge_mcp.shared.workflow_models import WorkflowRecord
 from python_bridge_mcp.shared.workflow_persistence import WorkflowPersistence
 
@@ -137,6 +145,38 @@ def test_exec_concurrent_rejects_busy(connected_system) -> None:
     assert second.error == "busy"
 
 
+def test_exec_retry_after_running_response_is_still_busy(connected_system) -> None:
+    server, _, control, client = connected_system
+    wf_id = WorkflowPersistence.create_workflow("busy-after-running-test")
+
+    first = server.run_async(
+        control.execute(
+            client.instance_id,
+            'import time; time.sleep(0.4); print("first")',
+            wf_id,
+            early_return_window=0.05,
+        )
+    )
+    assert first.status == InstanceExecStatus.RUNNING
+
+    # Even though the first MCP-facing call has returned, the DCC execution
+    # lock remains held. A retry using a different implementation must not run.
+    second = server.run_async(
+        control.execute(
+            client.instance_id,
+            'print("different method")',
+            wf_id,
+        )
+    )
+
+    assert second.status == InstanceExecStatus.FAILED
+    assert second.error == "busy"
+    assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.SUCCEEDED)
+    record = WorkflowPersistence.load(wf_id)
+    assert record.execution_count == 1
+    assert record.execs[0].stdout.strip() == "first"
+
+
 def test_early_return_result_persisted_to_disk(connected_system) -> None:
     server, _, control, client = connected_system
     wf_id = WorkflowPersistence.create_workflow("early-return-test")
@@ -152,6 +192,59 @@ def test_early_return_result_persisted_to_disk(connected_system) -> None:
 
     assert result.status == InstanceExecStatus.RUNNING
     assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.SUCCEEDED)
+
+
+def test_background_execution_timeout_fails_log_without_blocking_mcp(
+    connected_system,
+    monkeypatch,
+) -> None:
+    server, _, control, client = connected_system
+    wf_id = WorkflowPersistence.create_workflow("background-timeout-test")
+    monkeypatch.setattr(ControlServer, "BACKGROUND_EXEC_TIMEOUT", 0.15)
+
+    started_at = time.monotonic()
+    result = server.run_async(
+        control.execute(
+            client.instance_id,
+            "import time; time.sleep(0.5)",
+            wf_id,
+            early_return_window=0.03,
+        )
+    )
+    elapsed = time.monotonic() - started_at
+
+    assert result.status == InstanceExecStatus.RUNNING
+    assert elapsed < 0.3
+    assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.FAILED)
+    entry = _read_first_exec(wf_id)
+    assert entry.error == "execution_timeout"
+
+
+def test_disconnect_while_sending_result_marks_execution_failed(
+    connected_system,
+    monkeypatch,
+) -> None:
+    server, _, control, client = connected_system
+    wf_id = WorkflowPersistence.create_workflow("result-disconnect-test")
+    original_send = client._send_exec
+
+    async def disconnect_before_result(msg):
+        if isinstance(msg, InstanceExecResult):
+            if client._exec_writer is not None:
+                client._exec_writer.close()
+            raise ConnectionError("simulated disconnect while sending result")
+        await original_send(msg)
+
+    monkeypatch.setattr(client, "_send_exec", disconnect_before_result)
+    result = server.run_async(
+        control.execute(client.instance_id, "x = 1", wf_id)
+    )
+
+    assert result.status == InstanceExecStatus.FAILED
+    assert result.error == "connection_failed"
+    entry = _read_first_exec(wf_id)
+    assert entry.status == InstanceExecStatus.FAILED
+    assert entry.error == "connection_failed"
 
 
 def test_disconnect_marks_running_execution_failed(connected_system) -> None:
@@ -173,6 +266,98 @@ def test_disconnect_marks_running_execution_failed(connected_system) -> None:
 
     assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.FAILED)
     assert wait_for(lambda: instance_id not in registry.list_clients())
+
+
+def test_stale_dcc_during_execution_marks_log_failed(port: int) -> None:
+    """A DCC that keeps sockets open but stops heartbeating must not leave a
+    RUNNING execution behind or block the MCP-facing call."""
+    registry = Registry(host="localhost", port=port, stale_timeout=0.2)
+    control = ControlServer(registry)
+    server = AsyncRunner()
+    server.start(registry.run)
+
+    ready = threading.Event()
+    request_seen = threading.Event()
+    state = {}
+
+    def silent_dcc() -> None:
+        async def run() -> None:
+            ctrl_reader, ctrl_writer = await asyncio.open_connection("localhost", port)
+            exec_writer = None
+            try:
+                await AsyncJsonLineCodec.send(
+                    ctrl_writer,
+                    InstanceRegister(
+                        pid=4242,
+                        name_hint="silent",
+                        instance_name="silent",
+                    ).to_dict(),
+                )
+                ack = VersionedWireModel.parse_versioned(
+                    await AsyncJsonLineCodec.recv(ctrl_reader)
+                )
+                assert isinstance(ack, InstanceAck) and ack.success
+                state["instance_id"] = ack.instance_id
+
+                exec_reader, exec_writer = await asyncio.open_connection(
+                    "localhost",
+                    port,
+                )
+                await AsyncJsonLineCodec.send(
+                    exec_writer,
+                    InstanceExecRegister(
+                        instance_id=ack.instance_id,
+                        pid=4242,
+                    ).to_dict(),
+                )
+                exec_ack = VersionedWireModel.parse_versioned(
+                    await AsyncJsonLineCodec.recv(exec_reader)
+                )
+                assert isinstance(exec_ack, InstanceAck) and exec_ack.success
+                ready.set()
+
+                # Receive the execution but deliberately send neither heartbeat
+                # nor result. Wait for stale eviction to close the exec socket.
+                await AsyncJsonLineCodec.recv(exec_reader)
+                request_seen.set()
+                await exec_reader.read()
+            finally:
+                ctrl_writer.close()
+                if exec_writer is not None:
+                    exec_writer.close()
+
+        asyncio.run(run())
+
+    dcc_thread = threading.Thread(target=silent_dcc, daemon=True)
+    dcc_thread.start()
+    try:
+        assert ready.wait(timeout=3)
+        wf_id = WorkflowPersistence.create_workflow("stale-dcc-test")
+        started_at = time.monotonic()
+        result = server.run_async(
+            control.execute(
+                state["instance_id"],
+                "import time; time.sleep(10)",
+                wf_id,
+                early_return_window=0.03,
+            )
+        )
+        assert result.status == InstanceExecStatus.RUNNING
+        assert time.monotonic() - started_at < 0.3
+        assert request_seen.wait(timeout=1)
+
+        time.sleep(0.25)
+
+        async def trigger_stale_check() -> None:
+            registry.list_clients()
+
+        server.run_async(trigger_stale_check())
+        assert wait_for(lambda: _read_exec_status(wf_id) == InstanceExecStatus.FAILED)
+        entry = _read_first_exec(wf_id)
+        assert entry.error == "connection_failed"
+    finally:
+        dcc_thread.join(timeout=2)
+        server.stop()
 
 
 def test_heartbeat_keeps_instance_online_during_long_exec(port: int) -> None:
