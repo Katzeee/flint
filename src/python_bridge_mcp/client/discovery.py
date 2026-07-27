@@ -209,8 +209,8 @@ class DiscoveryClient:
         """Close the owned runner and signal the client loop to stop."""
         self._stop_event.set()
         try:
-            # Close the runner before cancelling async execution tasks. A queued
-            # strategy must wake worker threads blocked on an accepted request.
+            # Close the runner before cancelling async execution tasks. A
+            # main-thread dispatcher must wake workers blocked on accepted work.
             self._runner.close()
         finally:
             loop, cancel = self._loop, self._cancel

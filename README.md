@@ -272,7 +272,7 @@ python-bridge-mcp/
 │  │  ├─ execution_strategy/    # host-thread strategies
 │  │  │  ├─ base.py             # strategy contract
 │  │  │  ├─ direct.py           # immediate execution
-│  │  │  ├─ queued.py           # application-owned queue dispatch
+│  │  │  ├─ _queued_dispatcher.py # internal queued invocation owner
 │  │  │  ├─ qt.py               # Qt signal-loop dispatch
 │  │  │  └─ blender.py          # bpy.app.timers dispatch
 │  │  ├─ discovery.py           # registry client: registration, heartbeat, exec dispatch

@@ -2,7 +2,7 @@ import threading
 from queue import Empty, Queue
 from typing import Any, Callable, Optional
 
-from .base import ExecutionStrategy, ExecutionStrategyClosedError, ResultT
+from .base import ExecutionStrategyClosedError, ResultT
 
 
 class _Invocation(object):
@@ -14,7 +14,7 @@ class _Invocation(object):
         self._exception: Optional[BaseException] = None
         self._finished = False
 
-    def __call__(self) -> None:
+    def execute(self) -> None:
         with self._lock:
             if self._finished:
                 return
@@ -41,32 +41,35 @@ class _Invocation(object):
         return self._result
 
 
-class QueuedExecutionStrategy(ExecutionStrategy):
-    """Queues callables for an application-owned main-loop pump."""
+class QueuedDispatcher(object):
+    """Owns queued invocations from submission through execution or cancellation."""
 
-    def __init__(self, queue: Queue) -> None:
-        super().__init__()
-        self._queue = queue
+    def __init__(self) -> None:
+        self._queue: Queue = Queue()
 
-    def run(self, func: Callable[[], ResultT]) -> ResultT:
+    def submit(self, func: Callable[[], ResultT]) -> _Invocation:
         invocation = _Invocation(func)
-        with self._admit():
-            self._queue.put(invocation)
-        return invocation.wait()
+        self._queue.put(invocation)
+        return invocation
 
-    def _close(self) -> None:
-        self._cancel_pending()
-
-    def _cancel_pending(self) -> None:
-        retained = []
-        while True:
+    def execute_pending(self, limit: int) -> int:
+        executed = 0
+        while executed < limit:
             try:
-                item = self._queue.get_nowait()
+                invocation = self._queue.get_nowait()
             except Empty:
                 break
-            if isinstance(item, _Invocation):
-                item.cancel()
-            else:
-                retained.append(item)
-        for item in retained:
-            self._queue.put(item)
+            invocation.execute()
+            executed += 1
+        return executed
+
+    def cancel_pending(self) -> int:
+        cancelled = 0
+        while True:
+            try:
+                invocation = self._queue.get_nowait()
+            except Empty:
+                break
+            invocation.cancel()
+            cancelled += 1
+        return cancelled

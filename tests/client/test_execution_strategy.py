@@ -7,6 +7,7 @@ from python_bridge_mcp.client.code_executor import CodeExecutor
 from python_bridge_mcp.client.code_runner import CodeRunner
 from python_bridge_mcp.client.bootstrap import start_control_client_service
 from python_bridge_mcp.client.discovery import DiscoveryClient
+from python_bridge_mcp.client.execution_strategy._queued_dispatcher import QueuedDispatcher
 from python_bridge_mcp.client.execution_strategy import (
     BlenderMainThreadExecutionStrategy,
     DirectExecutionStrategy,
@@ -100,6 +101,28 @@ def _wait_until(condition, timeout=2.0) -> bool:
     return False
 
 
+def _pump_until_thread_stops(timers, thread, timeout=2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while thread.is_alive() and time.monotonic() < deadline:
+        callback = timers.callback
+        if callback is not None:
+            callback()
+        thread.join(timeout=0.01)
+    return not thread.is_alive()
+
+
+def test_queued_dispatcher_owns_execution_and_cancellation() -> None:
+    dispatcher = QueuedDispatcher()
+    completed = dispatcher.submit(lambda: 42)
+    cancelled = dispatcher.submit(lambda: None)
+
+    assert dispatcher.execute_pending(limit=1) == 1
+    assert completed.wait() == 42
+    assert dispatcher.cancel_pending() == 1
+    with pytest.raises(ExecutionStrategyClosedError):
+        cancelled.wait()
+
+
 def test_blender_strategy_executes_worker_request_on_main_thread() -> None:
     bpy = _FakeBpy()
     strategy = BlenderMainThreadExecutionStrategy(bpy_module=bpy)
@@ -114,10 +137,8 @@ def test_blender_strategy_executes_worker_request_on_main_thread() -> None:
 
     thread = threading.Thread(target=worker)
     thread.start()
-    assert _wait_until(lambda: not strategy._owned_queue.empty())
 
-    assert bpy.app.timers.callback() == 0.01
-    thread.join(timeout=2)
+    assert _pump_until_thread_stops(bpy.app.timers, thread)
 
     assert not errors
     assert result == [threading.main_thread()]
@@ -131,8 +152,10 @@ def test_blender_strategy_close_rejects_pending_work() -> None:
     bpy = _FakeBpy()
     strategy = BlenderMainThreadExecutionStrategy(bpy_module=bpy)
     errors = []
+    worker_started = threading.Event()
 
     def worker() -> None:
+        worker_started.set()
         try:
             strategy.run(lambda: None)
         except BaseException as exc:
@@ -140,7 +163,7 @@ def test_blender_strategy_close_rejects_pending_work() -> None:
 
     thread = threading.Thread(target=worker)
     thread.start()
-    assert _wait_until(lambda: not strategy._owned_queue.empty())
+    assert worker_started.wait(timeout=2)
 
     strategy.close()
     thread.join(timeout=2)

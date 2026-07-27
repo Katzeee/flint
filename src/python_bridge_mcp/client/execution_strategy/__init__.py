@@ -2,7 +2,6 @@ from .base import ExecutionStrategy, ExecutionStrategyClosedError
 from .blender import BlenderMainThreadExecutionStrategy
 from .direct import DirectExecutionStrategy
 from .qt import QtMainThreadExecutionStrategy
-from .queued import QueuedExecutionStrategy
 
 __all__ = [
     "BlenderMainThreadExecutionStrategy",
@@ -10,5 +9,4 @@ __all__ = [
     "ExecutionStrategy",
     "ExecutionStrategyClosedError",
     "QtMainThreadExecutionStrategy",
-    "QueuedExecutionStrategy",
 ]

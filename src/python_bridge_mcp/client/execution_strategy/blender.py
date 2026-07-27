@@ -1,12 +1,11 @@
 import threading
-from queue import Empty, Queue
 from typing import Any, Callable, Optional
 
-from .base import ResultT
-from .queued import QueuedExecutionStrategy
+from ._queued_dispatcher import QueuedDispatcher
+from .base import ExecutionStrategy, ResultT
 
 
-class BlenderMainThreadExecutionStrategy(QueuedExecutionStrategy):
+class BlenderMainThreadExecutionStrategy(ExecutionStrategy):
     """Runs queued work from Blender's main thread via ``bpy.app.timers``."""
 
     def __init__(
@@ -23,12 +22,12 @@ class BlenderMainThreadExecutionStrategy(QueuedExecutionStrategy):
         if max_tasks_per_tick < 1:
             raise ValueError("max_tasks_per_tick must be at least 1")
 
+        super().__init__()
         self._bpy = bpy_module
         self._interval = interval
         self._max_tasks_per_tick = max_tasks_per_tick
-        self._owned_queue: Queue = Queue()
+        self._dispatcher = QueuedDispatcher()
         self._timer_callback = self._pump
-        super().__init__(self._owned_queue)
         self._bpy.app.timers.register(
             self._timer_callback,
             first_interval=0.0,
@@ -40,10 +39,12 @@ class BlenderMainThreadExecutionStrategy(QueuedExecutionStrategy):
             with self._admit():
                 pass
             return func()
-        return super().run(func)
+        with self._admit():
+            invocation = self._dispatcher.submit(func)
+        return invocation.wait()
 
     def _close(self) -> None:
-        super()._close()
+        self._dispatcher.cancel_pending()
 
         if threading.current_thread() is threading.main_thread():
             timers = self._bpy.app.timers
@@ -54,10 +55,5 @@ class BlenderMainThreadExecutionStrategy(QueuedExecutionStrategy):
         if self._is_closed():
             return None
 
-        for _index in range(self._max_tasks_per_tick):
-            try:
-                invocation = self._owned_queue.get_nowait()
-            except Empty:
-                break
-            invocation()
+        self._dispatcher.execute_pending(self._max_tasks_per_tick)
         return self._interval
