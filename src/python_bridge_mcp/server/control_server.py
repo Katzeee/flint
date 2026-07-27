@@ -30,6 +30,7 @@ from .control_models import (
 )
 from ..shared.constants import DEFAULT_HOST, CONTROL_API_PORT
 from .registry import Registry
+from .asyncio_utils import request_server_close
 
 log = logging.getLogger(__name__)
 
@@ -48,23 +49,28 @@ class ControlServer:
         self._discovery = discovery
         self._host = host
         self._port = port
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._server: Optional[asyncio.AbstractServer] = None
         self._discovery.set_output_update_handler(self.handle_output_update)
 
     async def run(self) -> None:
-        self._server = await asyncio.start_server(
-            self._handle_connection,
-            self._host,
-            self._port,
-            limit=AsyncJsonLineCodec.READER_LIMIT,
-        )
-        log.info("ControlServer listening on %s:%d", self._host, self._port)
-        async with self._server:
-            await self._server.serve_forever()
+        self._loop = asyncio.get_running_loop()
+        try:
+            self._server = await asyncio.start_server(
+                self._handle_connection,
+                self._host,
+                self._port,
+                limit=AsyncJsonLineCodec.READER_LIMIT,
+            )
+            log.info("ControlServer listening on %s:%d", self._host, self._port)
+            async with self._server:
+                await self._server.serve_forever()
+        finally:
+            self._server = None
+            self._loop = None
 
     def stop(self) -> None:
-        if self._server is not None:
-            self._server.close()
+        request_server_close(self._loop, self._server)
 
     async def _handle_connection(
         self,

@@ -17,6 +17,7 @@ from ..shared.instance_control_models import (
 from ..shared.constants import DEFAULT_HOST, REGISTRY_PORT
 from ..shared.jsonline import AsyncJsonLineCodec
 from ..shared.model_base import VersionedWireModel, WireModelError
+from .asyncio_utils import request_server_close
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ class Registry:
         self._control_sessions: Dict[str, ClientSession] = {}
         self._exec_sessions: Dict[str, ClientSession] = {}
         self._output_update_handler: Optional[Callable[[InstanceExecOutputUpdate], None]] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._server: Optional[asyncio.AbstractServer] = None
         self._id_counter: int = 0
 
@@ -232,20 +234,25 @@ class Registry:
             session.close()
 
     async def run(self) -> None:
-        self._server = await asyncio.start_server(
-            self._handle_connection, self._host, self._port
-        )
-        log.info("Registry listening on %s:%d", self._host, self._port)
-        async with self._server:
-            evict_task = asyncio.create_task(self._evict_periodically())
-            try:
-                await self._server.serve_forever()
-            finally:
-                evict_task.cancel()
+        self._loop = asyncio.get_running_loop()
+        try:
+            self._server = await asyncio.start_server(
+                self._handle_connection, self._host, self._port
+            )
+            log.info("Registry listening on %s:%d", self._host, self._port)
+            async with self._server:
+                evict_task = asyncio.create_task(self._evict_periodically())
                 try:
-                    await evict_task
-                except asyncio.CancelledError:
-                    pass
+                    await self._server.serve_forever()
+                finally:
+                    evict_task.cancel()
+                    try:
+                        await evict_task
+                    except asyncio.CancelledError:
+                        pass
+        finally:
+            self._server = None
+            self._loop = None
 
     async def _evict_periodically(self) -> None:
         """Background task: evict stale entries every stale_timeout/2 seconds."""
@@ -258,8 +265,7 @@ class Registry:
                 log.info("Evicted %d stale client session(s)", len(sessions))
 
     def stop(self) -> None:
-        if self._server is not None:
-            self._server.close()
+        request_server_close(self._loop, self._server)
 
     # ------------------------------------------------------------------
     # Connection handlers

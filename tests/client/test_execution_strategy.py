@@ -16,6 +16,8 @@ from python_bridge_mcp.client.execution_strategy import (
 )
 from python_bridge_mcp.shared.instance_control_models import InstanceExecStatus
 
+from conftest import wait_for
+
 
 class _FakeTimers:
     def __init__(self) -> None:
@@ -90,15 +92,6 @@ class _FakeQtWidgets:
 class _FakeQt:
     QtCore = _FakeQtCore
     QtWidgets = _FakeQtWidgets
-
-
-def _wait_until(condition, timeout=2.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if condition():
-            return True
-        time.sleep(0.01)
-    return False
 
 
 def _pump_until_thread_stops(timers, thread, timeout=2.0) -> bool:
@@ -216,7 +209,11 @@ def test_blender_runner_uses_strategy_for_code_execution() -> None:
         target=lambda: results.append(runner.execute("exec-1", "value = 42"))
     )
     thread.start()
-    assert _wait_until(lambda: bpy.app.timers.callback is not None)
+    assert wait_for(
+        lambda: bpy.app.timers.callback is not None,
+        timeout=2.0,
+        poll=0.01,
+    )
     bpy.app.timers.callback()
     thread.join(timeout=2)
 
@@ -240,16 +237,14 @@ def test_blender_strategy_must_be_created_on_main_thread() -> None:
 
 
 def test_code_runner_can_receive_an_explicit_strategy() -> None:
-    class _RecordingStrategy:
+    class _RecordingStrategy(DirectExecutionStrategy):
         def __init__(self) -> None:
+            super().__init__()
             self.calls = 0
 
         def run(self, func):
             self.calls += 1
-            return func()
-
-        def close(self) -> None:
-            pass
+            return super().run(func)
 
     strategy = _RecordingStrategy()
     runner = CodeRunner(CodeExecutor(), strategy)
