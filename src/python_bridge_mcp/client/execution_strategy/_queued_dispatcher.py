@@ -1,44 +1,8 @@
-import threading
 from queue import Empty, Queue
-from typing import Any, Callable, Optional
+from typing import Callable
 
-from .base import ExecutionStrategyClosedError, ResultT
-
-
-class _Invocation(object):
-    def __init__(self, func: Callable[[], Any]) -> None:
-        self._func = func
-        self._event = threading.Event()
-        self._lock = threading.Lock()
-        self._result: Any = None
-        self._exception: Optional[BaseException] = None
-        self._finished = False
-
-    def execute(self) -> None:
-        with self._lock:
-            if self._finished:
-                return
-            try:
-                self._result = self._func()
-            except BaseException as exc:
-                self._exception = exc
-            finally:
-                self._finished = True
-                self._event.set()
-
-    def cancel(self) -> None:
-        with self._lock:
-            if self._finished:
-                return
-            self._exception = ExecutionStrategyClosedError("execution strategy is closed")
-            self._finished = True
-            self._event.set()
-
-    def wait(self) -> Any:
-        self._event.wait()
-        if self._exception is not None:
-            raise self._exception
-        return self._result
+from ._invocation import Invocation
+from .base import ResultT
 
 
 class QueuedDispatcher(object):
@@ -47,8 +11,8 @@ class QueuedDispatcher(object):
     def __init__(self) -> None:
         self._queue: Queue = Queue()
 
-    def submit(self, func: Callable[[], ResultT]) -> _Invocation:
-        invocation = _Invocation(func)
+    def submit(self, func: Callable[[], ResultT]) -> Invocation[ResultT]:
+        invocation = Invocation(func)
         self._queue.put(invocation)
         return invocation
 

@@ -1,18 +1,22 @@
 from typing import Any, Callable, Optional
 
+from ._invocation import Invocation
 from .base import ExecutionStrategy, ResultT
 
 
 class QtMainThreadExecutionStrategy(ExecutionStrategy):
     def __init__(self, qt: Optional[Any] = None) -> None:
         super().__init__()
-        self._qt = qt if qt is not None else self._load_qt()
-        self._executor = self._create_executor(self._qt)
+        qt = qt if qt is not None else self._load_qt()
+        self._bridge = self._create_signal_bridge(qt.QtCore, qt.QtWidgets)
 
     def run(self, func: Callable[[], ResultT]) -> ResultT:
         with self._admit():
             pass
-        return self._executor.run(func)
+
+        invocation = Invocation(func)
+        self._bridge.dispatch(invocation)
+        return invocation.wait()
 
     @staticmethod
     def _load_qt() -> Any:
@@ -31,60 +35,21 @@ class QtMainThreadExecutionStrategy(ExecutionStrategy):
         raise ImportError("Neither PySide6 nor PySide2 is available")
 
     @staticmethod
-    def _create_executor(qt: Any) -> Any:
-        QtCore = qt.QtCore
-        QtWidgets = qt.QtWidgets
-
-        class _Payload(object):
-            def __init__(self, func: Callable[[], Any], signal: Any):
-                self.func = func
-                self.result: Any = None
-                self.exception: Optional[BaseException] = None
-                self.signal = signal
-                self.wcnd = QtCore.QWaitCondition()
-                self.mutex = QtCore.QMutex()
-
-            def wait(self) -> Any:
-                self.mutex.lock()
-                self.signal.emit(self)
-                self.wcnd.wait(self.mutex)
-                self.mutex.unlock()
-                if self.exception is not None:
-                    raise self.exception
-                return self.result
-
-            def run(self) -> None:
-                self.mutex.lock()
-                try:
-                    self.result = self.func()
-                except BaseException as exc:
-                    self.exception = exc
-                finally:
-                    self.wcnd.wakeAll()
-                    self.mutex.unlock()
-
-        class _Bridge(QtCore.QObject):
-            sig: Any = QtCore.Signal(object)
+    def _create_signal_bridge(QtCore: Any, QtWidgets: Any) -> Any:
+        class _QtSignalBridge(QtCore.QObject):
+            invocation_requested: Any = QtCore.Signal(object)
 
             def __init__(self) -> None:
                 super().__init__()  # pyright: ignore[reportUnknownMemberType]
                 app = QtWidgets.QApplication.instance()
                 if app is not None:
                     self.moveToThread(app.thread())
-                self.sig.connect(self._on_signal)
+                self.invocation_requested.connect(self._execute)
 
-            def _on_signal(self, payload: Any) -> None:
-                payload.run()
+            def dispatch(self, invocation: Invocation[Any]) -> None:
+                self.invocation_requested.emit(invocation)
 
-        class _Executor(object):
-            def __init__(self) -> None:
-                self._bridge = _Bridge()
+            def _execute(self, invocation: Invocation[Any]) -> None:
+                invocation.execute()
 
-            def run(self, func: Callable[[], ResultT]) -> ResultT:
-                app = QtWidgets.QApplication.instance()
-                if app and QtCore.QThread.currentThread() is app.thread():
-                    return func()
-                payload = _Payload(func, self._bridge.sig)
-                return payload.wait()
-
-        return _Executor()
+        return _QtSignalBridge()
