@@ -26,6 +26,9 @@ pub fn run(backend: Backend, runtime: tokio::runtime::Runtime) -> anyhow::Result
     let shutdown = handle.shutdown_token();
     let menu_handle = handle.clone();
     let mut backend = Some(backend);
+    let mut context = tauri::generate_context!();
+    // Keep window icons sharp regardless of the frame order inside the ICO.
+    context.set_default_window_icon(Some(tauri::include_image!("icons/icon.png")));
     let app = tauri::Builder::default()
         .manage(handle)
         .invoke_handler(tauri::generate_handler![snapshot, candidates, stop_backend])
@@ -33,12 +36,8 @@ pub fn run(backend: Backend, runtime: tokio::runtime::Runtime) -> anyhow::Result
             let show = MenuItem::with_id(app, "show", "Open flint", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Stop flint", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show,&quit])?;
-            let mut pixels = vec![0u8;32*32*4];
-            for y in 0..32i32 { for x in 0..32i32 { if (x-16).abs() + (y-16).abs() < 14 {
-                let i=((y*32+x)*4) as usize; pixels[i..i+4].copy_from_slice(&[220,157,81,255]);
-            } } }
             TrayIconBuilder::with_id("flint")
-                .icon(tauri::image::Image::new_owned(pixels,32,32))
+                .icon(tauri::include_image!("icons/32x32.png"))
                 .tooltip("flint · backend running")
                 .menu(&menu)
                 .on_menu_event(move |app,event| match event.id.as_ref() {
@@ -74,7 +73,7 @@ pub fn run(backend: Backend, runtime: tokio::runtime::Runtime) -> anyhow::Result
         .on_window_event(|window,event| {
             if let tauri::WindowEvent::CloseRequested{api,..}=event { api.prevent_close(); let _=window.hide(); }
         })
-        .build(tauri::generate_context!())?;
+        .build(context)?;
     app.run(|_, _| {});
     Ok(())
 }
