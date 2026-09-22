@@ -1,0 +1,35 @@
+syntax = "proto3";
+package flint_protocol.v1;
+option csharp_namespace = "Flint.Protocol.V1";
+import "flint_protocol/v1/common.proto";
+import "flint_protocol/v1/control.proto";
+import "flint_protocol/v1/host.proto";
+
+// Each frame carries one envelope. Responses and output updates echo request_id.
+message Envelope {
+  uint32 protocol_version = 1;
+  string request_id = 2;
+  oneof payload {
+    PingRequest ping_request = 10;
+    PingResponse ping_response = 11;
+    StopBackendRequest stop_backend_request = 12;
+    StopBackendResponse stop_backend_response = 13;
+    ListInstancesRequest list_instances_request = 14;
+    ListInstancesResponse list_instances_response = 15;
+    StartWorkflowRequest start_workflow_request = 16;
+    StartWorkflowResponse start_workflow_response = 17;
+    ExecuteRequest execute_request = 18;
+    GetExecutionRequest get_execution_request = 19;
+    GetExecutionResponse get_execution_response = 20;
+    ProtocolError protocol_error = 21;
+    ShowWindowRequest show_window_request = 22;
+    ShowWindowResponse show_window_response = 23;
+    RegisterInstance register_instance = 30;
+    RegisterExecutionChannel register_execution_channel = 31;
+    Heartbeat heartbeat = 32;
+    InstanceAck instance_ack = 33;
+    HostExecuteRequest host_execute_request = 34;
+    ExecutionOutputUpdate execution_output_update = 35;
+    ExecutionResult execution_result = 36;
+  }
+}

@@ -1,0 +1,68 @@
+name: Windows build
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.12.17'
+      - name: Build directly from source
+        run: cargo build --locked --release
+      - name: Export the embedded Bridge
+        run: target/release/flint.exe bridge export --output target/release/flint-bridge.zip
+      - name: Build environments stay under target
+        shell: pwsh
+        run: |
+          foreach ($path in @('_local', '.venv', 'node_modules', 'third_party')) {
+            if (Test-Path -LiteralPath $path) { throw "Unexpected build input or output: $path" }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flint-windows-x64
+          path: |
+            target/release/flint.exe
+            target/release/flint-bridge.zip
+  test:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.12.17'
+      - uses: actions/setup-python@v5
+        id: python313
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-python@v5
+        id: python37
+        with:
+          python-version: '3.7'
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: bridges/dotnet/global.json
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: '24.4'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generated protocol bindings are current
+        run: cargo codegen --check
+      - name: Build test application
+        run: cargo build --locked
+      - name: Rust unit and product integration tests
+        env:
+          FLINT_TEST_PYTHON: '${{ steps.python313.outputs.python-path }}'
+        run: cargo test --workspace --locked
+      - name: Python Bridge component tests
+        run: uv run --directory bridges/python --locked --package flint-bridge --group test --python 3.13 pytest -q
+      - name: Python 3.7 compatibility
+        env:
+          FLINT_PYTHON37: '${{ steps.python37.outputs.python-path }}'
+        run: cargo test --locked -p flint-integration-tests --test application python37 -- --ignored
+      - name: C# and Python interoperability
+        env:
+          FLINT_TEST_PYTHON: '${{ steps.python313.outputs.python-path }}'
+        run: cargo test --locked -p flint-integration-tests --test protocol_interop csharp -- --ignored

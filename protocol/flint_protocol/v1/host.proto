@@ -1,0 +1,46 @@
+syntax = "proto3";
+package flint_protocol.v1;
+option csharp_namespace = "Flint.Protocol.V1";
+import "flint_protocol/v1/common.proto";
+
+// Opens the registration/heartbeat connection; execution uses a separate connection.
+message RegisterInstance {
+  uint32 pid = 1;
+  string name_hint = 2;
+  string instance_name = 3;
+  string instance_type = 4;
+  // Stable for the bridge's lifetime, including reconnects. Assigned instance IDs may change.
+  string bridge_id = 5;
+  string runtime_version = 6;
+  string bridge_version = 7;
+}
+message RegisterExecutionChannel {
+  string instance_id = 1;
+  uint32 pid = 2;
+  // Echo the registration token; the backend also checks the instance ID and PID.
+  string session_token = 3;
+}
+message Heartbeat { string instance_id = 1; }
+message InstanceAck {
+  bool success = 1;
+  optional ErrorCode error = 2;
+  string message = 3;
+  string instance_id = 4;
+  // Returned on registration to bind the execution connection to this session.
+  string session_token = 5;
+}
+message HostExecuteRequest {
+  string execution_id = 1;
+  string code = 2;
+  string workflow_id = 3;
+  optional string execution_name = 4;
+  optional string filename = 5;
+}
+message ExecutionOutputUpdate {
+  string execution_id = 1;
+  string workflow_id = 2;
+  // Starts at 1 per execution. Repeated sequences are ignored; a gap closes the connection.
+  uint64 sequence = 3;
+  string stdout_delta = 4;
+  string stderr_delta = 5;
+}

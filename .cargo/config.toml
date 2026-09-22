@@ -1,0 +1,2 @@
+[alias]
+codegen = "run --locked --package protocol-codegen --"

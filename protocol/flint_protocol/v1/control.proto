@@ -1,0 +1,62 @@
+syntax = "proto3";
+package flint_protocol.v1;
+option csharp_namespace = "Flint.Protocol.V1";
+import "flint_protocol/v1/common.proto";
+
+message PingRequest {}
+message PingResponse {
+  bool ready = 1;
+  uint32 pid = 2;
+  string backend_id = 3;
+  string registry_host = 4;
+  uint32 registry_port = 5;
+}
+message StopBackendRequest { string backend_id = 1; }
+message StopBackendResponse { bool stopping = 1; }
+message ShowWindowRequest {}
+message ShowWindowResponse { bool accepted = 1; }
+
+message ListInstancesRequest { optional string instance_type = 1; }
+message ListInstancesResponse { repeated InstanceInfo instances = 1; }
+
+message StartWorkflowRequest {
+  string name = 1;
+  string description = 2;
+}
+message StartWorkflowResponse { string workflow_id = 1; }
+
+message ExecuteRequest {
+  string instance_id = 1;
+  string code = 2;
+  string workflow_id = 3;
+  string name = 4;
+  optional string filename = 5;
+}
+
+enum ExecutionView {
+  // An omitted view is treated as summary.
+  EXECUTION_VIEW_UNSPECIFIED = 0;
+  EXECUTION_VIEW_SUMMARY = 1;
+  EXECUTION_VIEW_FULL = 2;
+}
+message GetExecutionRequest {
+  string workflow_id = 1;
+  string execution_id = 2;
+  ExecutionView view = 3;
+}
+// Timestamps preserve the workflow's ISO 8601 text representation.
+message GetExecutionResponse {
+  string execution_id = 1;
+  string workflow_id = 2;
+  string name = 3;
+  string instance_id = 4;
+  ExecutionStatus status = 5;
+  string stdout = 6;
+  string stderr = 7;
+  string started_at = 8;
+  optional string finished_at = 9;
+  optional string traceback = 10;
+  optional string error = 11;
+  optional string updated_at = 12;
+  optional string code = 13;
+}

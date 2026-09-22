@@ -5,8 +5,6 @@
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 *.so
 
 # Distribution / packaging
@@ -25,9 +23,11 @@ htmlcov/
 .mypy_cache/
 .pyright/
 
-# PyInstaller
-*.spec
-
 .vscode/
 .python-version
 _local/
+target/
+node_modules/
+apps/flint/src-tauri/gen/
+**/bin/
+**/obj/

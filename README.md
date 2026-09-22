@@ -1,333 +1,112 @@
-# python-bridge-mcp
+# flint
 
-A local MCP + Python execution bridge.
+flint is a local application execution bridge in the same stone-themed product line as lode. One Rust executable provides the CLI, shared backend, system tray, and Tauri management window. Maya and 3ds Max connect through an independently usable Python Bridge and a language-neutral Protobuf contract.
 
-It has three parts:
+The current host integration supports active connections from Maya and 3ds Max. A plain Python host is available for scripts and testing. Process discovery reports candidate applications separately from connected bridges. Injection, Unity, and other managed runtimes are not exposed as product capabilities.
 
-- `python_bridge_mcp.server.shim`: The stdio MCP entry point started by the MCP client (thin shim). On startup it ensures the backend is available and proxies MCP tool requests.
-- `python_bridge_mcp.server.backend`: A shared background service that holds the instance registry and control API. Multiple MCP client instances share one backend process.
-- `python_bridge_mcp.client`: Runs inside any Python process (e.g. a DCC application or a standalone script). Registers the process with the backend and executes code on request.
+## Run flint
 
-Current features:
-
-- Python instances actively register themselves with the backend
-- Multiple Python instances can be online simultaneously
-- Multiple MCP client instances share a single backend process (shared instance registry)
-- The shim auto-starts the backend on startup; if the backend crashes, it is relaunched on the next shim start
-- Per-instance serial execution
-- `exec_python` returns `execution_id`, `status`, and `traceback`/`error` on failure; full `stdout`, `stderr`, and `traceback` are available via `get_workflow_execution`
-- Execution runs in an isolated namespace
-- Structured workflow recording: multiple `exec_python` calls are grouped into a single workflow JSON file
-- 5-second early return: long-running executions do not block the MCP caller; they return `status: "running"` immediately and can be polled via lookup tools
-- 2-second periodic output flush from the client side; in-flight output is visible in the workflow file incrementally
-- Cross-instance workflows: a single workflow can include executions on different Python instances
-- Workflow file persistence: after a backend restart, the lookup tools recover workflow state from disk
-
-## Quick Start
-
-For normal use, the recommended approach is to build the packaged executables first and then point your MCP client directly at `python-bridge-mcp-shim.exe`.
-
-> The packaged build below targets **Windows** (produces `.exe` files). On macOS/Linux, run from source as described in [Development](#development).
-
-### 1. Set up the environment
-
-```powershell
-tools\setup_env.bat
-```
-
-This script will:
-
-- Check that `python` is available on `PATH`
-- Create a `.venv` in the repository root if one does not exist
-- Install development and build dependencies: `.[dev,build]`
-
-### 2. Build the packaged executables
-
-```powershell
-tools\bundle\build.bat
-```
-
-After the build, the outputs are at:
-
-- `dist/python-bridge-mcp/python-bridge-mcp-shim.exe`
-- `dist/python-bridge-mcp/python-bridge-mcp-backend.exe`
-
-`tools\bundle\build.bat` only handles packaging; it always uses the `.venv` in the repository root.
-
-If the build fails with an error about not being able to clean the output directory, the old `python-bridge-mcp-shim.exe` or `python-bridge-mcp-backend.exe` is still running — stop it and retry.
-
-### 3. Add the output directory to `PATH`
-
-Add the following directory to your user or system `PATH`:
-
-- `dist\python-bridge-mcp`
-
-Notes:
-
-- `python-bridge-mcp-shim.exe` and `python-bridge-mcp-backend.exe` must live in the same directory
-- The MCP client only needs to launch `python-bridge-mcp-shim.exe`
-- `python-bridge-mcp-shim.exe` looks for `python-bridge-mcp-backend.exe` next to itself and starts it automatically
-
-### 4. Configure your MCP client
-
-For Cursor (`.cursor/mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "python-bridge-mcp": {
-      "type": "stdio",
-      "command": "python-bridge-mcp-shim.exe",
-      "args": []
-    }
-  }
-}
-```
-
-After saving the file:
-
-1. Reload MCP in your client
-2. Confirm that `list_instances`, `exec_python`, and the other tools are visible in the agent's tool list
-
-If the MCP loads correctly but `list_instances` returns an empty list, that means no Python instance has registered yet — not a configuration problem.
-
-### 5. Start the client inside a Python process
-
-The minimal integration is to call `start_control_client_service` once after your process starts:
-
-```python
-from python_bridge_mcp.client.bootstrap import start_control_client_service
-from python_bridge_mcp.client.code_executor import CodeExecutor
-from python_bridge_mcp.client.code_runner import CodeRunner
-from python_bridge_mcp.client.execution_strategy import DirectExecutionStrategy
-
-runner = CodeRunner(
-    executor=CodeExecutor(),
-    strategy=DirectExecutionStrategy(),
-)
-
-service = start_control_client_service(
-    name_hint="my-script",       # hint for server-assigned instance ID
-    instance_name="My Script",   # human-readable label
-    runner=runner,               # required host execution policy
-    instance_type="python",      # arbitrary type tag, e.g. "maya", "max", "blender"
-)
-```
-
-Notes:
-
-- Instance IDs are assigned by the server in the format `{name_hint}-{counter:04d}` (e.g. `my-script-0001`). Uniqueness is guaranteed by the server — no manual coordination needed
-- After registration, the assigned ID is available as `service.client.instance_id`
-- `instance_type` is used for filtering with `list_instances(instance_type=...)`
-- The default registry endpoint is `localhost:6321`
-- `start_control_client_service` is reload-safe: calling it again replaces the existing service
-- Passing a runner transfers its lifecycle to the client. Stopping the client closes the runner,
-  so a stopped runner must not be reused for another service
-
-To stop the service:
-
-```python
-from python_bridge_mcp.client.bootstrap import stop_control_client_service
-
-stop_control_client_service()
-```
-
-The runner is required: the integration must explicitly choose its host-thread execution
-strategy. Use `DirectExecutionStrategy` for ordinary Python processes,
-`QtMainThreadExecutionStrategy` for Qt hosts, or
-`BlenderMainThreadExecutionStrategy` for Blender's `bpy.app.timers` main-thread dispatch.
-
-For Blender:
-
-```python
-from python_bridge_mcp.client.code_executor import CodeExecutor
-from python_bridge_mcp.client.code_runner import CodeRunner
-from python_bridge_mcp.client.execution_strategy import BlenderMainThreadExecutionStrategy
-
-runner = CodeRunner(
-    executor=CodeExecutor(),
-    strategy=BlenderMainThreadExecutionStrategy(),
-)
-```
-
-### 6. Available tools and typical workflow
-
-Tools available to the agent:
-
-- `list_instances(instance_type=None)` — list registered Python instances
-- `start_workflow(name, description?)` — create a workflow, returns `workflow_id`
-- `exec_python(instance_id, code, workflow_id, name?)` — execute code on an instance
-- `get_workflow_execution(workflow_id, execution_id, view?)` — show details of a single execution
-
-A typical session looks like:
-
-1. Call `list_instances` to see which Python processes are online
-2. Call `start_workflow` to create a workflow for the current task
-3. Call `exec_python` to send code to the chosen instance
-4. If execution takes a while, retrieve the `execution_id` from the result and poll with `get_workflow_execution`
-
-Practical tips:
-
-- `instance_id` comes from the `instance_id` field in `list_instances` results
-- Pass a complete Python source string to `code`, not a file path
-- Reuse the same `workflow_id` across all steps of one task
-- `name` in `exec_python` helps identify each step in a multi-step workflow
-
-## Development
-
-### Environment setup
-
-Python 3.10 is recommended for the server. Shared and client modules maintain Python 3.7 compatibility.
-
-On Windows the bundled setup script creates the venv and installs everything:
-
-```powershell
-tools\setup_env.bat
-```
-
-Or manually (cross-platform):
-
-```bash
-python -m venv .venv
-# activate:  Windows → .venv\Scripts\activate   |  macOS/Linux → source .venv/bin/activate
-pip install -e .[dev,build]
-```
-
-### Development-mode MCP client config
-
-For Cursor (`.cursor/mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "python-bridge-mcp": {
-      "type": "stdio",
-      "command": "${workspaceFolder}/.venv/Scripts/python.exe",
-      "args": ["-X", "utf8", "-m", "python_bridge_mcp.server.shim"]
-    }
-  }
-}
-```
-
-On macOS/Linux use `${workspaceFolder}/.venv/bin/python` instead of the `.venv/Scripts/python.exe` path.
-
-`-X utf8` prevents GBK encoding issues on Chinese-locale Windows systems where Python defaults stderr to GBK while the MCP client reads UTF-8.
-
-### Manual startup
-
-In most cases you do not need to start the backend manually — the shim does it automatically.
-
-To debug the backend directly (with the venv activated):
-
-```bash
-python -X utf8 -m python_bridge_mcp.server.backend
-```
-
-Or start only the shim (it will launch the backend for you):
-
-```bash
-python -X utf8 -m python_bridge_mcp.server.shim
-```
-
-### Debug CLI
-
-`client/cli.py` is the human-operable equivalent of the MCP shim. It connects to the running backend and lets you list instances and execute code or files without an AI agent.
-
-It is designed as a standalone script with no package context required — only stdlib is needed, so it runs under any Python interpreter including `mayapy` or `3dsmaxpy`:
-
-```bash
-# List online instances
-python src/python_bridge_mcp/client/cli.py list
-
-# Execute a code snippet
-python src/python_bridge_mcp/client/cli.py exec --instance-id maya-1234 --code "print('hello')"
-
-# Execute a file (original path is passed to compile() so debugpy breakpoints work)
-python src/python_bridge_mcp/client/cli.py exec --instance-id maya-1234 --file path/to/script.py
-```
-
-`--host` and `--port` override the backend address (default `localhost:6322`).
-
-## Architecture
-
-```
-MCP Client A ──stdio──> shim ──TCP:6322──> backend ──TCP:6321──> Python instance
-MCP Client B ──stdio──> shim ──────────────┘
-```
-
-- **shim** (`python -m python_bridge_mcp.server.shim`): one per MCP client process. Speaks the MCP stdio protocol and ensures the backend is running before forwarding tool calls.
-- **backend** (`python -m python_bridge_mcp.server.backend`): one shared instance. Binds `localhost:6322` (control API) and `0.0.0.0:6321` (instance registry).
-- **client** (`python_bridge_mcp.client`): one per Python process. Connects to the registry, sends heartbeats, and executes incoming code requests.
-
-## Project Structure
+On Windows, the desktop interface requires WebView2, and the MSVC build uses the Microsoft Visual C++ x64 runtime. The backend and CLI do not require a Python installation. Opening flint without arguments starts or reuses the backend and opens its window. Closing the window hides it; the backend and tray remain in the same process.
 
 ```text
-python-bridge-mcp/
-├─ src/python_bridge_mcp/
-│  ├─ client/
-│  │  ├─ bootstrap.py           # start/stop_control_client_service lifecycle helpers
-│  │  ├─ cli.py                 # debug CLI — human-operable equivalent of the shim
-│  │  ├─ code_executor.py       # low-level code execution with stdout/stderr capture
-│  │  ├─ code_runner.py         # executes code through an explicit strategy
-│  │  ├─ execution_strategy/    # host-thread strategies
-│  │  │  ├─ base.py             # strategy contract
-│  │  │  ├─ direct.py           # immediate execution
-│  │  │  ├─ _queued_dispatcher.py # internal queued invocation owner
-│  │  │  ├─ qt.py               # Qt signal-loop dispatch
-│  │  │  └─ blender.py          # bpy.app.timers dispatch
-│  │  ├─ discovery.py           # registry client: registration, heartbeat, exec dispatch
-│  │  └─ __init__.py
-│  ├─ server/
-│  │  ├─ backend.py             # entry point — spawns Registry and ControlServer
-│  │  ├─ backend_client.py      # async client for the control API (used by shim)
-│  │  ├─ control_models.py      # control API wire models and error codes
-│  │  ├─ control_server.py      # TCP API server: workflow and execution management
-│  │  ├─ launcher.py            # backend auto-launch logic for the shim
-│  │  ├─ registry.py            # instance discovery, heartbeat, and request forwarding
-│  │  ├─ shim.py                # stdio MCP entry: ensures backend running, exposes tools
-│  │  └─ __init__.py
-│  ├─ shared/
-│  │  ├─ backend_client.py      # minimal sync client for the control API (used by cli.py)
-│  │  ├─ constants.py           # shared network constants (ports, default host)
-│  │  ├─ file_writer.py         # thread-safe atomic file writes via filelock
-│  │  ├─ instance_control_models.py  # wire protocol between client and registry
-│  │  ├─ jsonline.py            # JSON-line socket codec (sync + async)
-│  │  ├─ model_base.py          # base dataclass model with serialization
-│  │  ├─ text_buffer.py         # thread-safe stdout/stderr accumulation buffer
-│  │  ├─ workflow_models.py     # persistent workflow data structures
-│  │  ├─ workflow_persistence.py # disk-based workflow storage (platformdirs)
-│  │  └─ __init__.py
-│  └─ __init__.py
-├─ tests/
-│  ├─ client/
-│  ├─ server/
-│  ├─ integration/
-│  └─ conftest.py
-├─ tools/
-│  ├─ bundle/
-│  │  ├─ build.bat              # Windows build wrapper
-│  │  ├─ build.py               # PyInstaller orchestration script
-│  │  ├─ windows_bundle.spec    # PyInstaller spec: python-bridge-mcp-shim.exe + python-bridge-mcp-backend.exe
-│  │  └─ entrypoints/
-│  │     ├─ backend_entry.py    # python-bridge-mcp-backend.exe entry point
-│  │     └─ shim_entry.py       # python-bridge-mcp-shim.exe entry point
-│  └─ setup_env.bat             # venv creation and dependency installation
-├─ docs/
-└─ pyproject.toml
+flint
+flint status --json
+flint instances --json
+flint hosts --json
+flint restart --json
+flint stop --json
 ```
 
-## Testing
+Business commands ensure the local backend is available. Concurrent callers share the same process through lifecycle and running locks. Stop and restart refuse while execution responses are pending, and never terminate the host application. Help, version, process discovery, and bridge export do not start a backend. CLI requests are not replayed after transport failures.
 
-With the venv activated:
+Options follow the command. The control endpoint defaults to 127.0.0.1:6322 and bridge registration to 127.0.0.1:6321. Use --host, --port, --registry-host, and --registry-port to select an endpoint. --timeout bounds each lifecycle operation; restart shares that deadline across stop and start. --no-tray runs the backend without a desktop event loop for automated tests or unattended environments. A remote backend must already be running.
 
-```bash
-pytest tests/ -v
+FLINT_STATE_DIR selects the state directory; otherwise flint uses the platform's local application-data directory. Backend logs are under runtime/<control-port>/backend.log and workflows under workflows/. Each backend managing an endpoint must use the same state directory. Backend startup preserves completed records and marks interrupted work as failed with an explicitly unknown host outcome.
+
+## Connect Maya or 3ds Max
+
+Export the complete Python Bridge from the executable. This ZIP includes the bridge, generated Python protocol bindings, and the pure Python Protobuf runtime; it does not depend on the development checkout.
+
+```text
+flint bridge export --output C:/tools/flint-bridge.zip
+flint start
 ```
 
-Current test coverage:
+Run the following from Maya's Python script editor on its main thread:
 
-- `client` unit tests (discovery, code runner, code executor, bootstrap)
-- `server` unit tests (control models, control server, registry, shim, launcher)
-- End-to-end registration, listing, and execution flows
-- Backend restart with automatic client re-registration
-- Multiple shim instances sharing one backend
+```python
+import sys
+sys.path.insert(0, "C:/tools/flint-bridge.zip")
+
+import flint_bridge
+bridge = flint_bridge.connect(host="maya", name="My Maya")
+```
+
+In 3ds Max's Python execution environment, use the same code with host="max". Both adapters select the application's Qt UI thread. The validated installations are Maya 2024 with CPython 3.10.8 and 3ds Max 2024.2.13 with CPython 3.10.14. Other host versions require their own integration verification.
+
+connect also accepts address, port, and heartbeat_interval. It returns the matching bridge on repeated calls. Changing the endpoint requires an explicit disconnect, rather than silently replacing a user's integration. bridge.connected reports both channels ready, and bridge.wait_until_connected(timeout=10) waits for registration when needed. Call flint_bridge.disconnect() to stop transport and cancel queued work; its false return indicates that shutdown has not completed. Already running host code is not forcibly interrupted.
+
+The Python subproject is self-contained under bridges/python: packages/bridge owns the host implementation and packages/protocol owns its generated messages and framing. Its uv workspace manages both packages. The ZIP is the complete distribution for hosts that do not manage pip dependencies.
+
+## Execute and inspect
+
+```text
+flint instances --type maya --json
+flint workflow --name "Inspect scene" --json
+flint exec --instance-id <instance-id> --workflow-id <workflow-id> --code "print('hello')" --json
+flint exec --instance-id <instance-id> --workflow-id <workflow-id> --file inspect_scene.py --json
+flint execution --workflow-id <workflow-id> --execution-id 0001 --view full --json
+```
+
+exec accepts exactly one of --code, --file, or --stdin. Each bridge executes one request at a time in its own persistent namespace and uses its host adapter for thread dispatch. Source filenames are retained for tracebacks. stdout and stderr are sent incrementally and persisted in the workflow.
+
+The backend waits up to five seconds before returning a running execution. The host keeps executing after the CLI exits. Use execution to inspect progress and completion; --view full includes source code. Exit code 0 includes accepted running work, 1 indicates an operation or execution failure, 2 indicates invalid arguments, and 130 indicates interrupted CLI waiting. A timeout or lost connection does not establish that host code has stopped.
+
+## Build on Windows
+
+Install Rust through rustup, Visual Studio C++ build tools with a Windows SDK, and uv 0.12.17 or newer on PATH. Then build directly:
+
+```powershell
+cargo build --locked --release
+```
+
+The executable is target/release/flint.exe. Cargo invokes uv against bridges/python to prepare Python 3.13 and the Bridge runtime dependencies from that subproject's uv.lock in an isolated environment under OUT_DIR. bridges/python/tools/package_bridge.py packages its sources, generated protocol bindings, pure Python Protobuf code, and license into the embedded Bridge ZIP. uv owns dependency downloads and caching; the repository contains no wheels or developer-local build inputs. The build does not modify development virtual environments.
+
+Cargo.lock pins the Rust workspace. bridges/python/uv.lock pins the Python subproject; bridges/dotnet/global.json and the C# projects' NuGet lockfiles constrain .NET tooling and dependencies. Commit lockfiles and generated protocol sources. Ordinary application builds do not run protoc or require Node.js or the .NET SDK. The application's WebView2 and Visual C++ runtime requirements apply when running it, not when managing Python packages.
+
+The standalone Bridge can be exported without another build wrapper:
+
+```powershell
+target/release/flint.exe bridge export --output flint-bridge.zip
+```
+
+The Cargo workspace separates apps/flint/src-tauri (CLI and desktop), crates/flint-core (backend and workflows), crates/flint-control-client (control requests and lifecycle), crates/flint-connect (host discovery), and crates/flint-protocol (messages and framing). The frontend is in apps/flint/src. Python and .NET each own their package configuration and component code under bridges/. The .NET subtree currently contains the protocol library and interoperability peer, not a managed host bridge. Language-neutral schemas remain in protocol/ and their generator remains a Rust tool.
+
+## Development checks
+
+Product integration tests are the Rust workspace member tests/integration. They drive the executable and exported Bridge ZIP, while Python fixture scripts perform only host-side setup and operations. Build the executable before running them. FLINT_TEST_PYTHON selects the interpreter used as a disposable plain-Python host; an actual python executable on PATH is used when it is unset.
+
+```powershell
+cargo build --locked
+$env:FLINT_TEST_PYTHON = uv python find --system 3.13
+cargo test --workspace --locked
+uv run --directory bridges/python --locked --package flint-bridge --group test --python 3.13 pytest -q
+```
+
+FLINT_BINARY selects a different application build. Python component tests live under bridges/python/tests and include execution strategies and portable packaging. No root Python workspace is required. The Rust integration package's Python 3.7, C#, and DCC checks are ignored by default because they require additional installations. Tests never install toolchains themselves.
+
+Set FLINT_PYTHON37 to an existing Python 3.7 interpreter, then run the compatibility check explicitly. C# interoperability requires the SDK selected by bridges/dotnet/global.json; the Rust driver builds from that directory so SDK selection remains local to the .NET subproject. FLINT_DOTNET can select a dotnet executable outside PATH.
+
+```powershell
+cargo test --locked -p flint-integration-tests --test application python37 -- --ignored
+cargo test --locked -p flint-integration-tests --test protocol_interop csharp -- --ignored
+```
+
+Maya/Max tests create only fresh empty host processes and preserve evidence under target/integration-artifacts/. For example:
+
+```powershell
+$env:FLINT_MAYA_EXE = 'C:/Program Files/Autodesk/Maya2024/bin/maya.exe'
+cargo test --locked -p flint-integration-tests --test hosts maya -- --ignored --nocapture
+```
+
+For Max, set FLINT_MAX_EXE to its 3dsmax.exe and replace the test filter maya with max. Protocol contracts live in protocol/flint_protocol/v1; their field comments describe connection and execution semantics. Generated messages live in the Rust protocol crate, the Python protocol package, and the .NET protocol project. cargo codegen regenerates them and cargo codegen --check verifies them, using protoc 24.4 on PATH or through PROTOC. Commit schema changes and regenerated bindings together. CI checks the application build, Rust integration tests, scoped Python component tests, and generated-code consistency.

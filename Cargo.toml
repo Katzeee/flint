@@ -1,0 +1,12 @@
+[workspace]
+members = ["crates/flint-protocol", "crates/flint-core", "crates/flint-control-client", "crates/flint-connect", "apps/flint/src-tauri", "tools/protocol-codegen", "tests/integration"]
+default-members = ["apps/flint/src-tauri"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+lto = "thin"
+strip = true

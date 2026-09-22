@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net8.0": {
+      "Google.Protobuf": {
+        "type": "Transitive",
+        "resolved": "3.24.4",
+        "contentHash": "TmUI4ndd3x5HePyLmqAmGT6oVvoRCu+bMmrJmOpAFtCPEB+oUMWF8dyVY1zxXry/8cqsTHWszYRIAwpuUNpUyA=="
+      },
+      "flint.protocol": {
+        "type": "Project",
+        "dependencies": {
+          "Google.Protobuf": "[3.24.4, )"
+        }
+      }
+    }
+  }
+}

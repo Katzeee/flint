@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "flint",
+  "version": "0.1.0",
+  "identifier": "dev.flint.desktop",
+  "build": { "frontendDist": "../src" },
+  "app": { "withGlobalTauri": true, "windows": [{ "label": "main", "title": "flint", "width": 880, "height": 600, "visible": false }], "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost" } },
+  "bundle": { "active": false }
+}
