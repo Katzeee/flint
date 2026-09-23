@@ -2,7 +2,7 @@
 
 flint connects running applications to a shared code-execution service, with a desktop window, system tray, and CLI in one executable. It belongs to the same stone-themed product line as lode.
 
-For a source checkout, see [Development environment and first build](docs/development.md).
+For a source checkout, see [Development environment and first build](docs/development.md). The [Windows attach experiments](experiments/attach/README.md) retain research code for Maya, Max, and Blender.
 
 ## Run flint
 
