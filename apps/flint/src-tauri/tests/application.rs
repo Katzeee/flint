@@ -112,6 +112,33 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
 }
 
 #[test]
+fn unrelated_host_thread_output_is_not_recorded_as_execution_output() -> Result<()> {
+    let app = App::new();
+    let host = PythonHost::start(&app, &python())?;
+    let id = host.report["instance_id"].as_str().unwrap();
+    let workflow = app.workflow("output-scope")?;
+    let setup = app.execute(
+        id,
+        &workflow,
+        "import threading\nambient_ready = threading.Event()\ndef background():\n    ambient_ready.wait()\n    print('AMBIENT')\nambient_thread = threading.Thread(target=background)\nambient_thread.start()",
+        0,
+    )?;
+    assert_eq!(setup["status"], "succeeded");
+    let execution = app.execute(
+        id,
+        &workflow,
+        "print('OWN BEFORE')\nambient_ready.set()\nambient_thread.join()\nprint('OWN AFTER')",
+        0,
+    )?;
+    assert_eq!(execution["status"], "succeeded");
+    assert_eq!(
+        app.details(&workflow, &execution, 0)?["stdout"],
+        "OWN BEFORE\nOWN AFTER\n"
+    );
+    Ok(())
+}
+
+#[test]
 fn invalid_input_and_help_do_not_start_backend() -> Result<()> {
     let app = App::new();
     for argument in ["--help", "--version"] {
@@ -221,6 +248,9 @@ fn a_lost_connection_does_not_replay_running_code() -> Result<()> {
     assert!(lost["error"].as_str().unwrap().contains("unknown"));
     wait_until(Duration::from_secs(10), || Ok(marker.exists()))?;
     assert_eq!(fs::read_to_string(&marker)?, "once\n");
+    wait_until(Duration::from_secs(10), || {
+        Ok(host.directory.join("bridge-idle-after-drop").exists())
+    })?;
     let after = app.execute(
         reconnected["instance_id"].as_str().unwrap(),
         &workflow,

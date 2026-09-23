@@ -22,11 +22,16 @@ except BaseException:
 ready = directory / "ready.json"
 ready.write_text(json.dumps(report), encoding="utf-8")
 if "error" not in report:
+    await_idle_after_drop = False
     while not (directory / "stop-host").exists():
         trigger = directory / "drop-execution"
         if trigger.exists():
             trigger.unlink()
             # Transport fault injection stays inside this disposable fixture.
             bridge._force_reconnect()
+            await_idle_after_drop = True
+        if await_idle_after_drop and not bridge.busy:
+            (directory / "bridge-idle-after-drop").write_text("idle", encoding="utf-8")
+            await_idle_after_drop = False
         time.sleep(0.05)
     disconnect()

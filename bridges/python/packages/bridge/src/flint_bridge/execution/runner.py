@@ -1,7 +1,6 @@
 from typing import Optional
 
 from .models import InstanceExecResult
-from .buffer import ThreadSafeTextBuffer
 from .executor import CodeExecutor
 from .strategies import ExecutionStrategy
 
@@ -23,8 +22,8 @@ class CodeRunner(object):
         self,
         execution_id: str,
         code: str,
-        out: Optional[ThreadSafeTextBuffer] = None,
-        err: Optional[ThreadSafeTextBuffer] = None,
+        out=None,
+        err=None,
         filename: Optional[str] = None,
     ) -> InstanceExecResult:
         return self._strategy.run(
