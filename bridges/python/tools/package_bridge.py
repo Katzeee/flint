@@ -1,7 +1,7 @@
-"""Package the active uv environment's runtime dependency and workspace sources."""
+"""Package the host bridge and native connection core."""
 import argparse
-from importlib.metadata import distribution
 import json
+import os
 from pathlib import Path
 import tomllib
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
@@ -9,31 +9,21 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def build_bundle(destination: Path) -> None:
+def build_bundle(destination: Path, native: Path = None) -> None:
     entries = {}
-    for folder, package in (
-        (ROOT / "packages/bridge/src/flint_bridge", "flint_bridge"),
-        (ROOT / "packages/protocol/src/flint_protocol", "flint_protocol"),
-    ):
-        for source in sorted(folder.rglob("*.py")):
-            entries[package + "/" + source.relative_to(folder).as_posix()] = source.read_bytes()
-
-    protobuf = distribution("protobuf")
-    for source in protobuf.files or ():
-        if source.parts[:2] == ("google", "protobuf") and source.suffix == ".py":
-            entries[source.as_posix()] = Path(protobuf.locate_file(source)).read_bytes()
-        elif source.name == "LICENSE" and source.parts[0].endswith(".dist-info"):
-            entries["licenses/protobuf.txt"] = Path(protobuf.locate_file(source)).read_bytes()
-    for required in ("google/protobuf/__init__.py", "licenses/protobuf.txt"):
-        if required not in entries:
-            raise RuntimeError("Incomplete Protobuf installation: " + required)
-
-    entries["google/__init__.py"] = b"from pkgutil import extend_path\n__path__ = extend_path(__path__, __name__)\n"
+    folder = ROOT / "packages/bridge/src/flint_bridge"
+    for source in sorted(folder.rglob("*.py")):
+        entries["flint_bridge/" + source.relative_to(folder).as_posix()] = source.read_bytes()
+    native = native or Path(os.environ["FLINT_BRIDGE_CORE_LIBRARY"])
+    if native.name not in ("flint_bridge_core.dll", "libflint_bridge_core.so", "libflint_bridge_core.dylib"):
+        raise ValueError("Unexpected native Bridge core name: " + native.name)
+    entries["flint_bridge/native/" + native.name] = native.read_bytes()
     project = tomllib.loads((ROOT / "packages/bridge/pyproject.toml").read_text(encoding="utf-8"))
     entries["flint-bridge.json"] = json.dumps({
         "version": project["project"]["version"], "protocol": 1,
         "hosts": ["maya", "max", "python"], "mode": "active",
-        "python_minimum": "3.7", "protobuf": protobuf.version,
+        "python_minimum": "3.7",
+        "native_core": native.name,
     }, sort_keys=True).encode("utf-8")
 
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -47,4 +37,6 @@ def build_bundle(destination: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    build_bundle(parser.parse_args().output)
+    parser.add_argument("--native", required=True, type=Path)
+    args = parser.parse_args()
+    build_bundle(args.output, args.native)

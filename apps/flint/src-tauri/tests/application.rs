@@ -86,7 +86,7 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
     let execution = app.execute(
         id,
         &workflow,
-        "import time\nprint('BEGIN', flush=True)\ntime.sleep(8)\nprint('DONE')",
+        "import time\nprint('BEGIN', flush=True)\ntime.sleep(11)\nprint('DONE')",
         0,
     )?;
     assert_eq!(execution["status"], "running");
@@ -106,6 +106,8 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
         app.details(&workflow, &execution, 0)?["stdout"],
         "BEGIN\nDONE\n"
     );
+    let next = app.execute(id, &workflow, "print('NEXT')", 0)?;
+    assert_eq!(next["status"], "succeeded");
     Ok(())
 }
 
@@ -182,18 +184,23 @@ fn file_and_stdin_sources_are_preserved() -> Result<()> {
 }
 
 #[test]
-fn exported_bridge_contains_its_portable_dependencies() -> Result<()> {
+fn exported_bridge_contains_native_core_and_python_adapter() -> Result<()> {
     let app = App::new();
     let bundle = app.export()?;
     let mut archive = zip::ZipArchive::new(fs::File::open(bundle)?)?;
-    for name in [
-        "flint_bridge/__init__.py",
-        "flint_protocol/v1/envelope_pb2.py",
-        "google/protobuf/__init__.py",
-        "licenses/protobuf.txt",
-    ] {
+    let native = if cfg!(target_os = "windows") {
+        "flint_bridge/native/flint_bridge_core.dll"
+    } else if cfg!(target_os = "macos") {
+        "flint_bridge/native/libflint_bridge_core.dylib"
+    } else {
+        "flint_bridge/native/libflint_bridge_core.so"
+    };
+    for name in ["flint_bridge/__init__.py", native] {
         assert!(archive.by_name(name).is_ok(), "Missing {name}");
     }
+    assert!(!archive
+        .file_names()
+        .any(|name| name.starts_with("flint_protocol/") || name.starts_with("google/")));
     assert!(!archive.file_names().any(|n| n.starts_with("flint/server")));
     Ok(())
 }

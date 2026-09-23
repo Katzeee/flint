@@ -1,6 +1,5 @@
 syntax = "proto3";
 package flint_protocol.v1;
-option csharp_namespace = "Flint.Protocol.V1";
 
 enum ExecutionStatus {
   EXECUTION_STATUS_UNSPECIFIED = 0;

@@ -11,7 +11,7 @@ flint bridge export --output flint-bridge.zip
 flint start
 ```
 
-The ZIP includes its dependencies and can be loaded without a development checkout or pip installation. Make it accessible to the host, then run this shared setup inside that host's Python environment. Replace the path with the absolute path to your exported ZIP:
+The ZIP includes the Python adapter and the platform's native Bridge core. It needs no third-party Python packages and can be loaded without a development checkout or pip installation; on first connection it extracts the DLL to a versioned temporary directory. Make the ZIP accessible to the host, then run this shared setup inside that host's Python environment. Replace the path with the absolute path to your exported ZIP:
 
 ```python
 import sys
@@ -54,6 +54,6 @@ Keep the process running while using the connection. The Bridge runs in backgrou
 
 connect uses the local backend by default and accepts address and port for another endpoint. Repeated calls reuse the matching Bridge. bridge.connected reports readiness; bridge.wait_until_connected(timeout=10) waits for the connection when needed. Use flint instances --json to retrieve the assigned instance ID.
 
-Each Bridge executes one request at a time and retains its Python execution namespace across requests. Follow the [flint execution guide](../../README.md#execute-and-inspect) to submit code and retrieve results.
+The native core owns framing, registration, heartbeat, reconnection, busy responses, and output sequencing. Each Bridge executes one request at a time and retains its Python execution namespace across requests; the host adapter still dispatches code to the application's required thread. Follow the [flint execution guide](../../README.md#execute-and-inspect) to submit code and retrieve results.
 
 Call flint_bridge.disconnect() before changing the endpoint. A false return indicates that shutdown has not completed. Disconnecting stops transport and cancels queued work, but does not forcibly interrupt already running host code.

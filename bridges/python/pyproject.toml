@@ -3,10 +3,7 @@ required-version = ">=0.12.17"
 default-groups = []
 
 [tool.uv.workspace]
-members = ["packages/bridge", "packages/protocol"]
-
-[tool.uv.sources]
-flint-protocol = { workspace = true }
+members = ["packages/bridge"]
 
 [dependency-groups]
 test = ["pytest==9.0.3", "PySide6-Essentials==6.11.1"]
@@ -16,4 +13,4 @@ test = { requires-python = ">=3.10,<3.15" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["packages/bridge/src", "packages/protocol/src"]
+pythonpath = ["packages/bridge/src"]

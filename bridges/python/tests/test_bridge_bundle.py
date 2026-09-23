@@ -1,6 +1,7 @@
-"""Verify the portable payload assembled from uv-resolved dependencies."""
+"""Verify the ZIP contains the Python adapter and native core."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -12,7 +13,7 @@ packager = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(packager)
 
 
-def test_bundle_is_deterministic_and_contains_only_portable_runtime_code(tmp_path):
+def test_bundle_is_deterministic_and_contains_native_core(tmp_path):
     first, second = tmp_path / "first.zip", tmp_path / "second.zip"
     packager.build_bundle(first)
     packager.build_bundle(second)
@@ -20,10 +21,10 @@ def test_bundle_is_deterministic_and_contains_only_portable_runtime_code(tmp_pat
     with ZipFile(first) as archive:
         names = archive.namelist()
         assert "flint_bridge/__init__.py" in names
-        assert "flint_protocol/v1/envelope_pb2.py" in names
-        assert "licenses/protobuf.txt" in names
-        assert not any(name.endswith((".dll", ".pyd", ".so", ".pyc")) for name in names)
-        assert json.loads(archive.read("flint-bridge.json"))["protobuf"] == "4.24.4"
+        assert "flint_bridge/native/" + Path(os.environ["FLINT_BRIDGE_CORE_LIBRARY"]).name in names
+        assert not any(name.startswith(("flint_protocol/", "google/")) for name in names)
+        assert not any(name.endswith(".pyc") for name in names)
+        assert json.loads(archive.read("flint-bridge.json"))["native_core"] == Path(os.environ["FLINT_BRIDGE_CORE_LIBRARY"]).name
 
 
 def test_bundle_imports_without_site_packages(tmp_path):
@@ -33,10 +34,12 @@ def test_bundle_imports_without_site_packages(tmp_path):
         "import sys",
         "sys.path.insert(0, " + repr(str(bundle)) + ")",
         "import flint_bridge",
-        "from flint_protocol.v1.envelope_pb2 import Envelope",
-        "request = Envelope(protocol_version=1, request_id='portable')",
-        "request.heartbeat.instance_id = 'host'",
-        "assert Envelope.FromString(request.SerializeToString()) == request",
+        "from flint_bridge.connection.native import NativeCore",
+        "core = NativeCore({'host':'python','address':'127.0.0.1','port':1,'name':'bundle',",
+        "    'runtime_version':'CPython'})",
+        "assert not core.connected",
+        "core.stop()",
+        "core.close()",
         "print('BUNDLE_OK')",
     ])
     result = subprocess.run([sys.executable, "-I", "-S", "-c", script], cwd=tmp_path,

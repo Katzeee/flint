@@ -4,7 +4,4 @@
     <LangVersion>7.3</LangVersion>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="Google.Protobuf" Version="3.24.4" />
-  </ItemGroup>
 </Project>

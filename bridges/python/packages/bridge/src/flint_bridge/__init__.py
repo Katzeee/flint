@@ -7,10 +7,8 @@ _SERVICE = "_flint_bridge_service"
 _LOCK = "_flint_bridge_lifecycle_lock"
 
 
-def connect(host, address="127.0.0.1", port=6321, name=None, heartbeat_interval=5.0):
+def connect(host, address="127.0.0.1", port=6321, name=None):
     """Return the existing matching bridge, or start a new bridge for this host."""
-    if not 0 < heartbeat_interval < 10:
-        raise ValueError("heartbeat_interval must be between 0 and 10 seconds")
     lock = sys.__dict__.setdefault(_LOCK, threading.RLock())
     with lock:
         current = getattr(sys, _SERVICE, None)
@@ -25,7 +23,7 @@ def connect(host, address="127.0.0.1", port=6321, name=None, heartbeat_interval=
         from .execution.executor import CodeExecutor
         from .execution.runner import CodeRunner
         from .connection.service import Bridge
-        bridge = Bridge(CodeRunner(CodeExecutor(), strategy_for(host)), host, address, port, name or host, heartbeat_interval)
+        bridge = Bridge(CodeRunner(CodeExecutor(), strategy_for(host)), host, address, port, name or host)
         setattr(sys, _SERVICE, bridge)
         return bridge.start()
 

@@ -969,7 +969,23 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tempfile",
  "tokio",
+ "wait-timeout",
+ "zip",
+]
+
+[[package]]
+name = "flint-bridge-core"
+version = "0.1.0"
+dependencies = [
+ "flint-protocol",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "uuid",
 ]
 
 [[package]]
@@ -1011,20 +1027,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "uuid",
-]
-
-[[package]]
-name = "flint-integration-tests"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "flint-protocol",
- "serde_json",
- "tempfile",
- "tokio-util",
- "wait-timeout",
- "zip",
 ]
 
 [[package]]

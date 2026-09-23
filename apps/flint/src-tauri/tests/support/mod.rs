@@ -15,35 +15,39 @@ use wait_timeout::ChildExt;
 
 pub fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
+        .join("../../..")
         .canonicalize()
         .unwrap()
 }
 pub fn binary() -> PathBuf {
-    let root = root();
-    let path = if let Some(path) = env::var_os("FLINT_BINARY") {
-        PathBuf::from(path)
-    } else {
-        PathBuf::from(env::var_os("CARGO_TARGET_DIR").unwrap_or_else(|| "target".into()))
-            .join("debug")
-            .join(format!("flint{}", env::consts::EXE_SUFFIX))
-    };
-    let path = if path.is_absolute() {
-        path
-    } else {
-        root.join(path)
-    };
+    let path = PathBuf::from(env!("CARGO_BIN_EXE_flint"));
     assert!(
         path.is_file(),
-        "Build flint first with cargo build --locked, or set FLINT_BINARY: {}",
+        "Cargo did not build flint: {}",
         path.display()
     );
     path
 }
 pub fn python() -> PathBuf {
-    env::var_os("FLINT_TEST_PYTHON")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| "python".into())
+    if let Some(path) = env::var_os("FLINT_TEST_PYTHON") {
+        return PathBuf::from(path);
+    }
+    let output = Command::new("uv")
+        .args(["python", "find", "3.13"])
+        .output()
+        .expect("uv is required to locate the test Python interpreter");
+    assert!(output.status.success(), "uv could not find Python 3.13");
+    let path = PathBuf::from(
+        String::from_utf8(output.stdout)
+            .expect("Invalid Python path")
+            .trim(),
+    );
+    assert!(
+        path.is_file(),
+        "Python interpreter does not exist: {}",
+        path.display()
+    );
+    path
 }
 pub fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

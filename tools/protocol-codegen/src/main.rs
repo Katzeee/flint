@@ -1,4 +1,4 @@
-//! Generate the language bindings without depending on the application or Node.js.
+//! Generate the Rust protocol binding without depending on the application or Node.js.
 use std::{
     error::Error,
     fs, io,
@@ -26,25 +26,18 @@ fn files_under(root: &Path, directory: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-fn managed(language: &str, path: &Path) -> bool {
+fn managed(path: &Path) -> bool {
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or_default();
-    match language {
-        "python" => {
-            path.starts_with(Path::new("flint_protocol").join("v1")) && name.ends_with("_pb2.py")
-        }
-        "csharp" => name.ends_with(".cs"),
-        "rust" => name.ends_with(".rs") && name != "mod.rs",
-        _ => false,
-    }
+    name.ends_with(".rs") && name != "mod.rs"
 }
 
-fn synchronize(language: &str, generated: &Path, destination: &Path, check: bool) -> Result<()> {
+fn synchronize(generated: &Path, destination: &Path, check: bool) -> Result<()> {
     let emitted = files_under(generated, generated)?;
     for existing in files_under(destination, destination)? {
-        if managed(language, &existing) && !emitted.contains(&existing) {
+        if managed(&existing) && !emitted.contains(&existing) {
             let path = destination.join(existing);
             if check {
                 return Err(format!("Obsolete generated file: {}", path.display()).into());
@@ -66,7 +59,7 @@ fn synchronize(language: &str, generated: &Path, destination: &Path, check: bool
             fs::write(target, content)?;
         }
     }
-    println!("{} {language}", if check { "Checked" } else { "Generated" });
+    println!("{} Rust", if check { "Checked" } else { "Generated" });
     Ok(())
 }
 
@@ -96,46 +89,20 @@ fn generate(root: &Path, temporary: &Path, check: bool) -> Result<()> {
     {
         return Err("Protocol generation requires protoc 24.4".into());
     }
-    for language in ["python", "csharp", "rust"] {
-        fs::create_dir_all(temporary.join(language))?;
-    }
-    let status = Command::new(&protoc)
-        .current_dir(&protocol)
-        .arg("-I")
-        .arg(&protocol)
-        .arg(format!(
-            "--python_out={}",
-            temporary.join("python").display()
-        ))
-        .arg(format!(
-            "--csharp_out={}",
-            temporary.join("csharp").display()
-        ))
-        .args(
-            ["common", "control", "host", "envelope"]
-                .map(|n| format!("flint_protocol/v1/{n}.proto")),
-        )
-        .status()?;
-    if !status.success() {
-        return Err("protoc failed".into());
-    }
+    let generated = temporary.join("rust");
+    fs::create_dir_all(&generated)?;
     std::env::set_var("PROTOC", &protoc);
     prost_build::Config::new()
-        .out_dir(temporary.join("rust"))
+        .out_dir(&generated)
         .compile_protos(
             &[protocol.join("flint_protocol/v1/envelope.proto")],
             &[protocol],
         )?;
-    for (language, destination) in [
-        ("python", root.join("bridges/python/packages/protocol/src")),
-        (
-            "csharp",
-            root.join("bridges/dotnet/src/Flint.Protocol/Generated"),
-        ),
-        ("rust", root.join("crates/flint-protocol/src/generated")),
-    ] {
-        synchronize(language, &temporary.join(language), &destination, check)?;
-    }
+    synchronize(
+        &generated,
+        &root.join("crates/flint-protocol/src/generated"),
+        check,
+    )?;
     Ok(())
 }
 

@@ -1,6 +1,5 @@
 syntax = "proto3";
 package flint_protocol.v1;
-option csharp_namespace = "Flint.Protocol.V1";
 import "flint_protocol/v1/common.proto";
 
 message PingRequest {}

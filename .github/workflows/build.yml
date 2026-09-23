@@ -44,17 +44,13 @@ jobs:
         with:
           version: '24.4'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Generated protocol bindings are current
+      - name: Generated Rust protocol bindings are current
         run: cargo codegen --check
-      - name: Build test application
-        run: cargo build --locked
       - name: Rust unit and product integration tests
         env:
           FLINT_TEST_PYTHON: '${{ steps.python313.outputs.python-path }}'
         run: cargo test --workspace --locked
       - name: Python Bridge component tests
         run: uv run --directory bridges/python --locked --package flint-bridge --group test --python 3.13 pytest -q
-      - name: C# and Python interoperability
-        env:
-          FLINT_TEST_PYTHON: '${{ steps.python313.outputs.python-path }}'
-        run: cargo test --locked -p flint-integration-tests --test protocol_interop csharp -- --ignored
+      - name: C# Bridge wrapper build
+        run: dotnet build bridges/dotnet/src/Flint.Bridge/Flint.Bridge.csproj -p:RestoreLockedMode=true -p:NuGetAudit=false

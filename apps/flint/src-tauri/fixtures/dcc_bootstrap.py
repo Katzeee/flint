@@ -21,7 +21,7 @@ try:
         import pymxs
         report["version"] = str(pymxs.runtime.maxVersion())
         report["scene"] = str(pymxs.runtime.maxFileName)
-    bridge = connect(host=CONFIG["host"], name="Rust integration test", port=CONFIG["port"], heartbeat_interval=0.25)
+    bridge = connect(host=CONFIG["host"], name="Rust integration test", port=CONFIG["port"])
     if not bridge.wait_until_connected(15):
         raise RuntimeError("Both bridge channels did not connect")
     report["instance_id"] = bridge.instance_id

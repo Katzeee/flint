@@ -3,6 +3,7 @@ use crate::{
     Config,
 };
 use anyhow::{Context, Result};
+use flint_protocol::timing::HEARTBEAT_IDLE_TIMEOUT;
 use flint_protocol::{envelope::Payload, *};
 use futures_util::{SinkExt, StreamExt};
 use std::{
@@ -145,7 +146,7 @@ impl Backend {
                 }
                 _ = sweep.tick() => {
                     let expired: Vec<_> = self.handle.0.state.lock().unwrap().sessions.iter()
-                        .filter(|(_,s)| s.heartbeat.elapsed() > Duration::from_secs(15)).map(|(id,_)| id.clone()).collect();
+                        .filter(|(_,s)| s.heartbeat.elapsed() > HEARTBEAT_IDLE_TIMEOUT).map(|(id,_)| id.clone()).collect();
                     for id in expired { disconnect(&self.handle, &id); }
                 }
                 _ = tasks.join_next(), if !tasks.is_empty() => {}
@@ -470,7 +471,7 @@ async fn host_connection(backend: BackendHandle, socket: TcpStream) -> Result<()
                 loop {
                     let message = tokio::select! {
                         _ = cancel.cancelled() => break,
-                        msg = tokio::time::timeout(Duration::from_secs(15), read(&mut wire)) => msg??,
+                        msg = tokio::time::timeout(HEARTBEAT_IDLE_TIMEOUT, read(&mut wire)) => msg??,
                     };
                     anyhow::ensure!(matches!(message.payload, Some(Payload::Heartbeat(ref h)) if h.instance_id == id), "Invalid heartbeat");
                     if let Some(session) = backend.0.state.lock().unwrap().sessions.get_mut(&id) { session.heartbeat = Instant::now(); }

@@ -12,7 +12,7 @@ report = {"pid": os.getpid(), "version": "%s.%s" % sys.version_info[:2]}
 try:
     sys.path.insert(0, config["bundle"])
     from flint_bridge import connect, disconnect
-    bridge = connect("python", port=config["port"], heartbeat_interval=0.25)
+    bridge = connect("python", port=config["port"])
     if not bridge.wait_until_connected(10):
         raise RuntimeError("Both channels did not become ready")
     report["instance_id"] = bridge.instance_id
@@ -27,6 +27,6 @@ if "error" not in report:
         if trigger.exists():
             trigger.unlink()
             # Transport fault injection stays inside this disposable fixture.
-            bridge._loop.call_soon_threadsafe(bridge._writers[1].close)
+            bridge._force_reconnect()
         time.sleep(0.05)
     disconnect()
