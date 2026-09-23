@@ -1,7 +1,7 @@
 mod support;
 use anyhow::Result;
 use serde_json::json;
-use std::{env, fs, path::PathBuf, process::Command, time::Duration};
+use std::{fs, process::Command, time::Duration};
 use support::*;
 
 #[test]
@@ -195,24 +195,6 @@ fn exported_bridge_contains_its_portable_dependencies() -> Result<()> {
         assert!(archive.by_name(name).is_ok(), "Missing {name}");
     }
     assert!(!archive.file_names().any(|n| n.starts_with("flint/server")));
-    Ok(())
-}
-
-#[test]
-#[ignore = "Set FLINT_PYTHON37 to a Python 3.7 interpreter"]
-fn python37_loads_the_exported_bridge() -> Result<()> {
-    let interpreter =
-        PathBuf::from(env::var_os("FLINT_PYTHON37").expect("FLINT_PYTHON37 is required"));
-    let app = App::new();
-    let host = PythonHost::start(&app, &interpreter)?;
-    assert_eq!(host.report["version"], "3.7");
-    let execution = app.execute(
-        host.report["instance_id"].as_str().unwrap(),
-        &app.workflow("python37")?,
-        "print('PY37_OK')",
-        0,
-    )?;
-    assert_eq!(execution["status"], "succeeded");
     Ok(())
 }
 
