@@ -1,6 +1,6 @@
 # .NET Bridge
 
-The supported .NET host is Unity Editor on Windows x64, verified with Unity 2022.3.62f1 on Mono. CoreCLR is not yet verified. Unity must load the Bridge to connect; `flint hosts` only discovers the Editor process.
+The supported .NET host is Unity Editor on Windows x64 with Mono. Unity must load the Bridge to connect; `flint hosts` only discovers the Editor process.
 
 ## C# integration
 

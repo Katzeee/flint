@@ -30,7 +30,7 @@ Alternatively, run the shared setup and this connection call from Maya's Python 
 bridge = flint_bridge.connect(host="maya", name="My Maya")
 ```
 
-This integration is validated with Maya 2024. Code submitted through flint executes on Maya's UI thread.
+Code submitted through flint executes on Maya's UI thread.
 
 ## 3ds Max
 
@@ -42,7 +42,7 @@ Alternatively, run the shared setup and this connection call in 3ds Max's Python
 bridge = flint_bridge.connect(host="max", name="My Max")
 ```
 
-This integration is validated with 3ds Max 2024. Code submitted through flint executes on the application's UI thread.
+Code submitted through flint executes on the application's UI thread.
 
 ## Blender
 
@@ -54,7 +54,7 @@ Alternatively, run the shared setup and this connection call in Blender's Python
 bridge = flint_bridge.connect(host="blender", name="My Blender")
 ```
 
-This integration is validated with Blender 5.2. Both connection methods register a Blender timer on the main thread and execute submitted code there. Keep Blender's event loop running while the Bridge is connected. Code may use `bpy` to work with the open scene.
+Both connection methods register a Blender timer on the main thread and execute submitted code there. Keep Blender's event loop running while the Bridge is connected. Code may use `bpy` to work with the open scene.
 
 ## Plain Python
 

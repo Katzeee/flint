@@ -32,10 +32,6 @@ fn exported_package_registers_and_executes() -> Result<()> {
     fs::create_dir_all(project.join("ProjectSettings"))?;
     fs::create_dir_all(project.join("Packages"))?;
     fs::write(
-        project.join("ProjectSettings/ProjectVersion.txt"),
-        "m_EditorVersion: 2022.3.62f1\n",
-    )?;
-    fs::write(
         project.join("Assets/Editor/FlintTestBootstrap.cs"),
         format!(
             r#"using UnityEditor;

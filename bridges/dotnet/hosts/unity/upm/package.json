@@ -2,6 +2,5 @@
   "name": "com.flint.bridge",
   "version": "0.1.0",
   "displayName": "Flint Bridge",
-  "description": "Connect the Unity Editor to flint.",
-  "unity": "2022.3"
+  "description": "Connect the Unity Editor to flint."
 }
