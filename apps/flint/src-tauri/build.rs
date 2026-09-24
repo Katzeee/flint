@@ -51,5 +51,9 @@ fn main() {
         .status()
         .expect("uv is required on PATH to run the Bridge packager");
     assert!(status.success(), "Bridge packaging failed");
-    tauri_build::build();
+    println!("cargo:rerun-if-changed=windows-app-manifest.xml");
+    let windows = tauri_build::WindowsAttributes::new()
+        .app_manifest(include_str!("windows-app-manifest.xml"));
+    let attributes = tauri_build::Attributes::new().windows_attributes(windows);
+    tauri_build::try_build(attributes).expect("Tauri build failed");
 }
