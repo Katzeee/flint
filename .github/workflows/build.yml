@@ -12,8 +12,12 @@ jobs:
           version: '0.12.17'
       - name: Build directly from source
         run: cargo build --locked --release
-      - name: Export the embedded Bridge
-        run: target/release/flint.exe bridge export --output target/release/flint-bridge.zip
+      - name: Export Python Bridge
+        run: target/release/flint.exe bridge export python --output target/release/flint-python.zip
+      - name: Export C# Bridge
+        run: target/release/flint.exe bridge export csharp --output target/release/flint-csharp.zip
+      - name: Export Unity Bridge
+        run: target/release/flint.exe bridge export unity --output target/release/flint-unity.tgz
       - name: Build environments stay under target
         shell: pwsh
         run: |
@@ -25,7 +29,9 @@ jobs:
           name: flint-windows-x64
           path: |
             target/release/flint.exe
-            target/release/flint-bridge.zip
+            target/release/flint-python.zip
+            target/release/flint-csharp.zip
+            target/release/flint-unity.tgz
   test:
     runs-on: windows-2022
     steps:

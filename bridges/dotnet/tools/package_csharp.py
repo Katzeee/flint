@@ -1,19 +1,17 @@
-"""Package the host bridge and native connection core."""
+"""Export the C# binding and native core as a flat ZIP."""
+
 import argparse
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
-ROOT = Path(__file__).resolve().parents[1]
+DOTNET = Path(__file__).resolve().parents[1]
 
 
 def build_bundle(destination: Path, native: Path) -> None:
-    entries = {}
-    folder = ROOT / "packages/bridge/src/flint_bridge"
-    for source in sorted(folder.rglob("*.py")):
-        entries["flint_bridge/" + source.relative_to(folder).as_posix()] = source.read_bytes()
-    if native.name not in ("flint_bridge_core.dll", "libflint_bridge_core.so", "libflint_bridge_core.dylib"):
-        raise ValueError("Unexpected native Bridge core name: " + native.name)
-    entries["flint_bridge/" + native.name] = native.read_bytes()
+    entries = {
+        "NativeBridge.cs": (DOTNET / "src/Flint.Bridge/NativeBridge.cs").read_bytes(),
+        native.name: native.read_bytes(),
+    }
     destination.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(destination, "w") as archive:
         for name, content in sorted(entries.items()):

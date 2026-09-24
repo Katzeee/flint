@@ -12,7 +12,6 @@ using UnityEngine;
 namespace Flint.Unity
 {
     /// <summary>Unity Editor main-thread adapter for the shared Flint connection core.</summary>
-    [InitializeOnLoad]
     public static class EditorBridge
     {
         [Serializable]
@@ -57,11 +56,6 @@ namespace Flint.Unity
             EditorApplication.update += Update;
             AssemblyReloadEvents.beforeAssemblyReload += Disconnect;
             EditorApplication.quitting += Disconnect;
-            var library = Environment.GetEnvironmentVariable("FLINT_UNITY_CORE");
-            var portText = Environment.GetEnvironmentVariable("FLINT_UNITY_PORT");
-            int port;
-            if (!string.IsNullOrEmpty(library) && int.TryParse(portText, out port))
-                EditorApplication.delayCall += () => Connect(library, "127.0.0.1", port, "Unity Editor");
         }
 
         public static bool Connected { get { return bridge != null && bridge.Connected; } }

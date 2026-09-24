@@ -7,15 +7,15 @@ The Python Bridge connects an application's Python runtime to flint. It supports
 Export the complete Bridge ZIP and start the backend:
 
 ```text
-flint bridge export --output flint-bridge.zip
+flint bridge export python
 flint start
 ```
 
-The ZIP includes the Python adapter and the platform's native Bridge core. It needs no third-party Python packages and can be loaded without a development checkout or pip installation; on first connection it extracts the DLL to a versioned temporary directory. Make the ZIP accessible to the host, then run this shared setup inside that host's Python environment. Replace the path with the absolute path to your exported ZIP:
+The ZIP includes the Python adapter and the platform's native Bridge core in the same `flint_bridge` package. It needs no third-party Python packages and can be loaded without a development checkout or pip installation; on first connection it extracts the DLL to a versioned temporary directory. Make the ZIP accessible to the host, then run this shared setup inside that host's Python environment. Replace the path with the absolute path to your exported ZIP:
 
 ```python
 import sys
-sys.path.insert(0, "C:/tools/flint-bridge.zip")
+sys.path.insert(0, "C:/tools/flint-python.zip")
 
 import flint_bridge
 ```

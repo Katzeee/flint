@@ -225,12 +225,21 @@ impl App {
             .with_context(|| format!("Invalid JSON: {}", result.stdout))?)
     }
     pub fn export(&self) -> Result<PathBuf> {
-        let bundle = self.directory.join("bridge.zip");
+        let bundle = self.directory.join("flint-python.zip");
         checked(
             Command::new(&self.binary)
                 .current_dir(&self.directory)
-                .args(["bridge", "export", "--output"])
-                .arg(&bundle),
+                .args(["bridge", "export", "python"]),
+            Duration::from_secs(15),
+        )?;
+        Ok(bundle)
+    }
+    pub fn export_unity(&self) -> Result<PathBuf> {
+        let bundle = self.directory.join("flint-unity.tgz");
+        checked(
+            Command::new(&self.binary)
+                .current_dir(&self.directory)
+                .args(["bridge", "export", "unity"]),
             Duration::from_secs(15),
         )?;
         Ok(bundle)

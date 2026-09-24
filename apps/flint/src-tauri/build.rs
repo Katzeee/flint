@@ -1,19 +1,33 @@
 use std::{path::Path, process::Command};
 
+fn package(root: &Path, script: &str, output: &Path, native: &Path) {
+    let status = Command::new("uv")
+        .current_dir(root.join("bridges/python"))
+        .args(["run", "--no-project", "--python", "3.13", "python"])
+        .arg("-I")
+        .arg(root.join(script))
+        .arg(output)
+        .arg("--native")
+        .arg(native)
+        .status()
+        .expect("uv is required on PATH to run Bridge packagers");
+    assert!(status.success(), "Bridge packaging failed: {script}");
+}
+
 fn main() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let python_project = root.join("bridges/python");
     let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     for input in [
+        "Cargo.toml",
         "Cargo.lock",
         "crates/flint-protocol/Cargo.toml",
         "crates/flint-protocol/src",
         "crates/flint-bridge-core/Cargo.toml",
         "crates/flint-bridge-core/src",
         "bridges/python/tools/package_bridge.py",
-        "bridges/python/packages/bridge/pyproject.toml",
         "bridges/python/packages/bridge/src/flint_bridge",
-        "bridges/dotnet/unity/EditorBridge.cs",
+        "bridges/dotnet/tools/package_csharp.py",
+        "bridges/dotnet/hosts/unity",
         "bridges/dotnet/src/Flint.Bridge/NativeBridge.cs",
     ] {
         println!("cargo:rerun-if-changed={}", root.join(input).display());
@@ -42,17 +56,28 @@ fn main() {
         _ => "libflint_bridge_core.so",
     };
     let native = native_target.join(target).join("release").join(library);
-    let status = Command::new("uv")
-        .current_dir(&python_project)
-        .args(["run", "--no-project", "--python", "3.13", "python"])
-        .arg("-I")
-        .arg(python_project.join("tools/package_bridge.py"))
-        .arg(out.join("flint-bridge.zip"))
-        .arg("--native")
-        .arg(&native)
-        .status()
-        .expect("uv is required on PATH to run the Bridge packager");
-    assert!(status.success(), "Bridge packaging failed");
+    package(
+        &root,
+        "bridges/python/tools/package_bridge.py",
+        &out.join("flint-python.zip"),
+        &native,
+    );
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        package(
+            &root,
+            "bridges/dotnet/tools/package_csharp.py",
+            &out.join("flint-csharp.zip"),
+            &native,
+        );
+        if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64") {
+            package(
+                &root,
+                "bridges/dotnet/hosts/unity/upm/package.py",
+                &out.join("flint-unity.tgz"),
+                &native,
+            );
+        }
+    }
     println!("cargo:rerun-if-changed=windows-app-manifest.xml");
     let windows = tauri_build::WindowsAttributes::new()
         .app_manifest(include_str!("windows-app-manifest.xml"));

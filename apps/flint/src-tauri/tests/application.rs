@@ -83,12 +83,12 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
     let host = PythonHost::start(&app, &python())?;
     let id = host.report["instance_id"].as_str().unwrap();
     let workflow = app.workflow("long")?;
-    let execution = app.execute(
-        id,
-        &workflow,
-        "import time\nprint('BEGIN', flush=True)\ntime.sleep(11)\nprint('DONE')",
-        0,
-    )?;
+    let release = app.directory.join("release-long-work");
+    let code = format!(
+        "import time\nfrom pathlib import Path\nprint('BEGIN', flush=True)\nwhile not Path({}).exists():\n    time.sleep(0.05)\nprint('DONE')",
+        json!(release.to_string_lossy().as_ref())
+    );
+    let execution = app.execute(id, &workflow, &code, 0)?;
     assert_eq!(execution["status"], "running");
     assert!(app.details(&workflow, &execution, 0)?["stdout"]
         .as_str()
@@ -99,6 +99,7 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
         app.execute(id, &workflow, "print('must not run')", 1)?["error_code"],
         "instance_busy"
     );
+    fs::write(&release, b"release")?;
     wait_until(Duration::from_secs(15), || {
         Ok(app.details(&workflow, &execution, 0)?["status"] == "succeeded")
     })?;
@@ -207,33 +208,6 @@ fn file_and_stdin_sources_are_preserved() -> Result<()> {
         app.details(&workflow, &execution, 0)?["stdout"],
         "FROM_STDIN\n"
     );
-    Ok(())
-}
-
-#[test]
-fn exported_bridge_contains_native_core_and_python_adapter() -> Result<()> {
-    let app = App::new();
-    let bundle = app.export()?;
-    let mut archive = zip::ZipArchive::new(fs::File::open(bundle)?)?;
-    let native = if cfg!(target_os = "windows") {
-        "flint_bridge/native/flint_bridge_core.dll"
-    } else if cfg!(target_os = "macos") {
-        "flint_bridge/native/libflint_bridge_core.dylib"
-    } else {
-        "flint_bridge/native/libflint_bridge_core.so"
-    };
-    for name in [
-        "flint_bridge/__init__.py",
-        "unity/EditorBridge.cs",
-        "unity/NativeBridge.cs",
-        native,
-    ] {
-        assert!(archive.by_name(name).is_ok(), "Missing {name}");
-    }
-    assert!(!archive
-        .file_names()
-        .any(|name| name.starts_with("flint_protocol/") || name.starts_with("google/")));
-    assert!(!archive.file_names().any(|n| n.starts_with("flint/server")));
     Ok(())
 }
 

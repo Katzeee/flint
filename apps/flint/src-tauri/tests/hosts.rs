@@ -210,47 +210,59 @@ fn unity_active_connection() -> Result<()> {
     anyhow::ensure!(executable.is_file(), "Unity executable does not exist");
     let app = App::evidence("unity");
     app.call("start", &[], 0)?;
-    let bundle = app.export()?;
-    let archive = fs::File::open(bundle)?;
-    let mut zip = zip::ZipArchive::new(archive)?;
-    let library = app.directory.join("flint_bridge_core.dll");
-    let mut native = fs::File::create(&library)?;
-    std::io::copy(
-        &mut zip.by_name("flint_bridge/native/flint_bridge_core.dll")?,
-        &mut native,
+    let bundle = app.export_unity()?;
+    let unity_path =
+        |path: &std::path::Path| PathBuf::from(path.to_string_lossy().trim_start_matches(r"\\?\"));
+    checked(
+        Command::new("tar")
+            .arg("-xzf")
+            .arg(unity_path(&bundle))
+            .arg("-C")
+            .arg(unity_path(&app.directory)),
+        Duration::from_secs(15),
     )?;
-    drop(native);
+    let package = app.directory.join("package");
+    let bootstrap = package.join("Editor/EditorBootstrap.cs");
+    let source = fs::read_to_string(&bootstrap)?;
+    let default_port = "private const int RegistryPort = 6321;";
+    anyhow::ensure!(
+        source.matches(default_port).count() == 1,
+        "Missing Unity registry port"
+    );
+    fs::write(
+        &bootstrap,
+        source.replace(
+            default_port,
+            &format!("private const int RegistryPort = {};", app.registry_port),
+        ),
+    )?;
 
     let project = app.directory.join("unity-project");
-    let editor = project.join("Assets/Editor/Flint");
-    fs::create_dir_all(&editor)?;
+    fs::create_dir_all(project.join("Assets"))?;
     fs::create_dir_all(project.join("ProjectSettings"))?;
     fs::create_dir_all(project.join("Packages"))?;
     fs::write(
         project.join("ProjectSettings/ProjectVersion.txt"),
         "m_EditorVersion: 2022.3.62f1\n",
     )?;
+    let package_path = package
+        .to_string_lossy()
+        .trim_start_matches(r"\\?\")
+        .replace('\\', "/");
     fs::write(
         project.join("Packages/manifest.json"),
-        "{\"dependencies\":{}}\n",
+        serde_json::to_vec(
+            &json!({"dependencies":{"com.flint.bridge":format!("file:{package_path}")}}),
+        )?,
     )?;
-    for name in ["NativeBridge.cs", "EditorBridge.cs"] {
-        let mut source = zip.by_name(&format!("unity/{name}"))?;
-        let mut destination = fs::File::create(editor.join(name))?;
-        std::io::copy(&mut source, &mut destination)?;
-    }
     let log = app.directory.join("unity.log");
     let mut command = Command::new(executable);
-    let unity_path =
-        |path: &std::path::Path| PathBuf::from(path.to_string_lossy().trim_start_matches(r"\\?\"));
     command
         .args(["-batchmode", "-nographics", "-projectPath"])
         .arg(unity_path(&project))
         .arg("-logFile")
         .arg(unity_path(&log))
         .current_dir(unity_path(&project))
-        .env("FLINT_UNITY_CORE", unity_path(&library))
-        .env("FLINT_UNITY_PORT", app.registry_port.to_string())
         .stdin(Stdio::null())
         .stdout(fs::File::create(app.directory.join("unity.stdout"))?)
         .stderr(fs::File::create(app.directory.join("unity.stderr"))?);

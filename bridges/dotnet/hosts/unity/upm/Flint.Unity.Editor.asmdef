@@ -1,0 +1,7 @@
+{
+  "name": "Flint.Unity.Editor",
+  "rootNamespace": "Flint.Unity",
+  "references": [],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

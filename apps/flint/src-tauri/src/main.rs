@@ -1,3 +1,4 @@
+mod bridge_export;
 mod cli;
 mod desktop;
 

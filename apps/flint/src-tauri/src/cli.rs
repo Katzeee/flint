@@ -1,3 +1,4 @@
+use crate::bridge_export::BridgeExport;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use flint_control_client::{payload_json, request, status_json, Lifecycle, RemoteError};
@@ -56,8 +57,8 @@ enum Command {
 #[derive(Subcommand)]
 enum BridgeCommand {
     Export {
-        #[arg(long)]
-        output: PathBuf,
+        #[command(subcommand)]
+        format: BridgeExport,
     },
 }
 
@@ -190,16 +191,10 @@ pub fn run() -> i32 {
 }
 fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
     if let Command::Bridge {
-        command: BridgeCommand::Export { output },
+        command: BridgeCommand::Export { format },
     } = &command
     {
-        std::fs::write(
-            output,
-            include_bytes!(concat!(env!("OUT_DIR"), "/flint-bridge.zip")),
-        )?;
-        return Ok(Some(
-            serde_json::json!({"path":output,"version":env!("CARGO_PKG_VERSION")}),
-        ));
+        return Ok(Some(format.write()?));
     }
     if let Command::Hosts { .. } = &command {
         let hosts = flint_connect::discover();

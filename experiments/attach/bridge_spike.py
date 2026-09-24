@@ -42,8 +42,8 @@ def run_spike(args):
             raise RuntimeError("%s failed: %s %s" % (name, result.stdout, result.stderr))
         return json.loads(result.stdout)
 
-    bridge_zip = output / "flint-bridge.zip"
-    subprocess.run([str(flint), "bridge", "export", "--output", str(bridge_zip)],
+    bridge_zip = output / "flint-python.zip"
+    subprocess.run([str(flint), "bridge", "export", "python", "--output", str(bridge_zip)],
                    cwd=output, check=True, capture_output=True, timeout=20)
     command("start")
     try:

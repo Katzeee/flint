@@ -1,9 +1,9 @@
-"""Build the native core used by Bridge component and bundle tests."""
+"""Build the native core and load its exported ZIP for component tests."""
 import os
 from pathlib import Path
 import subprocess
 import sys
-
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 LIBRARY = (
@@ -15,4 +15,15 @@ subprocess.run(["cargo", "build", "--locked", "-p", "flint-bridge-core"], cwd=RO
 target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
 if not target.is_absolute():
     target = ROOT / target
-os.environ["FLINT_BRIDGE_CORE_LIBRARY"] = str(target / "debug" / LIBRARY)
+NATIVE = target / "debug" / LIBRARY
+bundle_dir = tempfile.TemporaryDirectory(prefix="flint-python-tests-")
+bundle = Path(bundle_dir.name) / "flint-python.zip"
+subprocess.run([
+    sys.executable, str(ROOT / "bridges/python/tools/package_bridge.py"),
+    str(bundle), "--native", str(NATIVE),
+], cwd=ROOT, check=True)
+sys.path.insert(0, str(bundle))
+
+
+def pytest_unconfigure(config):
+    bundle_dir.cleanup()

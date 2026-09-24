@@ -16,7 +16,7 @@ From the repository root in PowerShell:
 cargo build --locked --release
 ```
 
-The resulting executable is target/release/flint.exe and includes the Python Bridge and its native connection core. The build compiles that core from the locked Rust workspace and places it inside the exported Bridge ZIP. Confirm that the executable starts and exposes its command interface:
+The resulting executable is target/release/flint.exe and includes the Bridge export packages for Python, C#, and Unity. The build compiles the native connection core from the locked Rust workspace and places it in each package. Confirm that the executable starts and exposes its command interface:
 
 ```powershell
 .\target\release\flint.exe --version
@@ -29,4 +29,4 @@ Setup is complete when the build succeeds and both commands exit successfully. R
 
 Run `cargo test --workspace --locked` from the repository root. Cargo builds the application executable used by the product integration tests, so a separate `cargo build` is not required. The test driver uses uv to locate Python 3.13 unless `FLINT_TEST_PYTHON` selects an interpreter explicitly.
 
-The Unity product integration test uses a fresh temporary project and a Unity 2022.3 Mono Editor. Set `FLINT_UNITY_EXE` to that Editor's `Unity.exe`, then run `cargo test -p flint --test hosts unity_active_connection --locked -- --ignored --nocapture`. The test extracts the exported Bridge, checks connection, C# execution and output, exception reporting, and reconnection, then stops only the Editor it started.
+The Unity product integration test uses a fresh temporary project and a Unity 2022.3 Mono Editor. Set `FLINT_UNITY_EXE` to that Editor's `Unity.exe`, then run `cargo test -p flint --test hosts unity_active_connection --locked -- --ignored --nocapture`. The test installs the exported Unity package, checks connection, C# execution and output, exception reporting, and reconnection, then stops only the Editor it started.

@@ -18,10 +18,7 @@ def _library_name():
 
 
 def _library_path():
-    configured = os.environ.get("FLINT_BRIDGE_CORE_LIBRARY")
-    if configured:
-        return Path(configured)
-    data = pkgutil.get_data("flint_bridge", "native/" + _library_name())
+    data = pkgutil.get_data("flint_bridge", _library_name())
     if data is None:
         raise RuntimeError("Bridge package has no native connection core")
     digest = hashlib.sha256(data).hexdigest()[:20]
