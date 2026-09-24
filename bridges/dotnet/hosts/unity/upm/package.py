@@ -47,6 +47,7 @@ def build_bundle(destination: Path, native: Path) -> None:
         "package/Editor/Flint.Unity.Editor.asmdef":
             (UPM / "Flint.Unity.Editor.asmdef").read_bytes(),
         "package/Editor/EditorBootstrap.cs": (UPM / "EditorBootstrap.cs").read_bytes(),
+        "package/Editor/EditorConnectionSettings.cs": (UPM / "EditorConnectionSettings.cs").read_bytes(),
         "package/Editor/EditorBridge.cs": (UNITY / "EditorBridge.cs").read_bytes(),
         "package/Editor/NativeBridge.cs":
             (DOTNET / "src/Flint.Bridge/NativeBridge.cs").read_bytes(),

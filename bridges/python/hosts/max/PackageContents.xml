@@ -5,4 +5,8 @@
     <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2024" SeriesMax="2024" />
     <ComponentEntry ModuleName="./Contents/Scripts/flint_startup.ms" />
   </Components>
+  <Components Description="macroscripts parts">
+    <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2024" SeriesMax="2024" />
+    <ComponentEntry ModuleName="./Contents/Scripts/flint_settings.mcr" />
+  </Components>
 </ApplicationPackage>

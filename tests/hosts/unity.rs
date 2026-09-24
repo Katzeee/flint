@@ -26,28 +26,35 @@ fn unity_active_connection() -> Result<()> {
         Duration::from_secs(15),
     )?;
     let package = app.directory.join("package");
-    let bootstrap = package.join("Editor/EditorBootstrap.cs");
-    let source = fs::read_to_string(&bootstrap)?;
-    let default_port = "private const int RegistryPort = 6321;";
-    anyhow::ensure!(
-        source.matches(default_port).count() == 1,
-        "Missing Unity registry port"
-    );
-    fs::write(
-        &bootstrap,
-        source.replace(
-            default_port,
-            &format!("private const int RegistryPort = {};", app.registry_port),
-        ),
-    )?;
-
     let project = app.directory.join("unity-project");
     fs::create_dir_all(project.join("Assets"))?;
+    fs::create_dir_all(project.join("Assets/Editor"))?;
     fs::create_dir_all(project.join("ProjectSettings"))?;
     fs::create_dir_all(project.join("Packages"))?;
     fs::write(
         project.join("ProjectSettings/ProjectVersion.txt"),
         "m_EditorVersion: 2022.3.62f1\n",
+    )?;
+    fs::write(
+        project.join("Assets/Editor/FlintTestBootstrap.cs"),
+        format!(
+            r#"using UnityEditor;
+
+[InitializeOnLoad]
+public static class FlintTestBootstrap
+{{
+    static FlintTestBootstrap() {{ EditorApplication.update += Apply; }}
+
+    static void Apply()
+    {{
+        if (Flint.Unity.EditorBridge.StatusJson == null) return;
+        Flint.Unity.EditorBridge.ApplySettings("127.0.0.1", {}, "Unity Editor", true);
+        EditorApplication.update -= Apply;
+    }}
+}}
+"#,
+            app.registry_port
+        ),
     )?;
     let package_path = package
         .to_string_lossy()

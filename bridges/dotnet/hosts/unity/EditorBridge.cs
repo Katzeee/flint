@@ -22,6 +22,16 @@ namespace Flint.Unity
             public int port;
             public string name;
             public string runtime_version;
+            public bool enabled;
+        }
+
+        [Serializable]
+        private sealed class ConnectionSettings
+        {
+            public string address;
+            public int port;
+            public string name;
+            public bool enabled;
         }
 
         [Serializable]
@@ -59,8 +69,10 @@ namespace Flint.Unity
         }
 
         public static bool Connected { get { return bridge != null && bridge.Connected; } }
+        public static bool Busy { get { return bridge != null && bridge.Busy; } }
+        public static string StatusJson { get { return bridge == null ? null : bridge.StatusJson; } }
 
-        public static void Connect(string nativeLibrary, string address, int port, string name)
+        public static void Connect(string nativeLibrary, string address, int port, string name, bool enabled = true)
         {
             Disconnect();
             if (port < 1 || port > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(port));
@@ -69,6 +81,7 @@ namespace Flint.Unity
                 address = address,
                 port = port,
                 name = name,
+                enabled = enabled,
                 runtime_version = Application.unityVersion +
                     (Type.GetType("Mono.Runtime") != null ? " Mono" : " .NET")
             };
@@ -79,6 +92,21 @@ namespace Flint.Unity
             stopping = false;
             poller = new Thread(Poll) { IsBackground = true, Name = "flint-unity-poll" };
             poller.Start();
+        }
+
+        public static void ApplySettings(string address, int port, string name, bool enabled)
+        {
+            if (bridge == null) throw new InvalidOperationException("Flint Bridge has not started");
+            bridge.ApplySettings(JsonUtility.ToJson(new ConnectionSettings
+            {
+                address = address, port = port, name = name, enabled = enabled
+            }));
+        }
+
+        public static void Reconnect()
+        {
+            if (bridge == null) throw new InvalidOperationException("Flint Bridge has not started");
+            bridge.Reconnect();
         }
 
         public static void Disconnect()

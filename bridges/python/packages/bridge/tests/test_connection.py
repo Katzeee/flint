@@ -2,15 +2,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from flint_bridge import connect, disconnect
+from flint_bridge import configure, connect, disconnect
 
 
 def test_explicit_endpoint_change_does_not_replace_running_bridge(monkeypatch):
     class FakeBridge:
-        def __init__(self, runner, host, address, port, name):
+        def __init__(self, runner, host, address, port, name, enabled=True):
             self.runner = runner
             self.host, self.address, self.port = host, address, port
+            self.name, self.enabled = name, enabled
             self.thread = SimpleNamespace(is_alive=lambda: True)
+
+        def apply_settings(self, address, port, name, enabled=True):
+            self.address, self.port, self.name, self.enabled = address, port, name, enabled
 
         def start(self):
             return self
@@ -25,6 +29,8 @@ def test_explicit_endpoint_change_does_not_replace_running_bridge(monkeypatch):
         assert connect("python", port=1) is bridge
         with pytest.raises(RuntimeError, match="Disconnect"):
             connect("python", port=2)
+        assert configure("python", port=2, name="新的名称", enabled=False) is bridge
+        assert (bridge.port, bridge.name, bridge.enabled) == (2, "新的名称", False)
     finally:
         assert disconnect()
 
@@ -40,7 +46,7 @@ def test_failed_start_releases_host_dispatch(monkeypatch):
     monkeypatch.setattr("flint_bridge.hosts.strategy_for", lambda host: strategy)
 
     class FailingBridge:
-        def __init__(self, runner, host, address, port, name):
+        def __init__(self, runner, host, address, port, name, enabled=True):
             pass
 
         def start(self):

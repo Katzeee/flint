@@ -22,7 +22,7 @@ import flint_bridge
 
 ## Maya
 
-Export `flint-maya.zip` with `flint bridge export maya` and extract it into a directory on Maya's module search path. For example, place `flint.mod` and the adjacent `flint` directory under `Documents/maya/modules`. In Maya's Plug-in Manager, load `flint_plugin.py` and enable Auto load to connect on future launches. The plug-in connects to registry port `6321` when loaded; set `FLINT_MAYA_REGISTRY_PORT` before launching Maya if the backend uses another port. Unloading the plug-in disconnects it.
+Export `flint-maya.zip` with `flint bridge export maya` and extract it into a directory on Maya's module search path. For example, place `flint.mod` and the adjacent `flint` directory under `Documents/maya/modules`. In Maya's Plug-in Manager, load `flint_plugin.py` and enable Auto load to connect on future launches. Use **Flint > Connection Settings** inside Maya to edit the address, port, instance name, and enabled state, inspect the connection, or reconnect. The settings are saved in Maya's user option variables and take effect when you click **Apply**. Unloading the plug-in disconnects it.
 
 Alternatively, run the shared setup and this connection call from Maya's Python script editor on the application's main thread:
 
@@ -34,7 +34,7 @@ This integration is validated with Maya 2024. Code submitted through flint execu
 
 ## 3ds Max
 
-Export `flint-max.zip` with `flint bridge export max`. Extract `Flint.bundle` into an ApplicationPlugins search directory, such as `%APPDATA%/Autodesk/ApplicationPlugins`. With **Load Startup Scripts** enabled in 3ds Max's MAXScript preferences, the bundle's post-startup script connects to registry port `6321` when 3ds Max starts. Set `FLINT_MAX_REGISTRY_PORT` before launching 3ds Max if the backend uses another port.
+Export `flint-max.zip` with `flint bridge export max`. Extract `Flint.bundle` into an ApplicationPlugins search directory, such as `%APPDATA%/Autodesk/ApplicationPlugins`. With **Load Startup Scripts** enabled in 3ds Max's MAXScript preferences, the bundle's post-startup script connects to registry port `6321` when 3ds Max starts. Use **Flint > Flint Bridge** inside 3ds Max to edit the connection, inspect its status, or reconnect. Clicking **Apply** saves the settings in `FlintBridge.ini` under 3ds Max's user data directory.
 
 Alternatively, run the shared setup and this connection call in 3ds Max's Python execution environment on the application's main thread:
 
@@ -46,7 +46,7 @@ This integration is validated with 3ds Max 2024. Code submitted through flint ex
 
 ## Blender
 
-Export an installable Blender Add-on ZIP with `flint bridge export blender`. In Blender 5.2, open **Edit > Preferences > Add-ons**, choose **Install from Disk**, select `flint-blender.zip`, and enable **Flint Bridge**. The Add-on connects to the local backend on registry port `6321` when enabled; `flint instances --json` shows the registered instance. Set `FLINT_BLENDER_REGISTRY_PORT` in Blender's environment before launch if the backend uses another registry port. Disabling the Add-on disconnects it.
+Export an installable Blender Add-on ZIP with `flint bridge export blender`. In Blender 5.2, open **Edit > Preferences > Add-ons**, choose **Install from Disk**, select `flint-blender.zip`, and enable **Flint Bridge**. Open its preferences or the **Flint** tab in the 3D View sidebar to inspect the connection, edit its address, port, instance name, and enabled state, or reconnect. The fields are drafts; **Apply** changes the live connection and saves the values in the Add-on preferences. Disabling the Add-on disconnects it. `flint instances --json` shows the registered instance.
 
 Alternatively, run the shared setup and this connection call in Blender's Python Console on the application's main thread:
 
@@ -68,8 +68,8 @@ Keep the process running while using the connection. The Bridge runs in backgrou
 
 ## Connection and execution
 
-connect uses the local backend by default and accepts address and port for another endpoint. Repeated calls reuse the matching Bridge. bridge.connected reports readiness; bridge.wait_until_connected(timeout=10) waits for the connection when needed. Use flint instances --json to retrieve the assigned instance ID.
+`connect` uses the local backend by default and accepts address and port for another endpoint. Repeated calls reuse the matching Bridge. `bridge.connected` reports readiness; `bridge.status` includes the connection state, last connection error, current settings, and execution activity. `bridge.wait_until_connected(timeout=10)` waits for the connection when needed. `flint_bridge.configure(host, address=..., port=..., name=..., enabled=...)` applies settings without replacing the execution adapter, and `flint_bridge.reconnect()` retries the current settings. Use `flint instances --json` to retrieve the assigned instance ID.
 
 Each Bridge executes one request at a time and retains its Python execution namespace across requests. Writes to `sys.stdout` and `sys.stderr` on that execution thread stream into the request's output; writes from other host threads continue to their original streams. Threads started by submitted code are not attributed to the execution automatically. Follow the [flint execution guide](../../README.md#execute-and-inspect) to submit code and retrieve results.
 
-Call flint_bridge.disconnect() before changing the endpoint. A false return indicates that shutdown has not completed. Disconnecting stops transport and cancels queued work, but does not forcibly interrupt already running host code.
+Call `flint_bridge.disconnect()` when the host plug-in unloads. A false return indicates that shutdown has not completed. Disconnecting stops transport and cancels queued work, but does not forcibly interrupt already running host code.

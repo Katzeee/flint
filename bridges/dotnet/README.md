@@ -8,7 +8,7 @@ The supported .NET host is Unity Editor on Windows x64, verified with Unity 2022
 
 ## Unity
 
-Run `flint bridge export unity`, then install the resulting `flint-unity.tgz` in Unity's Package Manager with **Add package from tarball**. Start flint with `flint start`; the installed package connects from the Editor to the default local registry port, `6321`. For another port, extract the package, change `RegistryPort` in `Editor/EditorBootstrap.cs`, and install that local package. Confirm registration with `flint instances --json`.
+Run `flint bridge export unity`, then install the resulting `flint-unity.tgz` in Unity's Package Manager with **Add package from tarball**. Start flint with `flint start`; the installed package connects from the Editor to the default local registry port, `6321`. Open **Window > Flint Bridge > Connection Settings** to inspect the connection, change its address, port, instance name, and enabled state, or reconnect. **Apply** changes the live connection and saves the values in Unity's per-user Editor preferences. Confirm registration with `flint instances --json`.
 
 ## Connection and execution
 

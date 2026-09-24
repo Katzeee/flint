@@ -72,6 +72,11 @@ namespace Flint.Bridge.Tests
                 Assert.False(bridge.Busy);
                 Assert.Equal("", bridge.InstanceId);
                 Assert.Null(bridge.Poll(0));
+                bridge.ApplySettings("{\"address\":\"127.0.0.1\",\"port\":6321,\"name\":\"新场景\",\"enabled\":false}");
+                Assert.False(bridge.Connected);
+                Assert.Contains("\"connection\":\"disabled\"", bridge.StatusJson);
+                Assert.Contains("新场景", bridge.StatusJson);
+                Assert.Throws<ArgumentException>(() => bridge.ApplySettings("{}"));
             }
         }
 

@@ -84,7 +84,9 @@ pub(super) fn verify_host(
     }
     let ready = app.directory.join("ready.json");
     let bootstrap = app.directory.join("bootstrap.py");
-    let config = json!({"host":kind,"bundle":bundle,"ready":ready});
+    let screenshot = app.directory.join("settings.png");
+    let config = json!({"host":kind,"bundle":bundle,"ready":ready,
+        "port":app.registry_port,"screenshot":screenshot});
     let script = format!(
         "import json\nCONFIG = json.loads({})\n{}",
         serde_json::to_string(&config.to_string())?,
@@ -104,7 +106,6 @@ pub(super) fn verify_host(
         command
             .env("MAYA_APP_DIR", app.directory.join("maya-profile"))
             .env("MAYA_MODULE_PATH", &installation)
-            .env("FLINT_MAYA_REGISTRY_PORT", app.registry_port.to_string())
             .env("MAYA_DISABLE_CIP", "1")
             .env("MAYA_DISABLE_CER", "1");
         let python_code = format!(
@@ -122,11 +123,14 @@ pub(super) fn verify_host(
             appdata.join("3dsmax.ini"),
             "[MAXScript]\nLoadStartupScripts=1\n",
         )?;
+        fs::write(
+            appdata.join("FlintBridge.ini"),
+            format!("[Flint Bridge]\nRegistryPort={}\n", app.registry_port),
+        )?;
         command
             .env("ADSK_APPLICATION_PLUGINS", &installation)
             .env("ADSK_3DSMAX_APPDATA_DIR", appdata)
-            .env("ADSK_3DSMAX_SESSION_LOG", app.directory.join("Max.log"))
-            .env("FLINT_MAX_REGISTRY_PORT", app.registry_port.to_string());
+            .env("ADSK_3DSMAX_SESSION_LOG", app.directory.join("Max.log"));
         command.args(["-q", "-U", "PythonHost"]).arg(bootstrap);
     } else {
         let config = app.directory.join("blender-config");
@@ -136,7 +140,6 @@ pub(super) fn verify_host(
         command
             .env("BLENDER_USER_CONFIG", config)
             .env("BLENDER_USER_SCRIPTS", scripts)
-            .env("FLINT_BLENDER_REGISTRY_PORT", app.registry_port.to_string())
             .args(["--factory-startup", "--disable-autoexec", "--python"])
             .arg(bootstrap);
     }
@@ -164,8 +167,16 @@ pub(super) fn verify_host(
     assert_eq!(report["scene"], "");
     if kind == "maya" {
         assert_eq!(report["plugin_loaded"], true);
+        assert_eq!(report["settings_visible"], true);
     } else if kind == "max" {
         assert_eq!(report["startup_script_registered"], true);
+        assert_eq!(report["settings_visible"], true);
+    }
+    if kind == "maya" || kind == "max" {
+        anyhow::ensure!(
+            screenshot.is_file(),
+            "Host settings screenshot was not captured"
+        );
     }
     let instance = app.await_instance(kind, None)?;
     let id = instance["instance_id"].as_str().unwrap();

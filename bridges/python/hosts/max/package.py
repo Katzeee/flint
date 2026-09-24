@@ -6,6 +6,7 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 ROOT = Path(__file__).resolve().parents[2]
 BRIDGE = ROOT / "packages/bridge/src/flint_bridge"
 HOST = Path(__file__).resolve().parent
+SHARED_PANEL = HOST.parent / "shared/flint_connection_panel.py"
 
 
 def build_bundle(destination: Path, native: Path) -> None:
@@ -15,7 +16,10 @@ def build_bundle(destination: Path, native: Path) -> None:
     entries = {
         prefix + "PackageContents.xml": (HOST / "PackageContents.xml").read_bytes(),
         prefix + "Contents/Scripts/flint_startup.ms": (HOST / "flint_startup.ms").read_bytes(),
+        prefix + "Contents/Scripts/flint_settings.mcr": (HOST / "flint_settings.mcr").read_bytes(),
         prefix + "Contents/Python/flint_startup.py": (HOST / "flint_startup.py").read_bytes(),
+        prefix + "Contents/Python/flint_max.py": (HOST / "flint_max.py").read_bytes(),
+        prefix + "Contents/Python/flint_connection_panel.py": SHARED_PANEL.read_bytes(),
     }
     for source in sorted(BRIDGE.rglob("*.py")):
         entries[prefix + "Contents/Python/flint_bridge/" + source.relative_to(BRIDGE).as_posix()] = source.read_bytes()

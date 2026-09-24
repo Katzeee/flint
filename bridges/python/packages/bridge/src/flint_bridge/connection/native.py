@@ -44,7 +44,7 @@ def _library_path():
 def _load():
     library = ctypes.CDLL(str(_library_path()))
     library.flint_bridge_abi_version.restype = ctypes.c_uint32
-    if library.flint_bridge_abi_version() != 1:
+    if library.flint_bridge_abi_version() != 3:
         raise RuntimeError("Unsupported native Bridge ABI")
     library.flint_bridge_create.argtypes = [ctypes.c_char_p]
     library.flint_bridge_create.restype = ctypes.c_void_p
@@ -58,7 +58,12 @@ def _load():
     library.flint_bridge_busy.restype = ctypes.c_bool
     library.flint_bridge_instance_id.argtypes = [ctypes.c_void_p]
     library.flint_bridge_instance_id.restype = ctypes.c_void_p
+    library.flint_bridge_status_json.argtypes = [ctypes.c_void_p]
+    library.flint_bridge_status_json.restype = ctypes.c_void_p
     library.flint_bridge_reconnect.argtypes = [ctypes.c_void_p]
+    library.flint_bridge_reconnect.restype = ctypes.c_bool
+    library.flint_bridge_apply_settings.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    library.flint_bridge_apply_settings.restype = ctypes.c_uint32
     library.flint_bridge_stop.argtypes = [ctypes.c_void_p]
     library.flint_bridge_destroy.argtypes = [ctypes.c_void_p]
     library.flint_bridge_string_free.argtypes = [ctypes.c_void_p]
@@ -101,8 +106,23 @@ class NativeCore:
     def instance_id(self):
         return self._string(self._library.flint_bridge_instance_id(self._handle)) or None
 
+    @property
+    def status(self):
+        return json.loads(self._string(self._library.flint_bridge_status_json(self._handle)))
+
     def reconnect(self):
-        self._library.flint_bridge_reconnect(self._handle)
+        if not self._library.flint_bridge_reconnect(self._handle):
+            raise RuntimeError("Bridge is executing host code")
+
+    def apply_settings(self, settings):
+        encoded = json.dumps(settings, ensure_ascii=False).encode("utf-8")
+        result = self._library.flint_bridge_apply_settings(self._handle, encoded)
+        if result == 1:
+            raise RuntimeError("Bridge is executing host code")
+        if result == 2:
+            raise ValueError("Invalid Bridge connection settings")
+        if result != 0:
+            raise RuntimeError("Unknown Bridge settings result")
 
     def stop(self):
         self._library.flint_bridge_stop(self._handle)

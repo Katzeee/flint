@@ -38,6 +38,8 @@ namespace Flint.Bridge
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void HandleFn(IntPtr handle);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint ApplySettingsFn(IntPtr handle, IntPtr settings);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void StringFreeFn(IntPtr value);
 
         private IntPtr _module;
@@ -48,7 +50,9 @@ namespace Flint.Bridge
         private readonly StatusFn _connected;
         private readonly StatusFn _busy;
         private readonly InstanceIdFn _instanceId;
-        private readonly HandleFn _reconnect;
+        private readonly InstanceIdFn _statusJson;
+        private readonly StatusFn _reconnect;
+        private readonly ApplySettingsFn _applySettings;
         private readonly HandleFn _stop;
         private readonly HandleFn _destroy;
         private readonly StringFreeFn _stringFree;
@@ -65,7 +69,7 @@ namespace Flint.Bridge
             }
             try
             {
-                if (Function<AbiVersionFn>("flint_bridge_abi_version")() != 1)
+                if (Function<AbiVersionFn>("flint_bridge_abi_version")() != 3)
                     throw new InvalidOperationException("Unsupported native Bridge ABI");
                 _create = Function<CreateFn>("flint_bridge_create");
                 _poll = Function<PollFn>("flint_bridge_poll");
@@ -73,7 +77,9 @@ namespace Flint.Bridge
                 _connected = Function<StatusFn>("flint_bridge_connected");
                 _busy = Function<StatusFn>("flint_bridge_busy");
                 _instanceId = Function<InstanceIdFn>("flint_bridge_instance_id");
-                _reconnect = Function<HandleFn>("flint_bridge_reconnect");
+                _statusJson = Function<InstanceIdFn>("flint_bridge_status_json");
+                _reconnect = Function<StatusFn>("flint_bridge_reconnect");
+                _applySettings = Function<ApplySettingsFn>("flint_bridge_apply_settings");
                 _stop = Function<HandleFn>("flint_bridge_stop");
                 _destroy = Function<HandleFn>("flint_bridge_destroy");
                 _stringFree = Function<StringFreeFn>("flint_bridge_string_free");
@@ -131,6 +137,7 @@ namespace Flint.Bridge
         public bool Connected { get { return _connected(Handle); } }
         public bool Busy { get { return _busy(Handle); } }
         public string InstanceId { get { return TakeString(_instanceId(Handle)); } }
+        public string StatusJson { get { return TakeString(_statusJson(Handle)); } }
         public string Poll(uint timeoutMilliseconds) { return TakeString(_poll(Handle, timeoutMilliseconds)); }
 
         public bool Submit(string commandJson)
@@ -141,7 +148,23 @@ namespace Flint.Bridge
             finally { Marshal.FreeHGlobal(command); }
         }
 
-        public void Reconnect() { _reconnect(Handle); }
+        public void Reconnect()
+        {
+            if (!_reconnect(Handle)) throw new InvalidOperationException("Bridge is executing host code");
+        }
+        public void ApplySettings(string settingsJson)
+        {
+            if (settingsJson == null) throw new ArgumentNullException(nameof(settingsJson));
+            IntPtr settings = Utf8(settingsJson);
+            try
+            {
+                uint result = _applySettings(Handle, settings);
+                if (result == 1) throw new InvalidOperationException("Bridge is executing host code");
+                if (result == 2) throw new ArgumentException("Invalid Bridge connection settings", nameof(settingsJson));
+                if (result != 0) throw new InvalidOperationException("Unknown Bridge settings result");
+            }
+            finally { Marshal.FreeHGlobal(settings); }
+        }
         public void Stop() { _stop(Handle); }
 
         public void Dispose()

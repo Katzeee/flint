@@ -15,7 +15,10 @@ use std::{
     thread,
     time::Duration,
 };
-use tokio::{net::TcpStream, sync::mpsc as async_mpsc};
+use tokio::{
+    net::TcpStream,
+    sync::{mpsc as async_mpsc, watch},
+};
 use tokio_util::{codec::Framed, sync::CancellationToken};
 use uuid::Uuid;
 
@@ -29,6 +32,39 @@ struct Config {
     port: u16,
     name: String,
     runtime_version: String,
+    #[serde(default = "default_enabled")]
+    enabled: bool,
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+#[derive(Clone, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct Settings {
+    address: String,
+    port: u16,
+    name: String,
+    enabled: bool,
+}
+
+impl Settings {
+    fn valid(&self) -> bool {
+        !self.address.trim().is_empty() && self.port != 0 && !self.name.trim().is_empty()
+    }
+}
+
+#[derive(Clone)]
+struct Identity {
+    host: String,
+    runtime_version: String,
+}
+
+#[derive(Clone)]
+struct VersionedSettings {
+    revision: u64,
+    settings: Settings,
 }
 
 #[derive(Serialize)]
@@ -64,12 +100,54 @@ struct Active {
     sequence: u64,
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ConnectionStatus {
+    Disabled,
+    Connecting,
+    Connected,
+    Reconnecting,
+}
+
+#[derive(Serialize)]
+struct StatusSnapshot<'a> {
+    connection: ConnectionStatus,
+    last_error: &'a Option<String>,
+    busy: bool,
+    settings: &'a Settings,
+    instance_id: &'a str,
+}
+
 struct State {
     connected: bool,
+    accepting: bool,
     instance_id: String,
     generation: u64,
+    settings_revision: u64,
     active: Option<Active>,
+    connection: ConnectionStatus,
+    last_error: Option<String>,
+    settings: Settings,
+}
+
+impl State {
+    fn new(settings: Settings) -> Self {
+        Self {
+            connected: false,
+            accepting: false,
+            instance_id: String::new(),
+            generation: 0,
+            settings_revision: 0,
+            active: None,
+            connection: if settings.enabled {
+                ConnectionStatus::Connecting
+            } else {
+                ConnectionStatus::Disabled
+            },
+            last_error: None,
+            settings,
+        }
+    }
 }
 
 struct Outbound {
@@ -83,7 +161,15 @@ pub struct BridgeCore {
     outbound: async_mpsc::UnboundedSender<Outbound>,
     stop: CancellationToken,
     reconnect: Arc<tokio::sync::Notify>,
+    settings: watch::Sender<VersionedSettings>,
     thread: Mutex<Option<thread::JoinHandle<()>>>,
+}
+
+#[repr(u32)]
+enum ApplyResult {
+    Applied = 0,
+    Busy = 1,
+    Invalid = 2,
 }
 
 fn envelope(request_id: String, payload: Payload) -> Envelope {
@@ -103,10 +189,10 @@ async fn read(wire: &mut Wire) -> Result<Envelope, String> {
     }
 }
 
-async fn connect(config: &Config) -> Result<Wire, String> {
+async fn connect(settings: &Settings) -> Result<Wire, String> {
     let stream = tokio::time::timeout(
         Duration::from_secs(10),
-        TcpStream::connect((config.address.as_str(), config.port)),
+        TcpStream::connect((settings.address.as_str(), settings.port)),
     )
     .await
     .map_err(|_| "connection timed out".to_string())?
@@ -160,7 +246,7 @@ async fn execution(
                 };
                 let event = {
                     let mut state = state.lock().unwrap();
-                    if state.active.is_some() {
+                    if state.active.is_some() || !state.accepting {
                         None
                     } else {
                         state.active = Some(Active {
@@ -202,26 +288,25 @@ async fn execution(
 }
 
 async fn session(
-    config: &Config,
+    identity: &Identity,
+    settings: &VersionedSettings,
     bridge_id: &str,
     state: Arc<Mutex<State>>,
     events: mpsc::Sender<String>,
     outbound: &mut async_mpsc::UnboundedReceiver<Outbound>,
-    stop: &CancellationToken,
-    reconnect: &tokio::sync::Notify,
 ) -> Result<(), String> {
-    let mut heartbeat_wire = connect(config).await?;
+    let mut heartbeat_wire = connect(&settings.settings).await?;
     let request_id = Uuid::new_v4().simple().to_string();
     heartbeat_wire
         .send(envelope(
             request_id.clone(),
             Payload::RegisterInstance(RegisterInstance {
                 pid: std::process::id(),
-                name_hint: config.host.clone(),
-                instance_name: config.name.clone(),
-                instance_type: config.host.clone(),
+                name_hint: identity.host.clone(),
+                instance_name: settings.settings.name.clone(),
+                instance_type: identity.host.clone(),
                 bridge_id: bridge_id.into(),
-                runtime_version: config.runtime_version.clone(),
+                runtime_version: identity.runtime_version.clone(),
                 bridge_version: env!("CARGO_PKG_VERSION").into(),
             }),
         ))
@@ -231,7 +316,7 @@ async fn session(
     if identity.instance_id.is_empty() || identity.session_token.is_empty() {
         return Err("incomplete instance registration".into());
     }
-    let mut execution_wire = connect(config).await?;
+    let mut execution_wire = connect(&settings.settings).await?;
     let request_id = Uuid::new_v4().simple().to_string();
     execution_wire
         .send(envelope(
@@ -247,8 +332,14 @@ async fn session(
     ack(&mut execution_wire, &request_id).await?;
     let generation = {
         let mut state = state.lock().unwrap();
+        if state.settings_revision != settings.revision {
+            return Err("bridge settings changed during registration".into());
+        }
         state.generation += 1;
         state.connected = true;
+        state.accepting = true;
+        state.connection = ConnectionStatus::Connected;
+        state.last_error = None;
         state.instance_id = identity.instance_id.clone();
         state.generation
     };
@@ -257,13 +348,12 @@ async fn session(
     tokio::select! {
         result = heartbeat => result,
         result = execution => result,
-        _ = reconnect.notified() => Err("reconnect requested".into()),
-        _ = stop.cancelled() => Ok(()),
     }
 }
 
 async fn run(
-    config: Config,
+    identity: Identity,
+    mut settings: watch::Receiver<VersionedSettings>,
     state: Arc<Mutex<State>>,
     events: mpsc::Sender<String>,
     mut outbound: async_mpsc::UnboundedReceiver<Outbound>,
@@ -273,13 +363,53 @@ async fn run(
     let bridge_id = Uuid::new_v4().simple().to_string();
     let mut delay = 0;
     while !stop.is_cancelled() {
+        let current = settings.borrow_and_update().clone();
+        if !current.settings.enabled {
+            tokio::select! {
+                _ = settings.changed() => {}
+                _ = stop.cancelled() => break,
+            }
+            continue;
+        }
+        let mut changed = false;
+        let mut requested = false;
         let result = tokio::select! {
-            result = session(&config, &bridge_id, state.clone(), events.clone(), &mut outbound, &stop, &reconnect) => result,
+            biased;
+            change = settings.changed() => {
+                changed = change.is_ok();
+                Err("bridge settings changed".into())
+            },
+            result = session(&identity, &current, &bridge_id, state.clone(), events.clone(), &mut outbound) => result,
+            _ = reconnect.notified() => {
+                requested = true;
+                Ok(())
+            },
             _ = stop.cancelled() => Ok(()),
         };
-        state.lock().unwrap().connected = false;
+        {
+            let mut state = state.lock().unwrap();
+            state.connected = false;
+            state.accepting = false;
+            state.instance_id.clear();
+            if state.settings_revision == current.revision && !stop.is_cancelled() {
+                state.connection = if requested {
+                    ConnectionStatus::Connecting
+                } else {
+                    ConnectionStatus::Reconnecting
+                };
+                state.last_error = if requested {
+                    None
+                } else {
+                    result.as_ref().err().cloned()
+                };
+            }
+        }
         if stop.is_cancelled() {
             break;
+        }
+        if changed || requested || settings.has_changed().unwrap_or(false) {
+            delay = 0;
+            continue;
         }
         delay = if result.is_ok() {
             0
@@ -288,6 +418,12 @@ async fn run(
         };
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(delay)) => {},
+            _ = settings.changed() => {
+                delay = 0;
+            },
+            _ = reconnect.notified() => {
+                delay = 0;
+            },
             _ = stop.cancelled() => break,
         }
     }
@@ -295,14 +431,28 @@ async fn run(
 
 impl BridgeCore {
     fn new(config: Config) -> Result<Self, String> {
-        if config.address.is_empty() || config.host.is_empty() || config.port == 0 {
+        let settings = Settings {
+            address: config.address,
+            port: config.port,
+            name: config.name,
+            enabled: config.enabled,
+        };
+        if config.host.trim().is_empty() || !settings.valid() {
             return Err("invalid bridge configuration".into());
         }
+        let identity = Identity {
+            host: config.host,
+            runtime_version: config.runtime_version,
+        };
         let (events_tx, events_rx) = mpsc::channel();
         let (outbound_tx, outbound_rx) = async_mpsc::unbounded_channel();
-        let state = Arc::new(Mutex::new(State::default()));
+        let state = Arc::new(Mutex::new(State::new(settings.clone())));
         let stop = CancellationToken::new();
         let reconnect = Arc::new(tokio::sync::Notify::new());
+        let (settings_tx, settings_rx) = watch::channel(VersionedSettings {
+            revision: 0,
+            settings,
+        });
         let thread_state = state.clone();
         let thread_stop = stop.clone();
         let thread_reconnect = reconnect.clone();
@@ -314,7 +464,8 @@ impl BridgeCore {
                     .build()
                     .expect("Tokio runtime");
                 runtime.block_on(run(
-                    config,
+                    identity,
+                    settings_rx,
                     thread_state,
                     events_tx,
                     outbound_rx,
@@ -329,8 +480,53 @@ impl BridgeCore {
             outbound: outbound_tx,
             stop,
             reconnect,
+            settings: settings_tx,
             thread: Mutex::new(Some(thread)),
         })
+    }
+
+    fn apply_settings(&self, settings: Settings) -> ApplyResult {
+        if !settings.valid() {
+            return ApplyResult::Invalid;
+        }
+        let mut state = self.state.lock().unwrap();
+        if state.active.is_some() {
+            return ApplyResult::Busy;
+        }
+        if self.settings.borrow().settings == settings {
+            return ApplyResult::Applied;
+        }
+        state.settings_revision += 1;
+        state.accepting = false;
+        state.connected = false;
+        state.instance_id.clear();
+        state.connection = if settings.enabled {
+            ConnectionStatus::Connecting
+        } else {
+            ConnectionStatus::Disabled
+        };
+        state.last_error = None;
+        state.settings = settings.clone();
+        self.settings.send_replace(VersionedSettings {
+            revision: state.settings_revision,
+            settings,
+        });
+        ApplyResult::Applied
+    }
+
+    fn reconnect(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        state.accepting = false;
+        state.connected = false;
+        state.instance_id.clear();
+        state.connection = if state.settings.enabled {
+            ConnectionStatus::Connecting
+        } else {
+            ConnectionStatus::Disabled
+        };
+        state.last_error = None;
+        self.reconnect.notify_one();
+        true
     }
 
     fn submit(&self, command: Command) -> bool {
@@ -406,6 +602,18 @@ impl BridgeCore {
             let _ = thread.join();
         }
     }
+
+    fn status_json(&self) -> String {
+        let state = self.state.lock().unwrap();
+        serde_json::to_string(&StatusSnapshot {
+            connection: state.connection,
+            last_error: &state.last_error,
+            busy: state.active.is_some(),
+            settings: &state.settings,
+            instance_id: &state.instance_id,
+        })
+        .unwrap()
+    }
 }
 
 unsafe fn input(value: *const c_char) -> Option<String> {
@@ -418,7 +626,7 @@ unsafe fn input(value: *const c_char) -> Option<String> {
 
 #[no_mangle]
 pub extern "C" fn flint_bridge_abi_version() -> u32 {
-    1
+    3
 }
 
 #[no_mangle]
@@ -492,10 +700,32 @@ pub unsafe extern "C" fn flint_bridge_instance_id(core: *const BridgeCore) -> *m
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn flint_bridge_reconnect(core: *const BridgeCore) {
-    if let Some(core) = core.as_ref() {
-        core.reconnect.notify_one();
-    }
+pub unsafe extern "C" fn flint_bridge_reconnect(core: *const BridgeCore) -> bool {
+    core.as_ref().is_some_and(BridgeCore::reconnect)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_status_json(core: *const BridgeCore) -> *mut c_char {
+    let Some(core) = core.as_ref() else {
+        return ptr::null_mut();
+    };
+    CString::new(core.status_json()).unwrap().into_raw()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_apply_settings(
+    core: *const BridgeCore,
+    settings_json: *const c_char,
+) -> u32 {
+    let Some(core) = core.as_ref() else {
+        return ApplyResult::Invalid as u32;
+    };
+    let Some(settings) =
+        input(settings_json).and_then(|text| serde_json::from_str::<Settings>(&text).ok())
+    else {
+        return ApplyResult::Invalid as u32;
+    };
+    core.apply_settings(settings) as u32
 }
 
 #[no_mangle]

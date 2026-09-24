@@ -9,13 +9,15 @@ from .native import NativeCore
 class Bridge:
     """Poll the native core and submit each task's events from one Bridge thread."""
 
-    def __init__(self, runner, host, address, port, name):
+    def __init__(self, runner, host, address, port, name, enabled=True):
         self.runner, self.host, self.address, self.port, self.name = runner, host, address, port, name
+        self.enabled = enabled
         self._core = NativeCore({
             "host": host,
             "address": address,
             "port": port,
             "name": name,
+            "enabled": enabled,
             "runtime_version": "CPython " + platform.python_version(),
         })
         self._stop = threading.Event()
@@ -36,6 +38,10 @@ class Bridge:
     @property
     def busy(self):
         return self._core.busy
+
+    @property
+    def status(self):
+        return self._core.status
 
     def wait_until_connected(self, timeout=10):
         deadline = time.monotonic() + timeout
@@ -58,6 +64,12 @@ class Bridge:
 
     def _force_reconnect(self):
         self._core.reconnect()
+
+    def apply_settings(self, address, port, name, enabled=True):
+        self._core.apply_settings({
+            "address": address, "port": port, "name": name, "enabled": enabled,
+        })
+        self.address, self.port, self.name, self.enabled = address, port, name, enabled
 
     def _run(self):
         active = None
