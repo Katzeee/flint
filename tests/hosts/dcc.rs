@@ -66,11 +66,25 @@ pub(super) fn verify_host(
     let bundle = if kind == "blender" {
         app.export_blender()?
     } else {
-        app.export()?
+        app.export_host(kind)?
     };
+    let installation = app.directory.join("host-plugins");
+    if kind != "blender" {
+        fs::create_dir_all(&installation)?;
+        checked(
+            Command::new(python())
+                .args([
+                    "-c",
+                    "import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])",
+                ])
+                .arg(&bundle)
+                .arg(&installation),
+            Duration::from_secs(15),
+        )?;
+    }
     let ready = app.directory.join("ready.json");
     let bootstrap = app.directory.join("bootstrap.py");
-    let config = json!({"host":kind,"bundle":bundle,"port":app.registry_port,"ready":ready});
+    let config = json!({"host":kind,"bundle":bundle,"ready":ready});
     let script = format!(
         "import json\nCONFIG = json.loads({})\n{}",
         serde_json::to_string(&config.to_string())?,
@@ -89,6 +103,8 @@ pub(super) fn verify_host(
     if kind == "maya" {
         command
             .env("MAYA_APP_DIR", app.directory.join("maya-profile"))
+            .env("MAYA_MODULE_PATH", &installation)
+            .env("FLINT_MAYA_REGISTRY_PORT", app.registry_port.to_string())
             .env("MAYA_DISABLE_CIP", "1")
             .env("MAYA_DISABLE_CER", "1");
         let python_code = format!(
@@ -100,6 +116,17 @@ pub(super) fn verify_host(
             &format!("python({});", serde_json::to_string(&python_code)?),
         ]);
     } else if kind == "max" {
+        let appdata = app.directory.join("max-appdata");
+        fs::create_dir_all(&appdata)?;
+        fs::write(
+            appdata.join("3dsmax.ini"),
+            "[MAXScript]\nLoadStartupScripts=1\n",
+        )?;
+        command
+            .env("ADSK_APPLICATION_PLUGINS", &installation)
+            .env("ADSK_3DSMAX_APPDATA_DIR", appdata)
+            .env("ADSK_3DSMAX_SESSION_LOG", app.directory.join("Max.log"))
+            .env("FLINT_MAX_REGISTRY_PORT", app.registry_port.to_string());
         command.args(["-q", "-U", "PythonHost"]).arg(bootstrap);
     } else {
         let config = app.directory.join("blender-config");
@@ -135,6 +162,11 @@ pub(super) fn verify_host(
     assert_eq!(report["pid"], host.0.id());
     assert_eq!(report["main_thread"], true);
     assert_eq!(report["scene"], "");
+    if kind == "maya" {
+        assert_eq!(report["plugin_loaded"], true);
+    } else if kind == "max" {
+        assert_eq!(report["startup_script_registered"], true);
+    }
     let instance = app.await_instance(kind, None)?;
     let id = instance["instance_id"].as_str().unwrap();
     assert_eq!(instance["pid"], host.0.id());

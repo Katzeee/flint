@@ -31,6 +31,8 @@ fn main() {
         "bridges/python/tools/package_bridge.py",
         "bridges/python/packages/bridge/src/flint_bridge",
         "bridges/python/hosts/blender",
+        "bridges/python/hosts/maya",
+        "bridges/python/hosts/max",
         "bridges/dotnet/tools/package_csharp.py",
         "bridges/dotnet/hosts/unity",
         "bridges/dotnet/src/Flint.Bridge/NativeBridge.cs",
@@ -73,7 +75,19 @@ fn main() {
         &out.join("flint-blender.zip"),
         &native,
     );
+    package(
+        &root,
+        "bridges/python/hosts/maya/package.py",
+        &out.join("flint-maya.zip"),
+        &native,
+    );
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        package(
+            &root,
+            "bridges/python/hosts/max/package.py",
+            &out.join("flint-max.zip"),
+            &native,
+        );
         package(
             &root,
             "bridges/dotnet/tools/package_csharp.py",

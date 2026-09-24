@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage SchemaVersion="1.0" AutodeskProduct="3ds Max" ProductType="Application" Name="Flint Bridge" Description="Connect 3ds Max to Flint" AppVersion="0.1.0" ProductCode="{E8EB7C58-F9EF-4A8C-AE78-64704543810A}" UpgradeCode="{60A94452-CF6A-4D51-BE52-D55C25DC036F}">
+  <CompanyDetails Name="Flint" />
+  <Components Description="post-start-up scripts parts">
+    <RuntimeRequirements OS="Win64" Platform="3ds Max" SeriesMin="2024" SeriesMax="2024" />
+    <ComponentEntry ModuleName="./Contents/Scripts/flint_startup.ms" />
+  </Components>
+</ApplicationPackage>

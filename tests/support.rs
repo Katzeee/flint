@@ -258,6 +258,16 @@ impl App {
         )?;
         Ok(bundle)
     }
+    pub fn export_host(&self, host: &str) -> Result<PathBuf> {
+        let bundle = self.directory.join(format!("flint-{host}.zip"));
+        checked(
+            Command::new(&self.binary)
+                .current_dir(&self.directory)
+                .args(["bridge", "export", host]),
+            Duration::from_secs(15),
+        )?;
+        Ok(bundle)
+    }
     pub fn workflow(&self, name: &str) -> Result<String> {
         Ok(self.call("workflow", &["--name", name], 0)?["workflow_id"]
             .as_str()

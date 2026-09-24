@@ -22,7 +22,9 @@ import flint_bridge
 
 ## Maya
 
-Run the shared setup and this connection call from Maya's Python script editor on the application's main thread:
+Export `flint-maya.zip` with `flint bridge export maya` and extract it into a directory on Maya's module search path. For example, place `flint.mod` and the adjacent `flint` directory under `Documents/maya/modules`. In Maya's Plug-in Manager, load `flint_plugin.py` and enable Auto load to connect on future launches. The plug-in connects to registry port `6321` when loaded; set `FLINT_MAYA_REGISTRY_PORT` before launching Maya if the backend uses another port. Unloading the plug-in disconnects it.
+
+Alternatively, run the shared setup and this connection call from Maya's Python script editor on the application's main thread:
 
 ```python
 bridge = flint_bridge.connect(host="maya", name="My Maya")
@@ -32,13 +34,15 @@ This integration is validated with Maya 2024. Code submitted through flint execu
 
 ## 3ds Max
 
-Run the shared setup and this connection call in 3ds Max's Python execution environment on the application's main thread:
+Export `flint-max.zip` with `flint bridge export max`. Extract `Flint.bundle` into an ApplicationPlugins search directory, such as `%APPDATA%/Autodesk/ApplicationPlugins`. With **Load Startup Scripts** enabled in 3ds Max's MAXScript preferences, the bundle's post-startup script connects to registry port `6321` when 3ds Max starts. Set `FLINT_MAX_REGISTRY_PORT` before launching 3ds Max if the backend uses another port.
+
+Alternatively, run the shared setup and this connection call in 3ds Max's Python execution environment on the application's main thread:
 
 ```python
 bridge = flint_bridge.connect(host="max", name="My Max")
 ```
 
-This integration is validated with 3ds Max 2024.2.13. Code submitted through flint executes on the application's UI thread.
+This integration is validated with 3ds Max 2024. Code submitted through flint executes on the application's UI thread.
 
 ## Blender
 

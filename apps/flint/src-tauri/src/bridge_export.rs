@@ -12,6 +12,14 @@ pub enum BridgeExport {
         #[arg(long, default_value = "flint-blender.zip")]
         output: PathBuf,
     },
+    Maya {
+        #[arg(long, default_value = "flint-maya.zip")]
+        output: PathBuf,
+    },
+    Max {
+        #[arg(long, default_value = "flint-max.zip")]
+        output: PathBuf,
+    },
     Csharp {
         #[arg(long, default_value = "flint-csharp.zip")]
         output: PathBuf,
@@ -35,6 +43,23 @@ impl BridgeExport {
                 "zip",
                 &include_bytes!(concat!(env!("OUT_DIR"), "/flint-blender.zip"))[..],
             ),
+            Self::Maya { output } => (
+                output,
+                "zip",
+                &include_bytes!(concat!(env!("OUT_DIR"), "/flint-maya.zip"))[..],
+            ),
+            Self::Max { output } => {
+                #[cfg(not(windows))]
+                anyhow::bail!("3ds Max export is available only on Windows");
+                #[cfg(windows)]
+                {
+                    (
+                        output,
+                        "zip",
+                        &include_bytes!(concat!(env!("OUT_DIR"), "/flint-max.zip"))[..],
+                    )
+                }
+            }
             Self::Csharp { output } => {
                 #[cfg(not(windows))]
                 anyhow::bail!("C# export is available only on Windows");

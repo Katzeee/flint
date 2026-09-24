@@ -6,6 +6,9 @@ import sys
 import traceback
 
 report = {"pid": os.getpid(), "python": sys.version, "host": CONFIG["host"]}
+if CONFIG["host"] != "blender":
+    from PySide2 import QtCore, QtWidgets
+
 try:
     if CONFIG["host"] == "blender":
         import bpy
@@ -20,25 +23,31 @@ try:
         if bridge is None:
             raise RuntimeError("The Blender Add-on did not start a Bridge")
     else:
-        sys.path.insert(0, CONFIG["bundle"])
-        from flint_bridge import connect
-        from PySide2 import QtCore, QtWidgets
         report["main_thread"] = QtCore.QThread.currentThread() is QtWidgets.QApplication.instance().thread()
     if not report["main_thread"]:
         raise RuntimeError("The host must bootstrap on its UI thread")
     if CONFIG["host"] == "maya":
         import maya.cmds as cmds
+        cmds.loadPlugin("flint_plugin.py", quiet=True)
+        report["plugin_loaded"] = cmds.pluginInfo("flint_plugin.py", query=True, loaded=True)
         report["version"] = cmds.about(version=True)
         report["scene"] = cmds.file(query=True, sceneName=True)
     elif CONFIG["host"] == "max":
         import pymxs
         report["version"] = str(pymxs.runtime.maxVersion())
         report["scene"] = str(pymxs.runtime.maxFileName)
+        packages = pymxs.runtime.PluginPackageManager
+        report["startup_script_registered"] = any(
+            "flint_startup.ms" in str(packages.GetPostStartUpScriptFullPath(index))
+            for index in range(1, packages.GetPostStartUpScriptsCount() + 1)
+        )
     else:
         report["version"] = bpy.app.version_string
         report["scene"] = bpy.data.filepath
     if CONFIG["host"] != "blender":
-        bridge = connect(host=CONFIG["host"], name="Rust integration test", port=CONFIG["port"])
+        bridge = getattr(sys, "_flint_bridge_service", None)
+        if bridge is None:
+            raise RuntimeError("The host package did not start a Bridge")
     if not bridge.wait_until_connected(15):
         raise RuntimeError("Both bridge channels did not connect")
     report["instance_id"] = bridge.instance_id
