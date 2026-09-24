@@ -20,7 +20,7 @@ function Root() {
     return () => window.removeEventListener("hashchange", update);
   }, []);
   return legal ? (
-    <div className="flint-app"><LegalPage backHref="#/" backLabel="Back to Flint" /></div>
+    <LegalPage backHref="#/" backLabel="Back to Flint" />
   ) : (
     <App />
   );

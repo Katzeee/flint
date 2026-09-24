@@ -13,6 +13,7 @@ import {
   CardTitle,
   EmptyState,
   Icon,
+  Link,
   PageScaffold,
   Separator,
 } from "@cairn/ui";
@@ -94,7 +95,7 @@ export function App() {
   const count = snapshot?.instances.length ?? 0;
 
   return (
-    <div className="flint-app">
+    <div>
       <PageScaffold
         actions={
           <Badge tone={ready ? "success" : "warning"}>
@@ -139,7 +140,7 @@ export function App() {
         </section>
 
         <section aria-labelledby="discovery-title" className="flint-section">
-          <Card>
+          <Card variant="muted">
             <CardHeader>
               <CardTitle id="discovery-title">Running applications</CardTitle>
               <CardDescription>
@@ -186,7 +187,7 @@ export function App() {
               </CardDescription>
             </div>
             <div className="flint-footer-actions">
-              <a className="flint-legal-link" href="#/legal">Licenses</a>
+              <Link href="#/legal">Licenses</Link>
               <Button disabled={!ready || stopping} onClick={() => setStopDialogOpen(true)} size="sm" variant="ghost">
                 Stop backend
               </Button>

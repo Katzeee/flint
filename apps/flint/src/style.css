@@ -1,7 +1,3 @@
-.flint-app {
-  min-height: 100vh;
-}
-
 .flint-title,
 .flint-section-heading,
 .flint-instance,
@@ -66,18 +62,4 @@
   flex-wrap: wrap;
   justify-content: space-between;
   padding-top: calc(var(--cairn-spacing) * 4);
-}
-
-.flint-legal-link {
-  color: var(--cairn-color-primary);
-  text-decoration: none;
-}
-
-.flint-legal-link:hover {
-  text-decoration: underline;
-}
-
-.flint-legal-link:focus-visible {
-  outline: 2px solid var(--cairn-color-ring);
-  outline-offset: 2px;
 }
