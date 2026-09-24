@@ -59,7 +59,10 @@ namespace Flint.Bridge
             if (configJson == null) throw new ArgumentNullException(nameof(configJson));
             _module = LoadLibraryW(libraryPath);
             if (_module == IntPtr.Zero)
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot load Bridge core");
+            {
+                int error = Marshal.GetLastWin32Error();
+                throw new Win32Exception(error, "Cannot load Bridge core: " + libraryPath + " (Win32 " + error + ")");
+            }
             try
             {
                 if (Function<AbiVersionFn>("flint_bridge_abi_version")() != 1)

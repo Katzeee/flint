@@ -21,6 +21,8 @@ def test_bundle_is_deterministic_and_contains_native_core(tmp_path):
     with ZipFile(first) as archive:
         names = archive.namelist()
         assert "flint_bridge/__init__.py" in names
+        assert "unity/EditorBridge.cs" in names
+        assert "unity/NativeBridge.cs" in names
         assert "flint_bridge/native/" + Path(os.environ["FLINT_BRIDGE_CORE_LIBRARY"]).name in names
         assert not any(name.startswith(("flint_protocol/", "google/")) for name in names)
         assert not any(name.endswith(".pyc") for name in names)

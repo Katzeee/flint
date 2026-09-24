@@ -18,6 +18,7 @@ pub fn discover() -> Vec<HostCandidate> {
         let host = match name.as_str() {
             "maya.exe" | "maya" => "maya",
             "3dsmax.exe" => "max",
+            "unity.exe" => "unity",
             _ => continue,
         };
         found.push(HostCandidate {

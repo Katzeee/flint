@@ -28,3 +28,5 @@ Setup is complete when the build succeeds and both commands exit successfully. R
 ## Test
 
 Run `cargo test --workspace --locked` from the repository root. Cargo builds the application executable used by the product integration tests, so a separate `cargo build` is not required. The test driver uses uv to locate Python 3.13 unless `FLINT_TEST_PYTHON` selects an interpreter explicitly.
+
+The Unity product integration test uses a fresh temporary project and a Unity 2022.3 Mono Editor. Set `FLINT_UNITY_EXE` to that Editor's `Unity.exe`, then run `cargo test -p flint --test hosts unity_active_connection --locked -- --ignored --nocapture`. The test extracts the exported Bridge, checks connection, C# execution and output, exception reporting, and reconnection, then stops only the Editor it started.

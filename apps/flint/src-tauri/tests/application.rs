@@ -222,7 +222,12 @@ fn exported_bridge_contains_native_core_and_python_adapter() -> Result<()> {
     } else {
         "flint_bridge/native/libflint_bridge_core.so"
     };
-    for name in ["flint_bridge/__init__.py", native] {
+    for name in [
+        "flint_bridge/__init__.py",
+        "unity/EditorBridge.cs",
+        "unity/NativeBridge.cs",
+        native,
+    ] {
         assert!(archive.by_name(name).is_ok(), "Missing {name}");
     }
     assert!(!archive

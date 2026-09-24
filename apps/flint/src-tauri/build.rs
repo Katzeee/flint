@@ -13,6 +13,8 @@ fn main() {
         "bridges/python/tools/package_bridge.py",
         "bridges/python/packages/bridge/pyproject.toml",
         "bridges/python/packages/bridge/src/flint_bridge",
+        "bridges/dotnet/unity/EditorBridge.cs",
+        "bridges/dotnet/src/Flint.Bridge/NativeBridge.cs",
     ] {
         println!("cargo:rerun-if-changed={}", root.join(input).display());
     }

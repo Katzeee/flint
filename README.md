@@ -2,7 +2,7 @@
 
 flint connects running applications to a shared code-execution service, with a desktop window, system tray, and CLI in one executable. It belongs to the same stone-themed product line as lode.
 
-For a source checkout, see [Development environment and first build](docs/development.md). The [Windows attach experiments](experiments/attach/README.md) retain research code for Maya, Max, and Blender.
+For a source checkout, see [Development environment and first build](docs/development.md).
 
 ## Run flint
 
@@ -25,7 +25,7 @@ Workflow records and logs are stored in flint's local application-data directory
 
 ## Connect an application
 
-Load the appropriate Bridge in the application you want to control. Follow the [Python Bridge connection guide](bridges/python/README.md) for its supported hosts and setup instructions.
+Load the appropriate Bridge in the application you want to control. Follow the [Python Bridge connection guide](bridges/python/README.md) for Maya, 3ds Max, and Python, or the [.NET Bridge connection guide](bridges/dotnet/README.md) for Unity.
 
 ```text
 flint hosts --json
