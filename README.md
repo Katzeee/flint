@@ -25,7 +25,7 @@ Workflow records and logs are stored in flint's local application-data directory
 
 ## Connect an application
 
-Load the appropriate Bridge in the application you want to control. Follow the [Python Bridge connection guide](bridges/python/README.md) for Maya, 3ds Max, and Python, or the [.NET Bridge connection guide](bridges/dotnet/README.md) for Unity.
+Load the appropriate Bridge in the application you want to control. Follow the [Python Bridge connection guide](bridges/python/README.md) for Maya, 3ds Max, Blender, and Python, including Blender's installable Add-on, or the [.NET Bridge connection guide](bridges/dotnet/README.md) for Unity.
 
 ```text
 flint hosts --json

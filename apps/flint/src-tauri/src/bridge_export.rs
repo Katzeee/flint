@@ -8,6 +8,10 @@ pub enum BridgeExport {
         #[arg(long, default_value = "flint-python.zip")]
         output: PathBuf,
     },
+    Blender {
+        #[arg(long, default_value = "flint-blender.zip")]
+        output: PathBuf,
+    },
     Csharp {
         #[arg(long, default_value = "flint-csharp.zip")]
         output: PathBuf,
@@ -25,6 +29,11 @@ impl BridgeExport {
                 output,
                 "zip",
                 &include_bytes!(concat!(env!("OUT_DIR"), "/flint-python.zip"))[..],
+            ),
+            Self::Blender { output } => (
+                output,
+                "zip",
+                &include_bytes!(concat!(env!("OUT_DIR"), "/flint-blender.zip"))[..],
             ),
             Self::Csharp { output } => {
                 #[cfg(not(windows))]

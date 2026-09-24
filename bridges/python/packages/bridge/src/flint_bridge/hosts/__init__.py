@@ -6,6 +6,8 @@ def strategy_for(host):
         from .maya import create_strategy
     elif host == "max":
         from .max import create_strategy
+    elif host == "blender":
+        from .blender import create_strategy
     elif host == "python":
         from ..execution.strategies import DirectExecutionStrategy
         return DirectExecutionStrategy()

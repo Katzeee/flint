@@ -248,6 +248,16 @@ impl App {
         )?;
         Ok(bundle)
     }
+    pub fn export_blender(&self) -> Result<PathBuf> {
+        let bundle = self.directory.join("flint-blender.zip");
+        checked(
+            Command::new(&self.binary)
+                .current_dir(&self.directory)
+                .args(["bridge", "export", "blender"]),
+            Duration::from_secs(15),
+        )?;
+        Ok(bundle)
+    }
     pub fn workflow(&self, name: &str) -> Result<String> {
         Ok(self.call("workflow", &["--name", name], 0)?["workflow_id"]
             .as_str()

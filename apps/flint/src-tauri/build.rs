@@ -30,6 +30,7 @@ fn main() {
         "crates/flint-bridge-core/src",
         "bridges/python/tools/package_bridge.py",
         "bridges/python/packages/bridge/src/flint_bridge",
+        "bridges/python/hosts/blender",
         "bridges/dotnet/tools/package_csharp.py",
         "bridges/dotnet/hosts/unity",
         "bridges/dotnet/src/Flint.Bridge/NativeBridge.cs",
@@ -64,6 +65,12 @@ fn main() {
         &root,
         "bridges/python/tools/package_bridge.py",
         &out.join("flint-python.zip"),
+        &native,
+    );
+    package(
+        &root,
+        "bridges/python/hosts/blender/package.py",
+        &out.join("flint-blender.zip"),
         &native,
     );
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {

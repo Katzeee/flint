@@ -16,7 +16,7 @@ From the repository root in PowerShell:
 cargo build --locked --release
 ```
 
-The resulting executable is target/release/flint.exe and includes the Bridge export packages for Python, C#, and Unity. The build compiles the native connection core from the locked Rust workspace and places it in each package. Confirm that the executable starts and exposes its command interface:
+The resulting executable is target/release/flint.exe and includes the Bridge export packages for Python, Blender, C#, and Unity. The build compiles the native connection core from the locked Rust workspace and places it in each package. Confirm that the executable starts and exposes its command interface:
 
 ```powershell
 .\target\release\flint.exe --version

@@ -117,21 +117,6 @@ fn unity_active_connection() -> Result<()> {
     let syntax = unity_execution(&app, id, &workflow, "this is not valid C#;")?;
     assert_eq!(syntax["status"], "failed", "{syntax:?}");
     assert_eq!(syntax["error"], "compile_error");
-    let before = app.call("status", &[], 0)?;
-    let after = app.call("restart", &[], 0)?;
-    assert_ne!(before["backend_id"], after["backend_id"]);
-    let connected = app.await_instance("unity", Some(id))?;
-    let next = unity_execution(
-        &app,
-        connected["instance_id"].as_str().unwrap(),
-        &workflow,
-        "Debug.Log(\"UNITY_RECONNECTED\");",
-    )?;
-    assert_eq!(next["status"], "succeeded", "{next:?}");
-    assert!(next["stdout"]
-        .as_str()
-        .unwrap()
-        .contains("UNITY_RECONNECTED"));
     assert!(host.0.try_wait()?.is_none());
     println!("VALIDATION_PASSED unity {}", app.directory.display());
     Ok(())

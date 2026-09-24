@@ -23,9 +23,15 @@ def connect(host, address="127.0.0.1", port=6321, name=None):
         from .execution.executor import CodeExecutor
         from .execution.runner import CodeRunner
         from .connection.service import Bridge
-        bridge = Bridge(CodeRunner(CodeExecutor(), strategy_for(host)), host, address, port, name or host)
+        strategy = strategy_for(host)
+        try:
+            bridge = Bridge(CodeRunner(CodeExecutor(), strategy), host, address, port, name or host)
+            bridge.start()
+        except BaseException:
+            strategy.close()
+            raise
         setattr(sys, _SERVICE, bridge)
-        return bridge.start()
+        return bridge
 
 
 def disconnect():

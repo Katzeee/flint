@@ -18,7 +18,7 @@ def _library_name():
 
 
 def _library_path():
-    data = pkgutil.get_data("flint_bridge", _library_name())
+    data = pkgutil.get_data(__package__.rsplit(".", 1)[0], _library_name())
     if data is None:
         raise RuntimeError("Bridge package has no native connection core")
     digest = hashlib.sha256(data).hexdigest()[:20]

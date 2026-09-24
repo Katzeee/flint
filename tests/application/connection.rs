@@ -3,7 +3,7 @@ use anyhow::Result;
 use std::{fs, time::Duration};
 
 #[test]
-fn bridge_reconnects_without_losing_namespace_or_records() -> Result<()> {
+fn backend_lifecycle_preserves_python_host_and_records() -> Result<()> {
     let app = App::new();
     let host = PythonHost::start(&app, &python())?;
     assert_eq!(host.report["reused"], true);
@@ -25,6 +25,11 @@ fn bridge_reconnects_without_losing_namespace_or_records() -> Result<()> {
         0,
     )?;
     assert_eq!(app.details(&workflow, &next, 0)?["stdout"], "42\n");
+    assert_eq!(app.call("stop", &[], 0)?["stopped"], true);
+    fs::write(app.directory.join("ping-host"), b"ping")?;
+    let alive = app.directory.join("host-alive");
+    wait_until(Duration::from_secs(3), || Ok(alive.exists()))?;
+    assert_eq!(fs::read_to_string(alive)?, host.report["pid"].to_string());
     Ok(())
 }
 

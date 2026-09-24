@@ -24,6 +24,10 @@ ready.write_text(json.dumps(report), encoding="utf-8")
 if "error" not in report:
     await_idle_after_drop = False
     while not (directory / "stop-host").exists():
+        ping = directory / "ping-host"
+        if ping.exists():
+            ping.unlink()
+            (directory / "host-alive").write_text(str(os.getpid()), encoding="utf-8")
         trigger = directory / "drop-execution"
         if trigger.exists():
             trigger.unlink()

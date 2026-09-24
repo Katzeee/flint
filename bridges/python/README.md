@@ -1,6 +1,6 @@
 # Python Bridge
 
-The Python Bridge connects an application's Python runtime to flint. It supports Maya, 3ds Max, and plain Python processes through active connections initiated inside the host. flint itself does not require a Python installation; the Bridge uses the host's interpreter.
+The Python Bridge connects an application's Python runtime to flint. It supports Maya, 3ds Max, Blender, and plain Python processes through active connections initiated inside the host. flint itself does not require a Python installation; the Bridge uses the host's interpreter.
 
 ## Prepare the Bridge
 
@@ -39,6 +39,18 @@ bridge = flint_bridge.connect(host="max", name="My Max")
 ```
 
 This integration is validated with 3ds Max 2024.2.13. Code submitted through flint executes on the application's UI thread.
+
+## Blender
+
+Export an installable Blender Add-on ZIP with `flint bridge export blender`. In Blender 5.2, open **Edit > Preferences > Add-ons**, choose **Install from Disk**, select `flint-blender.zip`, and enable **Flint Bridge**. The Add-on connects to the local backend on registry port `6321` when enabled; `flint instances --json` shows the registered instance. Set `FLINT_BLENDER_REGISTRY_PORT` in Blender's environment before launch if the backend uses another registry port. Disabling the Add-on disconnects it.
+
+Alternatively, run the shared setup and this connection call in Blender's Python Console on the application's main thread:
+
+```python
+bridge = flint_bridge.connect(host="blender", name="My Blender")
+```
+
+This integration is validated with Blender 5.2. Both connection methods register a Blender timer on the main thread and execute submitted code there. Keep Blender's event loop running while the Bridge is connected. Code may use `bpy` to work with the open scene.
 
 ## Plain Python
 

@@ -16,4 +16,4 @@ test = { requires-python = ">=3.11,<3.15" }
 minversion = "9.0"
 strict = true
 addopts = ["--import-mode=importlib", "-ra"]
-testpaths = ["packages/bridge/tests"]
+testpaths = ["packages/bridge/tests", "hosts/blender/tests"]
