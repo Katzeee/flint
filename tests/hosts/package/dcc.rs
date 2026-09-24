@@ -90,7 +90,7 @@ pub(super) fn verify_host(
     let script = format!(
         "import json\nCONFIG = json.loads({})\n{}",
         serde_json::to_string(&config.to_string())?,
-        include_str!("../fixtures/dcc_bootstrap.py")
+        include_str!("../../fixtures/dcc_bootstrap.py")
     );
     fs::write(&bootstrap, script)?;
     let mut command = Command::new(executable);
@@ -165,6 +165,35 @@ pub(super) fn verify_host(
     assert_eq!(report["pid"], host.0.id());
     assert_eq!(report["main_thread"], true);
     assert_eq!(report["scene"], "");
+    let package_root = if kind == "blender" {
+        app.directory.join("blender-scripts")
+    } else {
+        installation
+    };
+    let module = PathBuf::from(
+        report["package_module"]
+            .as_str()
+            .context("Package module path")?,
+    );
+    anyhow::ensure!(
+        module.is_file(),
+        "Loaded package module is missing: {}",
+        module.display()
+    );
+    let module_path = module
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    let package_path = package_root
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    anyhow::ensure!(
+        module_path.starts_with(&format!("{package_path}/")),
+        "Host loaded {} outside exported package installation {}",
+        module.display(),
+        package_root.display()
+    );
     if kind == "maya" {
         assert_eq!(report["plugin_loaded"], true);
         assert_eq!(report["settings_visible"], true);

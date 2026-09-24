@@ -1,5 +1,2 @@
-mod blender;
-mod dcc;
-mod max;
-mod maya;
-mod unity;
+mod injection;
+mod package;

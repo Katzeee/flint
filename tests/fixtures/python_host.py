@@ -11,7 +11,9 @@ directory = Path(config["directory"])
 report = {"pid": os.getpid(), "version": "%s.%s" % sys.version_info[:2]}
 try:
     sys.path.insert(0, config["bundle"])
+    import flint_bridge
     from flint_bridge import connect, disconnect
+    report["module_file"] = flint_bridge.__file__
     bridge = connect("python", port=config["port"])
     if not bridge.wait_until_connected(10):
         raise RuntimeError("Both channels did not become ready")

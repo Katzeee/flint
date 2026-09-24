@@ -10,7 +10,7 @@ use std::{
 };
 #[test]
 #[ignore = "real host: set FLINT_UNITY_EXE and run `cargo xtask test hosts`"]
-fn unity_active_connection() -> Result<()> {
+fn exported_package_registers_and_executes() -> Result<()> {
     let executable = host_executable("FLINT_UNITY_EXE")?;
     let app = App::evidence("unity");
     app.call("start", &[], 0)?;

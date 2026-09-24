@@ -248,6 +248,17 @@ impl App {
         )?;
         Ok(bundle)
     }
+    #[cfg(windows)]
+    pub fn export_csharp(&self) -> Result<PathBuf> {
+        let bundle = self.directory.join("flint-csharp.zip");
+        checked(
+            Command::new(&self.binary)
+                .current_dir(&self.directory)
+                .args(["bridge", "export", "csharp"]),
+            Duration::from_secs(15),
+        )?;
+        Ok(bundle)
+    }
     pub fn export_blender(&self) -> Result<PathBuf> {
         let bundle = self.directory.join("flint-blender.zip");
         checked(

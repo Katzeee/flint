@@ -19,6 +19,8 @@ try:
         report["addon_enabled"] = "flint_blender" in bpy.context.preferences.addons
         if not report["addon_enabled"]:
             raise RuntimeError("The Blender Add-on was not enabled")
+        import flint_blender
+        report["package_module"] = flint_blender.__file__
         draft = bpy.context.window_manager.flint_bridge_draft
         draft.port = CONFIG["port"]
         if bpy.ops.flint_bridge.apply_settings() != {"FINISHED"}:
@@ -36,6 +38,7 @@ try:
         cmds.loadPlugin("flint_plugin.py", quiet=True)
         report["plugin_loaded"] = cmds.pluginInfo("flint_plugin.py", query=True, loaded=True)
         import flint_maya
+        report["package_module"] = flint_maya.__file__
         flint_maya.show_settings()
         report["settings_visible"] = flint_maya._dialog.isVisible()
         QtWidgets.QApplication.processEvents()
@@ -55,6 +58,7 @@ try:
             for index in range(1, packages.GetPostStartUpScriptsCount() + 1)
         )
         import flint_max
+        report["package_module"] = flint_max.__file__
         flint_max.show_settings()
         report["settings_visible"] = flint_max._dialog.isVisible()
         QtWidgets.QApplication.processEvents()

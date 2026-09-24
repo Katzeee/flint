@@ -61,6 +61,22 @@ fn python(root: &Path) -> Result<()> {
             "-q",
         ],
         &[],
+    )?;
+    execute(
+        root,
+        "cargo",
+        &[
+            "test",
+            "--locked",
+            "--package",
+            "flint",
+            "--test",
+            "product",
+            "--",
+            "runtime::python::",
+            "--ignored",
+        ],
+        &[],
     )
 }
 
@@ -83,6 +99,22 @@ fn csharp(root: &Path) -> Result<()> {
             "-p:NuGetAudit=false",
         ],
         &[("FLINT_BRIDGE_CORE", core.as_os_str())],
+    )?;
+    execute(
+        root,
+        "cargo",
+        &[
+            "test",
+            "--locked",
+            "--package",
+            "flint",
+            "--test",
+            "product",
+            "--",
+            "runtime::csharp::",
+            "--ignored",
+        ],
+        &[],
     )
 }
 
