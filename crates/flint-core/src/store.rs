@@ -179,3 +179,6 @@ impl Store {
             .context("execution not found")
     }
 }
+
+#[cfg(test)]
+mod tests;

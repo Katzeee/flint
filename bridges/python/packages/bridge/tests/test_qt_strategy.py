@@ -1,22 +1,12 @@
-import os
 import threading
 import time
 from typing import Callable, List, Tuple
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import PySide6
 from PySide6 import QtCore, QtWidgets
 
 from flint_bridge.execution.strategies import QtMainThreadExecutionStrategy
 from flint_bridge.execution.strategies import ExecutionStrategyClosedError
-
-
-def _application() -> QtWidgets.QApplication:
-    app = QtWidgets.QApplication.instance()
-    if app is None:
-        app = QtWidgets.QApplication([])
-    return app
 
 
 def _run_from_worker(
@@ -44,14 +34,13 @@ def _run_from_worker(
     return results, errors
 
 
-def test_real_qt_executes_worker_request_on_application_thread() -> None:
-    app = _application()
+def test_executes_worker_request_on_application_thread(qapp) -> None:
     strategy = QtMainThreadExecutionStrategy()
 
     results, errors = _run_from_worker(
-        app,
+        qapp,
         lambda: strategy.run(
-            lambda: QtCore.QThread.currentThread() is app.thread()
+            lambda: QtCore.QThread.currentThread() is qapp.thread()
         ),
     )
 
@@ -59,39 +48,36 @@ def test_real_qt_executes_worker_request_on_application_thread() -> None:
     assert results == [True]
 
 
-def test_real_qt_returns_values_and_propagates_exceptions() -> None:
-    app = _application()
+def test_returns_values_and_propagates_exceptions(qapp) -> None:
     strategy = QtMainThreadExecutionStrategy(qt=PySide6)
 
-    results, errors = _run_from_worker(app, lambda: strategy.run(lambda: 42))
+    results, errors = _run_from_worker(qapp, lambda: strategy.run(lambda: 42))
     assert results == [42]
     assert errors == []
 
     def fail() -> None:
         raise ValueError("boom")
 
-    results, errors = _run_from_worker(app, lambda: strategy.run(fail))
+    results, errors = _run_from_worker(qapp, lambda: strategy.run(fail))
     assert results == []
     assert len(errors) == 1
     assert isinstance(errors[0], ValueError)
     assert str(errors[0]) == "boom"
 
 
-def test_real_qt_handles_repeated_worker_dispatch() -> None:
-    app = _application()
+def test_handles_repeated_worker_dispatch(qapp) -> None:
     strategy = QtMainThreadExecutionStrategy(qt=PySide6)
 
     for value in range(50):
         results, errors = _run_from_worker(
-            app,
+            qapp,
             lambda value=value: strategy.run(lambda: value),
         )
         assert errors == []
         assert results == [value]
 
 
-def test_close_cancels_queued_work_before_ui_dispatch():
-    app = _application()
+def test_close_cancels_queued_work_before_ui_dispatch(qapp):
     strategy = QtMainThreadExecutionStrategy()
     errors, executed = [], []
     def worker():
@@ -109,5 +95,5 @@ def test_close_cancels_queued_work_before_ui_dispatch():
     thread.join(3)
     assert not thread.is_alive()
     assert len(errors) == 1 and isinstance(errors[0], ExecutionStrategyClosedError)
-    app.processEvents()
+    qapp.processEvents()
     assert not executed

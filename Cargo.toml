@@ -1,11 +1,38 @@
 [workspace]
-members = ["crates/flint-protocol", "crates/flint-core", "crates/flint-control-client", "crates/flint-connect", "crates/flint-bridge-core", "apps/flint/src-tauri", "tools/protocol-codegen"]
+members = ["crates/flint-protocol", "crates/flint-core", "crates/flint-control-client", "crates/flint-connect", "crates/flint-bridge-core", "apps/flint/src-tauri", "tools/protocol-codegen", "tools/xtask"]
 default-members = ["apps/flint/src-tauri"]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+publish = false
+
+[workspace.dependencies]
+flint-protocol = { path = "crates/flint-protocol" }
+flint-core = { path = "crates/flint-core" }
+flint-control-client = { path = "crates/flint-control-client" }
+flint-connect = { path = "crates/flint-connect" }
+
+anyhow = "1"
+bytes = "1"
+chrono = "0.4"
+clap = "4"
+dirs = "6"
+fs2 = "0.4"
+futures-util = "0.3"
+prost = "=0.13.5"
+prost-build = "=0.13.5"
+serde = "1"
+serde_json = "1"
+sysinfo = { version = "0.33", default-features = false }
+tauri = "2"
+tauri-build = "2"
+tempfile = "3"
+tokio = "1"
+tokio-util = "0.7"
+uuid = "1"
+wait-timeout = "0.2"
 
 [profile.release]
 lto = "thin"

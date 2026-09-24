@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::{
@@ -15,9 +14,10 @@ use wait_timeout::ChildExt;
 
 pub fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .unwrap()
+        .ancestors()
+        .find(|path| path.join("Cargo.lock").is_file())
+        .expect("Tests must run inside the Cargo workspace")
+        .to_path_buf()
 }
 pub fn binary() -> PathBuf {
     let path = PathBuf::from(env!("CARGO_BIN_EXE_flint"));
@@ -33,10 +33,15 @@ pub fn python() -> PathBuf {
         return PathBuf::from(path);
     }
     let output = Command::new("uv")
-        .args(["python", "find", "3.13"])
+        .current_dir(root().join("bridges/python"))
+        .args(["python", "find", ">=3.11,<3.15"])
         .output()
         .expect("uv is required to locate the test Python interpreter");
-    assert!(output.status.success(), "uv could not find Python 3.13");
+    assert!(
+        output.status.success(),
+        "No Python >=3.11,<3.15 is discoverable by uv; install one or set FLINT_TEST_PYTHON\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let path = PathBuf::from(
         String::from_utf8(output.stdout)
             .expect("Invalid Python path")
@@ -50,9 +55,7 @@ pub fn python() -> PathBuf {
     path
 }
 pub fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("fixtures")
-        .join(name)
+    root().join("tests/fixtures").join(name)
 }
 pub fn free_port() -> u16 {
     TcpListener::bind(("127.0.0.1", 0))
@@ -80,7 +83,8 @@ pub fn hidden(command: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
     }
 }
 pub fn run(command: &mut Command, timeout: Duration, input: Option<&str>) -> Result<Output> {
@@ -154,7 +158,7 @@ impl App {
         app
     }
     pub fn evidence(name: &str) -> Self {
-        let parent = root().join("target/integration-artifacts");
+        let parent = Path::new(env!("CARGO_TARGET_TMPDIR")).join("host-evidence");
         fs::create_dir_all(&parent).unwrap();
         let path = tempfile::Builder::new()
             .prefix(&format!("{name}-"))

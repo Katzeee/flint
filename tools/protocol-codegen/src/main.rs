@@ -1,4 +1,3 @@
-//! Generate the Rust protocol binding without depending on the application or Node.js.
 use std::{
     error::Error,
     fs, io,

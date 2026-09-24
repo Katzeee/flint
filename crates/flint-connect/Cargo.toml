@@ -2,6 +2,8 @@
 name = "flint-connect"
 version.workspace = true
 edition.workspace = true
+publish.workspace = true
+
 [dependencies]
-sysinfo = { version = "0.33", default-features = false, features = ["system", "multithread"] }
-serde = { version = "1", features = ["derive"] }
+sysinfo = { workspace = true, features = ["system", "multithread"] }
+serde = { workspace = true, features = ["derive"] }

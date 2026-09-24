@@ -1,5 +1,6 @@
 [tool.uv]
 required-version = ">=0.12.17"
+python-downloads = "never"
 default-groups = []
 
 [tool.uv.workspace]
@@ -9,8 +10,10 @@ members = ["packages/bridge"]
 test = ["pytest==9.0.3", "PySide6-Essentials==6.11.1"]
 
 [tool.uv.dependency-groups]
-test = { requires-python = ">=3.10,<3.15" }
+test = { requires-python = ">=3.11,<3.15" }
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["packages/bridge/src"]
+[tool.pytest]
+minversion = "9.0"
+strict = true
+addopts = ["--import-mode=importlib", "-ra"]
+testpaths = ["packages/bridge/tests"]

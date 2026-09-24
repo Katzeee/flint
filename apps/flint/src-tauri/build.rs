@@ -3,7 +3,7 @@ use std::{path::Path, process::Command};
 fn package(root: &Path, script: &str, output: &Path, native: &Path) {
     let status = Command::new("uv")
         .current_dir(root.join("bridges/python"))
-        .args(["run", "--no-project", "--python", "3.13", "python"])
+        .args(["run", "--no-project", "--python", ">=3.11", "python"])
         .arg("-I")
         .arg(root.join(script))
         .arg(output)
@@ -11,7 +11,10 @@ fn package(root: &Path, script: &str, output: &Path, native: &Path) {
         .arg(native)
         .status()
         .expect("uv is required on PATH to run Bridge packagers");
-    assert!(status.success(), "Bridge packaging failed: {script}");
+    assert!(
+        status.success(),
+        "Bridge packaging failed: {script}; packagers need Python >=3.11 discoverable by uv"
+    );
 }
 
 fn main() {
@@ -20,6 +23,7 @@ fn main() {
     for input in [
         "Cargo.toml",
         "Cargo.lock",
+        "bridges/python/pyproject.toml",
         "crates/flint-protocol/Cargo.toml",
         "crates/flint-protocol/src",
         "crates/flint-bridge-core/Cargo.toml",

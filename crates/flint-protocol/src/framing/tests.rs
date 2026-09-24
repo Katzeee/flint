@@ -1,5 +1,5 @@
+use crate::{envelope::Payload, Envelope, EnvelopeCodec, ExecuteRequest, MAX_FRAME_BYTES};
 use bytes::BytesMut;
-use flint_protocol::{envelope::Payload, Envelope, EnvelopeCodec, ExecuteRequest, MAX_FRAME_BYTES};
 use futures_util::{SinkExt, StreamExt};
 use prost::Message;
 use tokio_util::codec::{Decoder, Encoder, Framed};

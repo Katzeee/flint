@@ -519,3 +519,6 @@ pub unsafe extern "C" fn flint_bridge_string_free(value: *mut c_char) {
         drop(CString::from_raw(value));
     }
 }
+
+#[cfg(test)]
+mod tests;

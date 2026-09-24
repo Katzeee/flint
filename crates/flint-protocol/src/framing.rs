@@ -99,3 +99,6 @@ impl Encoder<Envelope> for EnvelopeCodec {
             .encode(envelope.encode_to_vec().into(), destination)
     }
 }
+
+#[cfg(test)]
+mod tests;

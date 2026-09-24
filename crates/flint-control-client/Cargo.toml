@@ -2,13 +2,15 @@
 name = "flint-control-client"
 version.workspace = true
 edition.workspace = true
+publish.workspace = true
+
 [dependencies]
-flint-core = { path = "../flint-core" }
-flint-protocol = { path = "../flint-protocol" }
-tokio = { version = "1", features = ["rt", "net", "time"] }
-tokio-util = { version = "0.7", features = ["codec"] }
-futures-util = { version = "0.3", features = ["sink"] }
-uuid = { version = "1", features = ["v4"] }
-serde_json = "1"
-fs2 = "0.4"
-anyhow = "1"
+flint-core.workspace = true
+flint-protocol.workspace = true
+tokio = { workspace = true, features = ["rt", "net", "time"] }
+tokio-util = { workspace = true, features = ["codec"] }
+futures-util = { workspace = true, features = ["sink"] }
+uuid = { workspace = true, features = ["v4"] }
+serde_json.workspace = true
+fs2.workspace = true
+anyhow.workspace = true

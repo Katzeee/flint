@@ -1,2 +1,3 @@
 [alias]
 codegen = "run --locked --package protocol-codegen --"
+xtask = "run --locked --package xtask --"
