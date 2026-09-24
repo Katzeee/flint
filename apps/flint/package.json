@@ -1,0 +1,36 @@
+{
+  "name": "@flint/gui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0 <27.0.0"
+  },
+  "workspaces": [
+    "cairn/packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build:deps && vite build",
+    "build:deps": "npm run build --workspace=@cairn/design-tokens && npm run build --workspace=@cairn/design-system-catalog && npm run build --workspace=@cairn/ui",
+    "typecheck": "npm run build:deps && tsc --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "allowScripts": {
+    "@parcel/watcher@2.5.1": true,
+    "electron@41.10.7": true,
+    "esbuild@0.28.2": true
+  },
+  "dependencies": {
+    "@cairn/ui": "file:./cairn/packages/ui",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "playwright-core": "1.62.1",
+    "electron": "41.10.7",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.0"
+  }
+}

@@ -3,7 +3,7 @@
   "productName": "flint",
   "version": "0.1.0",
   "identifier": "dev.flint.desktop",
-  "build": { "frontendDist": "../src" },
+  "build": { "frontendDist": "../dist" },
   "app": { "withGlobalTauri": true, "windows": [{ "label": "main", "title": "flint", "width": 880, "height": 600, "visible": false }], "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost" } },
   "bundle": { "active": false, "icon": ["icons/icon.ico", "icons/icon.png"] }
 }

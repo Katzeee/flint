@@ -22,6 +22,11 @@ const SUITES: &[Suite] = &[
         run: rust,
     },
     Suite {
+        name: "gui",
+        default: true,
+        run: gui,
+    },
+    Suite {
         name: "python",
         default: true,
         run: python,
@@ -40,6 +45,13 @@ const SUITES: &[Suite] = &[
 
 fn rust(root: &Path) -> Result<()> {
     execute(root, "cargo", &["test", "--workspace", "--locked"], &[])
+}
+
+fn gui(root: &Path) -> Result<()> {
+    let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    let app = root.join("apps/flint");
+    execute(&app, npm, &["run", "typecheck"], &[])?;
+    execute(&app, npm, &["test"], &[])
 }
 
 fn python(root: &Path) -> Result<()> {

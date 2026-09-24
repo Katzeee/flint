@@ -4,13 +4,20 @@ This guide takes a Windows source checkout to a working flint executable. For im
 
 ## Prepare the environment
 
-Install Rust through rustup, Visual Studio Build Tools with the Desktop development with C++ workload and a Windows SDK, and uv. The C# tests also require the .NET SDK selected by [global.json](../bridges/dotnet/global.json). Make cargo, uv, and, when testing C#, dotnet available on PATH.
+Install Rust through rustup, Visual Studio Build Tools with the Desktop development with C++ workload and a Windows SDK, Node.js 22.12 or later, and uv. The C# tests also require the .NET SDK selected by [global.json](../bridges/dotnet/global.json). Make cargo, npm, uv, and, when testing C#, dotnet available on PATH.
 
 The first build needs network access to obtain toolchains and dependencies. Install Python 3.11 through 3.14 yourself; uv discovers it on PATH, in the Windows registry, or among uv-managed installations, and never downloads one for this repository. Set `UV_PYTHON` if several interpreters qualify. The exported Python Bridge runs in the host's interpreter and supports Python 3.7 or later. To open the desktop window, install the runtime dependencies listed under [Run flint](../README.md#run-flint).
 
 ## Build and run
 
-From the repository root in PowerShell:
+Initialize Cairn and install the locked frontend dependencies before the first build:
+
+```powershell
+git submodule update --init
+npm ci --prefix apps/flint
+```
+
+`cargo build` runs the Cairn package builds and Vite through the Tauri build script, then embeds `apps/flint/dist` in the executable. The frontend dependencies are installed once with `npm ci`; a separate frontend build command is not required. From the repository root in PowerShell:
 
 ```powershell
 cargo build --locked --release

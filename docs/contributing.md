@@ -4,7 +4,11 @@ This guide covers implementation ownership and test placement. Prepare a Windows
 
 ## Ownership
 
-The Rust backend owns execution coordination and durable workflow records. Tauri owns desktop presentation in the backend process, and CLI invocations communicate with that process through the control client. Keep Tauri dependencies out of the core and protocol crates.
+The Rust backend owns execution coordination and durable workflow records. Tauri owns the window, tray, and native IPC, while React renders the desktop interface. CLI invocations communicate with the backend through the control client. Keep Tauri dependencies out of the core and protocol crates.
+
+The React desktop interface lives in `apps/flint/src`, with its npm project and build output beside `src-tauri`. Cairn is the first-party design-system submodule at `apps/flint/cairn`. Build reusable visual components and tokens in Cairn, then consume them in Flint's application-specific interface. Commit Cairn changes in the submodule before updating Flint's recorded submodule commit.
+
+Compose Cairn's page and component contracts for the desktop view. Keep Flint CSS to layout relationships between those components; a reusable visual rule belongs in Cairn. The single import of Cairn's compiled stylesheet lives in the frontend entry point.
 
 Workflow files own durable state. Live connections and pending requests are transient. After a backend restart, Bridges reconnect; interrupted executions have an unknown host outcome and must not be replayed automatically.
 
@@ -18,7 +22,7 @@ Builds use declared, locked dependencies and remain independent of developer-loc
 
 ## Tests
 
-Run `cargo xtask test` from the repository root; CI runs the same command. Select suites by name when needed, for example `cargo xtask test rust python`. Cargo builds the application executable used by the product integration tests, so a separate build is unnecessary. Every automated suite is registered in [xtask](../tools/xtask/src/main.rs). Keep test prerequisites and execution details in the test drivers and configuration.
+Run `cargo xtask test` from the repository root; CI runs the same command. Select suites by name when needed, for example `cargo xtask test rust gui`. Cargo builds the application executable used by the product integration tests, so a separate build is unnecessary. Every automated suite is registered in [xtask](../tools/xtask/src/main.rs). Keep test prerequisites and execution details in the test drivers and configuration.
 
 Place a new test by the behavior it exercises. A test of one Rust crate belongs beside its implementation in that crate's `src`, following Rust's module layout: `src/<module>/tests.rs` for a module or `src/tests.rs` for the crate root. A test of one language Bridge belongs beside that Bridge's package and uses the language's own test runner and locked dependencies. Python packages keep `tests` next to `src`; .NET projects under `bridges/dotnet/src` have sibling `<Project>.Tests` projects under `bridges/dotnet/tests`. Host adapters that require an application's runtime are covered by real-host tests. Register a new language Bridge's suite in xtask.
 

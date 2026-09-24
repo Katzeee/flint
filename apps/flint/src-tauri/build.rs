@@ -1,4 +1,22 @@
-use std::{path::Path, process::Command};
+use std::{fs, path::Path, process::Command};
+
+fn watch_frontend_sources(directory: &Path) {
+    for entry in fs::read_dir(directory).expect("Cannot read frontend source directory") {
+        let entry = entry.expect("Cannot read frontend source entry");
+        let path = entry.path();
+        let name = entry.file_name();
+        if path.is_dir() {
+            if !matches!(
+                name.to_str(),
+                Some("dist" | "build" | "node_modules" | ".git")
+            ) {
+                watch_frontend_sources(&path);
+            }
+        } else if name != "generated.ts" {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+}
 
 fn package(root: &Path, script: &str, output: &Path, native: &Path) {
     let status = Command::new("uv")
@@ -20,6 +38,24 @@ fn package(root: &Path, script: &str, output: &Path, native: &Path) {
 fn main() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    for input in [
+        "apps/flint/index.html",
+        "apps/flint/vite.config.ts",
+        "apps/flint/package.json",
+        "apps/flint/package-lock.json",
+        "apps/flint/cairn/package.json",
+        "apps/flint/cairn/tsconfig.json",
+    ] {
+        println!("cargo:rerun-if-changed={}", root.join(input).display());
+    }
+    for directory in [
+        "apps/flint/src",
+        "apps/flint/public",
+        "apps/flint/cairn/packages",
+        "apps/flint/cairn/scripts",
+    ] {
+        watch_frontend_sources(&root.join(directory));
+    }
     for input in [
         "Cargo.toml",
         "Cargo.lock",
@@ -103,6 +139,19 @@ fn main() {
             );
         }
     }
+    let frontend = root.join("apps/flint");
+    let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    let status = Command::new(npm)
+        .current_dir(&frontend)
+        .args(["run", "build"])
+        .status()
+        .expect(
+            "Node.js and npm are required to build the Flint desktop UI; see docs/development.md",
+        );
+    assert!(
+        status.success(),
+        "Flint desktop UI build failed; run npm ci in apps/flint"
+    );
     println!("cargo:rerun-if-changed=windows-app-manifest.xml");
     let windows = tauri_build::WindowsAttributes::new()
         .app_manifest(include_str!("windows-app-manifest.xml"));
