@@ -8,7 +8,7 @@ The Rust backend owns execution coordination and durable workflow records. Tauri
 
 The React desktop interface lives in `apps/flint/src`, with its npm project and build output beside `src-tauri`. Cairn is the first-party design-system submodule at `apps/flint/cairn`. Build reusable visual components and tokens in Cairn, then consume them in Flint's application-specific interface. Commit Cairn changes in the submodule before updating Flint's recorded submodule commit.
 
-Compose Cairn's page and component contracts for the desktop view. Keep Flint CSS to layout relationships between those components; a reusable visual rule belongs in Cairn. The single import of Cairn's compiled stylesheet lives in the frontend entry point.
+Compose the desktop view from Cairn's page, layout, and component contracts; Flint has no stylesheet of its own. When the view needs a visual rule or variant Cairn lacks, add it to Cairn. Flint's `lint` script runs Cairn's application rules, and the `gui` xtask suite runs it with the typecheck and GUI test. The single import of Cairn's compiled stylesheet lives in the frontend entry point.
 
 Workflow files own durable state. Live connections and pending requests are transient. After a backend restart, Bridges reconnect; interrupted executions have an unknown host outcome and must not be replayed automatically.
 

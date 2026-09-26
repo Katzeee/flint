@@ -4,6 +4,7 @@ import {
   AlertTitle,
   Badge,
   BadgeDot,
+  Box,
   Button,
   Card,
   CardContent,
@@ -12,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
   EmptyState,
+  Flex,
   Icon,
   Link,
   PageScaffold,
@@ -105,95 +107,101 @@ export function App() {
         }
         description="Flint keeps a bridge to your running applications. The backend stays in the system tray when this window closes."
         eyebrow="Flint · Application bridge"
-        title={
-          <span className="flint-title">
-            <img aria-hidden="true" src="./icon.svg" />
-            Connected to your work.
-          </span>
-        }
+        mark="./icon.svg"
+        title="Connected to your work."
       >
-        {serviceError !== "" || actionError !== "" ? (
-          <Alert tone="destructive">
-            <AlertTitle>Flint could not complete the request</AlertTitle>
-            {actionError || serviceError}
-          </Alert>
-        ) : null}
+        <Flex direction="column" gap="7">
+          {serviceError !== "" || actionError !== "" ? (
+            <Alert tone="destructive">
+              <AlertTitle>Flint could not complete the request</AlertTitle>
+              {actionError || serviceError}
+            </Alert>
+          ) : null}
 
-        <section aria-labelledby="connected-title" className="flint-section">
-          <div className="flint-section-heading">
-            <CardTitle id="connected-title">Connected instances</CardTitle>
-            <Badge tone="neutral">{count} connected</Badge>
-          </div>
-          {count === 0 ? (
-            <EmptyState
-              description="Load a Flint Bridge in Maya, 3ds Max, Blender, Unity, or Python to establish a connection."
-              icon="app-window"
-              title="No connected instances yet"
-            />
-          ) : (
-            <div className="flint-list">
-              {snapshot?.instances.map((instance) => (
-                <InstanceCard instance={instance} key={`${instance.instance_type}:${instance.pid}:${instance.instance_name}`} />
-              ))}
-            </div>
-          )}
-        </section>
+          <Flex aria-labelledby="connected-title" as="section" direction="column" gap="3">
+            <Flex align="center" gap="3" justify="between" wrap="wrap">
+              <CardTitle id="connected-title">Connected instances</CardTitle>
+              <Badge tone="neutral">{count} connected</Badge>
+            </Flex>
+            {count === 0 ? (
+              <EmptyState
+                description="Load a Flint Bridge in Maya, 3ds Max, Blender, Unity, or Python to establish a connection."
+                icon="app-window"
+                title="No connected instances yet"
+              />
+            ) : (
+              <Flex direction="column" gap="3">
+                {snapshot?.instances.map((instance) => (
+                  <InstanceCard
+                    instance={instance}
+                    key={`${instance.instance_type}:${instance.pid}:${instance.instance_name}`}
+                  />
+                ))}
+              </Flex>
+            )}
+          </Flex>
 
-        <section aria-labelledby="discovery-title" className="flint-section">
-          <Card variant="muted">
-            <CardHeader>
-              <CardTitle id="discovery-title">Running applications</CardTitle>
-              <CardDescription>
-                Discovery finds supported processes on this computer. A process appears above only after its Bridge
-                connects.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {candidates === null ? (
-                <CardDescription>Scan to find applications that can host a Flint Bridge.</CardDescription>
-              ) : candidates.length === 0 ? (
-                <CardDescription>No supported applications are running.</CardDescription>
-              ) : (
-                <ul aria-label="Discovered applications" className="flint-candidates">
-                  {candidates.map((candidate) => (
-                    <li className="flint-candidate" key={`${candidate.host}:${candidate.pid}`}>
-                      <Icon name="app-window" size="sm" />
-                      <span className="flint-candidate-name">{candidate.host}</span>
-                      <CardDescription>PID {candidate.pid}</CardDescription>
-                      <Badge tone="neutral">Connect from host</Badge>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-            <CardFooter>
-              <Button loading={scanning} onClick={() => void scan()} size="sm" variant="outline">
-                <Icon name="compass" size="sm" />
-                Scan applications
-              </Button>
-            </CardFooter>
-          </Card>
-        </section>
+          <section aria-labelledby="discovery-title">
+            <Card variant="muted">
+              <CardHeader>
+                <CardTitle id="discovery-title">Running applications</CardTitle>
+                <CardDescription>
+                  Discovery finds supported processes on this computer. A process appears above only after its Bridge
+                  connects.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {candidates === null ? (
+                  <CardDescription>Scan to find applications that can host a Flint Bridge.</CardDescription>
+                ) : candidates.length === 0 ? (
+                  <CardDescription>No supported applications are running.</CardDescription>
+                ) : (
+                  <Flex aria-label="Discovered applications" as="ul" direction="column" gap="3">
+                    {candidates.map((candidate, index) => (
+                      <Flex as="li" direction="column" gap="3" key={`${candidate.host}:${candidate.pid}`}>
+                        {index === 0 ? null : <Separator />}
+                        <Flex align="center" gap="3" wrap="wrap">
+                          <Icon name="app-window" size="sm" />
+                          <Box flexGrow="1" minWidth="0">
+                            {candidate.host}
+                          </Box>
+                          <CardDescription>PID {candidate.pid}</CardDescription>
+                          <Badge tone="neutral">Connect from host</Badge>
+                        </Flex>
+                      </Flex>
+                    ))}
+                  </Flex>
+                )}
+              </CardContent>
+              <CardFooter>
+                <Button loading={scanning} onClick={() => void scan()} size="sm" variant="outline">
+                  <Icon name="compass" size="sm" />
+                  Scan applications
+                </Button>
+              </CardFooter>
+            </Card>
+          </section>
 
-        <footer className="flint-footer">
-          <Separator />
-          <div className="flint-footer-content">
-            <div>
-              <strong>Backend service</strong>
-              <CardDescription>
-                {snapshot === null
-                  ? "Waiting for backend status"
-                  : `PID ${snapshot.backend.pid} · ${snapshot.backend.registry_host}:${snapshot.backend.registry_port}`}
-              </CardDescription>
-            </div>
-            <div className="flint-footer-actions">
-              <Link href="#/legal">Licenses</Link>
-              <Button disabled={!ready || stopping} onClick={() => setStopDialogOpen(true)} size="sm" variant="ghost">
-                Stop backend
-              </Button>
-            </div>
-          </div>
-        </footer>
+          <Flex as="footer" direction="column" gap="4">
+            <Separator />
+            <Flex align="center" gap="3" justify="between" wrap="wrap">
+              <div>
+                <strong>Backend service</strong>
+                <CardDescription>
+                  {snapshot === null
+                    ? "Waiting for backend status"
+                    : `PID ${snapshot.backend.pid} · ${snapshot.backend.registry_host}:${snapshot.backend.registry_port}`}
+                </CardDescription>
+              </div>
+              <Flex align="center" gap="3">
+                <Link href="#/legal">Licenses</Link>
+                <Button disabled={!ready || stopping} onClick={() => setStopDialogOpen(true)} size="sm" variant="ghost">
+                  Stop backend
+                </Button>
+              </Flex>
+            </Flex>
+          </Flex>
+        </Flex>
       </PageScaffold>
       <AlertDialog
         confirmLabel="Stop backend"
@@ -210,18 +218,22 @@ export function App() {
 function InstanceCard({ instance }: Readonly<{ instance: ConnectedInstance }>) {
   return (
     <Card>
-      <CardContent className="flint-instance">
-        <Icon name="app-window" />
-        <div className="flint-instance-copy">
-          <h3>{instance.instance_name}</h3>
-          <CardDescription>
-            {instance.instance_type} · PID {instance.pid} · {instance.runtime_version}
-          </CardDescription>
-        </div>
-        <Badge tone={instance.execution_ready ? "success" : "warning"}>
-          <BadgeDot />
-          {instance.execution_ready ? "Ready to execute" : "Connecting"}
-        </Badge>
+      <CardContent>
+        <Flex align="center" gap="3" wrap="wrap">
+          <Icon name="app-window" />
+          <Flex direction="column" flexGrow="1" gap="1" minWidth="0">
+            <CardTitle as="h3" size="compact">
+              {instance.instance_name}
+            </CardTitle>
+            <CardDescription>
+              {instance.instance_type} · PID {instance.pid} · {instance.runtime_version}
+            </CardDescription>
+          </Flex>
+          <Badge tone={instance.execution_ready ? "success" : "warning"}>
+            <BadgeDot />
+            {instance.execution_ready ? "Ready to execute" : "Connecting"}
+          </Badge>
+        </Flex>
       </CardContent>
     </Card>
   );

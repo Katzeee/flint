@@ -51,6 +51,7 @@ fn gui(root: &Path) -> Result<()> {
     let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
     let app = root.join("apps/flint");
     execute(&app, npm, &["run", "typecheck"], &[])?;
+    execute(&app, npm, &["run", "lint"], &[])?;
     execute(&app, npm, &["test"], &[])
 }
 
