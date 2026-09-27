@@ -1,4 +1,5 @@
 import "@cairn/ui/styles.css";
+import "@cairn/ui/themes/forest.css";
 
 import { LegalPage } from "@cairn/ui";
 import { StrictMode, useEffect, useState } from "react";

@@ -1,23 +1,18 @@
 import {
-  Alert,
   AlertDialog,
-  AlertTitle,
   Badge,
-  BadgeDot,
   Box,
   Button,
+  Callout,
   Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
   EmptyState,
   Flex,
+  Heading,
   Icon,
   Link,
   PageScaffold,
   Separator,
+  Text,
 } from "@cairn/ui";
 import { useEffect, useState } from "react";
 
@@ -100,8 +95,7 @@ export function App() {
     <div>
       <PageScaffold
         actions={
-          <Badge tone={ready ? "success" : "warning"}>
-            <BadgeDot />
+          <Badge color={ready ? "success" : "warning"} size="2">
             {ready ? "Backend running" : snapshot === null && serviceError === "" ? "Connecting" : "Unavailable"}
           </Badge>
         }
@@ -112,23 +106,35 @@ export function App() {
       >
         <Flex direction="column" gap="7">
           {serviceError !== "" || actionError !== "" ? (
-            <Alert tone="destructive">
-              <AlertTitle>Flint could not complete the request</AlertTitle>
-              {actionError || serviceError}
-            </Alert>
+            <Callout.Root color="danger" role="alert">
+              <Flex direction="column" gap="1">
+                <Text as="p" weight="bold">
+                  Flint could not complete the request
+                </Text>
+                <Callout.Text>{actionError || serviceError}</Callout.Text>
+              </Flex>
+            </Callout.Root>
           ) : null}
 
           <Flex aria-labelledby="connected-title" as="section" direction="column" gap="3">
             <Flex align="center" gap="3" justify="between" wrap="wrap">
-              <CardTitle id="connected-title">Connected instances</CardTitle>
-              <Badge tone="neutral">{count} connected</Badge>
+              <Heading as="h2" id="connected-title" size="4">
+                Connected instances
+              </Heading>
+              <Badge color="gray" size="2">
+                {count} connected
+              </Badge>
             </Flex>
             {count === 0 ? (
-              <EmptyState
-                description="Load a Flint Bridge in Maya, 3ds Max, Blender, Unity, or Python to establish a connection."
-                icon="app-window"
-                title="No connected instances yet"
-              />
+              <EmptyState>
+                <EmptyState.Illustration>
+                  <Icon name="app-window" size="4" />
+                </EmptyState.Illustration>
+                <EmptyState.Title>No connected instances yet</EmptyState.Title>
+                <EmptyState.Description>
+                  Load a Flint Bridge in Maya, 3ds Max, Blender, Unity, or Python to establish a connection.
+                </EmptyState.Description>
+              </EmptyState>
             ) : (
               <Flex direction="column" gap="3">
                 {snapshot?.instances.map((instance) => (
@@ -142,60 +148,70 @@ export function App() {
           </Flex>
 
           <section aria-labelledby="discovery-title">
-            <Card variant="muted">
-              <CardHeader>
-                <CardTitle id="discovery-title">Running applications</CardTitle>
-                <CardDescription>
-                  Discovery finds supported processes on this computer. A process appears above only after its Bridge
-                  connects.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+            <Card size="3">
+              <Flex direction="column" gap="4">
+                <Flex direction="column" gap="1">
+                  <Heading as="h2" id="discovery-title" size="4">
+                    Running applications
+                  </Heading>
+                  <Text as="p" color="gray" size="2">
+                    Discovery finds supported processes on this computer. A process appears above only after its Bridge
+                    connects.
+                  </Text>
+                </Flex>
                 {candidates === null ? (
-                  <CardDescription>Scan to find applications that can host a Flint Bridge.</CardDescription>
+                  <Text as="p" color="gray" size="2">
+                    Scan to find applications that can host a Flint Bridge.
+                  </Text>
                 ) : candidates.length === 0 ? (
-                  <CardDescription>No supported applications are running.</CardDescription>
+                  <Text as="p" color="gray" size="2">
+                    No supported applications are running.
+                  </Text>
                 ) : (
                   <Flex aria-label="Discovered applications" as="ul" direction="column" gap="3">
                     {candidates.map((candidate, index) => (
                       <Flex as="li" direction="column" gap="3" key={`${candidate.host}:${candidate.pid}`}>
-                        {index === 0 ? null : <Separator />}
+                        {index === 0 ? null : <Separator size="4" />}
                         <Flex align="center" gap="3" wrap="wrap">
-                          <Icon name="app-window" size="sm" />
+                          <Icon name="app-window" size="2" />
                           <Box flexGrow="1" minWidth="0">
                             {candidate.host}
                           </Box>
-                          <CardDescription>PID {candidate.pid}</CardDescription>
-                          <Badge tone="neutral">Connect from host</Badge>
+                          <Text as="p" color="gray" size="2">
+                            PID {candidate.pid}
+                          </Text>
+                          <Badge color="gray" size="2">
+                            Connect from host
+                          </Badge>
                         </Flex>
                       </Flex>
                     ))}
                   </Flex>
                 )}
-              </CardContent>
-              <CardFooter>
-                <Button loading={scanning} onClick={() => void scan()} size="sm" variant="outline">
-                  <Icon name="compass" size="sm" />
-                  Scan applications
-                </Button>
-              </CardFooter>
+                <Flex>
+                  <Button loading={scanning} onClick={() => void scan()} size="2" variant="outline">
+                    <Icon name="compass" size="2" />
+                    Scan applications
+                  </Button>
+                </Flex>
+              </Flex>
             </Card>
           </section>
 
           <Flex as="footer" direction="column" gap="4">
-            <Separator />
+            <Separator size="4" />
             <Flex align="center" gap="3" justify="between" wrap="wrap">
               <div>
                 <strong>Backend service</strong>
-                <CardDescription>
+                <Text as="p" color="gray" size="2">
                   {snapshot === null
                     ? "Waiting for backend status"
                     : `PID ${snapshot.backend.pid} · ${snapshot.backend.registry_host}:${snapshot.backend.registry_port}`}
-                </CardDescription>
+                </Text>
               </div>
               <Flex align="center" gap="3">
                 <Link href="#/legal">Licenses</Link>
-                <Button disabled={!ready || stopping} onClick={() => setStopDialogOpen(true)} size="sm" variant="ghost">
+                <Button disabled={!ready || stopping} onClick={() => setStopDialogOpen(true)} size="2" variant="ghost">
                   Stop backend
                 </Button>
               </Flex>
@@ -203,38 +219,47 @@ export function App() {
           </Flex>
         </Flex>
       </PageScaffold>
-      <AlertDialog
-        confirmLabel="Stop backend"
-        description="Flint will disconnect its Bridges and close the desktop application. Running host applications remain open."
-        onConfirm={() => void stop()}
-        onOpenChange={setStopDialogOpen}
-        open={stopDialogOpen}
-        title="Stop Flint?"
-      />
+      <AlertDialog.Root onOpenChange={setStopDialogOpen} open={stopDialogOpen}>
+        <AlertDialog.Content>
+          <AlertDialog.Title>Stop Flint?</AlertDialog.Title>
+          <AlertDialog.Description>
+            Flint will disconnect its Bridges and close the desktop application. Running host applications remain open.
+          </AlertDialog.Description>
+          <Flex gap="2" justify="end" pt="5" wrap="wrap">
+            <AlertDialog.Cancel>
+              <Button size="2" variant="soft">
+                Cancel
+              </Button>
+            </AlertDialog.Cancel>
+            <AlertDialog.Action>
+              <Button color="danger" onClick={() => void stop()} size="2">
+                Stop backend
+              </Button>
+            </AlertDialog.Action>
+          </Flex>
+        </AlertDialog.Content>
+      </AlertDialog.Root>
     </div>
   );
 }
 
 function InstanceCard({ instance }: Readonly<{ instance: ConnectedInstance }>) {
   return (
-    <Card>
-      <CardContent>
-        <Flex align="center" gap="3" wrap="wrap">
-          <Icon name="app-window" />
-          <Flex direction="column" flexGrow="1" gap="1" minWidth="0">
-            <CardTitle as="h3" size="compact">
-              {instance.instance_name}
-            </CardTitle>
-            <CardDescription>
-              {instance.instance_type} · PID {instance.pid} · {instance.runtime_version}
-            </CardDescription>
-          </Flex>
-          <Badge tone={instance.execution_ready ? "success" : "warning"}>
-            <BadgeDot />
-            {instance.execution_ready ? "Ready to execute" : "Connecting"}
-          </Badge>
+    <Card size="3">
+      <Flex align="center" gap="3" wrap="wrap">
+        <Icon name="app-window" />
+        <Flex direction="column" flexGrow="1" gap="1" minWidth="0">
+          <Heading as="h3" size="3" weight="bold">
+            {instance.instance_name}
+          </Heading>
+          <Text as="p" color="gray" size="2">
+            {instance.instance_type} · PID {instance.pid} · {instance.runtime_version}
+          </Text>
         </Flex>
-      </CardContent>
+        <Badge color={instance.execution_ready ? "success" : "warning"} size="2">
+          {instance.execution_ready ? "Ready to execute" : "Connecting"}
+        </Badge>
+      </Flex>
     </Card>
   );
 }
