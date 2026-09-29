@@ -44,6 +44,18 @@ pub struct Workflow {
     pub execs: Vec<Execution>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct WorkflowSummary {
+    pub workflow_id: String,
+    pub name: String,
+    pub description: String,
+    pub updated_at: String,
+    pub execution_count: u64,
+    pub instance_ids: Vec<String>,
+    pub running_count: usize,
+    pub failed_count: usize,
+}
+
 pub struct Store {
     root: PathBuf,
     gate: Mutex<()>,
@@ -99,6 +111,57 @@ impl Store {
     }
     pub fn load(&self, id: &str) -> Result<Workflow> {
         Ok(serde_json::from_slice(&fs::read(self.path(id)?)?)?)
+    }
+    pub fn list(&self) -> Result<Vec<WorkflowSummary>> {
+        let _guard = self.gate.lock().unwrap();
+        let mut summaries = Vec::new();
+        for item in fs::read_dir(&self.root)? {
+            let path = item?.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            let workflow: Workflow = serde_json::from_slice(&fs::read(&path)?)
+                .with_context(|| format!("Cannot read workflow {}", path.display()))?;
+            let updated_at = workflow
+                .execs
+                .iter()
+                .flat_map(|entry| {
+                    [
+                        Some(entry.started_at.as_str()),
+                        entry.updated_at.as_deref(),
+                        entry.finished_at.as_deref(),
+                    ]
+                })
+                .flatten()
+                .chain(std::iter::once(workflow.created_at.as_str()))
+                .max()
+                .unwrap()
+                .to_owned();
+            summaries.push(WorkflowSummary {
+                workflow_id: workflow.workflow_id,
+                name: workflow.name,
+                description: workflow.description,
+                updated_at,
+                execution_count: workflow.execution_count,
+                instance_ids: workflow.instance_ids,
+                running_count: workflow
+                    .execs
+                    .iter()
+                    .filter(|e| e.status == "running" || e.status == "pending")
+                    .count(),
+                failed_count: workflow
+                    .execs
+                    .iter()
+                    .filter(|e| e.status == "failed")
+                    .count(),
+            });
+        }
+        summaries.sort_by(|a, b| {
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| a.workflow_id.cmp(&b.workflow_id))
+        });
+        Ok(summaries)
     }
     pub fn create(&self, name: String, description: String) -> Result<String> {
         let _guard = self.gate.lock().unwrap();

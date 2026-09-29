@@ -2,85 +2,304 @@ import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-
 import { _electron } from "playwright-core";
 import { preview } from "vite";
 
 const appRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const chromeMode = process.env.FLINT_GUI_CHROME ?? "custom";
 
-test("the Cairn GUI shows backend state and preserves Flint actions", async () => {
+test("desktop navigation preserves connection identity, asynchronous selection and service actions", async () => {
   const server = await preview({ preview: { host: "127.0.0.1", port: 0 } });
   const address = server.httpServer.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("Vite preview did not open a TCP port");
-  }
-  const application = await _electron.launch({ args: [join(appRoot, "tests/harness.cjs")], cwd: appRoot });
+  assert.ok(address && typeof address !== "string");
+  const application = await _electron.launch({
+    args: [join(appRoot, "tests/harness.cjs")],
+    cwd: appRoot,
+  });
   try {
     const page = await application.firstWindow();
-    await page.addInitScript(() => {
+    await page.setViewportSize({ width: 1280, height: 850 });
+    await page.addInitScript((chromeMode) => {
       window.__invokeCalls = [];
       window.__mockSnapshot = {
-        backend: { ready: true, pid: 4312, registry_host: "127.0.0.1", registry_port: 9240 },
+        backend: {
+          ready: true,
+          pid: 4312,
+          registry_host: "127.0.0.1",
+          registry_port: 6321,
+        },
         instances: [],
       };
+      const summary = (id, name) => ({
+        workflow_id: id,
+        name,
+        description: "",
+        execution_count: 1,
+        instance_ids: ["maya-1"],
+        running_count: 0,
+        failed_count: 0,
+        updated_at: "2026-09-29T10:00:00Z",
+      });
+      window.__workflows = [
+        summary("first", "Asset check"),
+        summary("second", "Material check"),
+      ];
+      const record = (id, name) => ({
+        workflow_id: id,
+        name,
+        description: "",
+        created_at: "2026-09-29T10:00:00Z",
+        execs: [
+          {
+            execution_id: "0001",
+            name: "Inspect scene",
+            instance_id: "maya-1",
+            code: `print('${name}')`,
+            status: "succeeded",
+            stdout: name,
+            stderr: "",
+            error: null,
+            traceback: null,
+            started_at: "2026-09-29T10:00:00Z",
+            finished_at: "2026-09-29T10:00:01Z",
+          },
+        ],
+      });
       window.__TAURI__ = {
         core: {
-          invoke: async (command) => {
-            window.__invokeCalls.push(command);
-            if (command === "snapshot") return structuredClone(window.__mockSnapshot);
-            if (command === "candidates") return { hosts: [{ host: "Blender", pid: 6120 }] };
-            if (command === "stop_backend") return undefined;
+          invoke: async (command, args) => {
+            window.__invokeCalls.push({ command, args });
+            if (command === "activate_title_bar") return chromeMode;
+            if (command === "snapshot")
+              return structuredClone(window.__mockSnapshot);
+            if (command === "candidates")
+              return {
+                hosts: [
+                  {
+                    host: "maya",
+                    pid: 4520,
+                    executable: "C:/Maya/maya.exe",
+                    attach_supported: false,
+                  },
+                ],
+              };
+            if (command === "workflows")
+              return structuredClone(window.__workflows);
+            if (command === "workflow") {
+              if (args.id === "first" && window.__delayFirst)
+                return new Promise((resolve) => {
+                  window.__finishFirst = () =>
+                    resolve(record("first", "Asset check"));
+                });
+              return record(
+                args.id,
+                args.id === "first" ? "Asset check" : "Material check",
+              );
+            }
+            if (command === "window_preview") {
+              window.__captures = (window.__captures ?? 0) + 1;
+              window.__peakCaptures = Math.max(
+                window.__peakCaptures ?? 0,
+                window.__captures,
+              );
+              if (window.__captures > 2) {
+                window.__captures -= 1;
+                throw new Error("Window previews are busy");
+              }
+              await new Promise((resolve) => setTimeout(resolve, 80));
+              window.__captures -= 1;
+              return {
+                title:
+                  args.instanceId === "maya-1"
+                    ? "Character_Rig.ma"
+                    : `Scene ${args.instanceId}`,
+                image:
+                  "data:image/svg+xml," +
+                  encodeURIComponent(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#344842"/><rect x="16" y="40" width="150" height="344" fill="#263630"/><rect x="182" y="40" width="442" height="344" fill="#78988b"/><text x="208" y="214" font-size="24" fill="white">Character_Rig.ma</text></svg>',
+                  ),
+                unavailable_reason: null,
+                can_focus: true,
+              };
+            }
+            if (command === "focus_instance") return;
+            if (command === "desktop_info")
+              return {
+                version: "0.1.0",
+                state_dir: "C:/FlintData",
+                control_endpoint: "127.0.0.1:6322",
+                registry_endpoint: "127.0.0.1:6321",
+              };
+            if (command === "stop_backend") {
+              if (!window.__allowStop)
+                throw new Error("Executions are still active");
+              return;
+            }
             throw new Error(`Unexpected command: ${command}`);
           },
         },
       };
-    });
-    await page.goto(`http://127.0.0.1:${address.port}/`, { waitUntil: "load" });
-    await page.getByText("No connected instances yet").waitFor();
-    assert.equal(await page.getByText("Backend running").count(), 1);
+    }, chromeMode);
+    const url = `http://127.0.0.1:${address.port}/`;
+    await page.goto(url);
+    await page
+      .getByText("No connected applications", { exact: true })
+      .waitFor();
+    await page.getByRole("link", { name: "Maya", exact: true }).click();
+    await page.getByText("C:/Maya/maya.exe", { exact: true }).waitFor();
 
+    // A discovered process becomes connected while its detail is open. The same PID must not
+    // remain in both sections, and operations must use the new registration's ID.
     await page.evaluate(() => {
       window.__mockSnapshot.instances = [
         {
+          instance_id: "maya-1",
           instance_name: "Maya session",
-          instance_type: "Maya",
+          instance_type: "maya",
           pid: 4520,
           runtime_version: "Python 3.11",
+          bridge_version: "0.1.0",
           execution_ready: true,
         },
       ];
     });
-    await page.getByRole("heading", { name: "Maya session" }).waitFor({ timeout: 5000 });
-    assert.equal(await page.getByText("1 connected").count(), 1);
+    await page
+      .getByRole("button", { name: "Switch to application", exact: true })
+      .click();
+    await page.waitForFunction(() => {
+      const image = document.querySelector(
+        'img[alt="Window preview of Character_Rig.ma"]',
+      );
+      return image?.complete && image.naturalWidth === 640;
+    });
+    assert.ok(
+      await page.evaluate(() =>
+        window.__invokeCalls.some(
+          (call) =>
+            call.command === "focus_instance" &&
+            call.args.instanceId === "maya-1",
+        ),
+      ),
+    );
+    await page.getByRole("button", { name: "Back to applications" }).click();
+    await page
+      .getByRole("link", { name: "Character_Rig.ma", exact: true })
+      .waitFor();
+    assert.equal(
+      await page.getByRole("link", { name: "Maya", exact: true }).count(),
+      0,
+    );
+    if (process.env.FLINT_GUI_SCREENSHOT)
+      await page.screenshot({
+        fullPage: true,
+        path: process.env.FLINT_GUI_SCREENSHOT,
+      });
+    // The thumbnail belongs to the card's navigation target, not just its text link.
+    const card = page.getByRole("article").filter({
+      has: page.getByRole("link", { name: "Character_Rig.ma", exact: true }),
+    });
+    const bounds = await card.boundingBox();
+    assert.ok(bounds);
+    await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + 50);
+    await page
+      .getByRole("button", { name: "Switch to application", exact: true })
+      .waitFor();
+    assert.equal(new URL(page.url()).hash, "#/apps/maya-1");
 
-    await page.getByRole("button", { name: "Scan applications" }).click();
-    await page.getByText("Blender").waitFor();
-    assert.equal(await page.getByText("PID 6120").count(), 1);
-    if (process.env.FLINT_GUI_SCREENSHOT) {
-      await page.screenshot({ fullPage: true, path: process.env.FLINT_GUI_SCREENSHOT });
-    }
-    await page.setViewportSize({ width: 500, height: 700 });
-    await page.emulateMedia({ colorScheme: "dark" });
-    const narrow = await page.evaluate(() => ({
-      background: getComputedStyle(document.body).backgroundColor,
-      overflows: document.documentElement.scrollWidth > window.innerWidth,
-    }));
-    assert.equal(narrow.overflows, false);
-    assert.notEqual(narrow.background, "rgb(255, 255, 255)");
+    // More cards than capture slots must all receive previews without flooding native workers.
+    await page.evaluate(() => {
+      const instance = window.__mockSnapshot.instances[0];
+      window.__mockSnapshot.instances.push(
+        { ...instance, instance_id: "maya-2", pid: 4521 },
+        { ...instance, instance_id: "maya-3", pid: 4522 },
+      );
+    });
+    await page.getByRole("button", { name: "Back to applications" }).click();
+    await page
+      .getByRole("link", { name: "Scene maya-2", exact: true })
+      .waitFor();
+    await page
+      .getByRole("link", { name: "Scene maya-3", exact: true })
+      .waitFor();
+    assert.equal(await page.evaluate(() => window.__peakCaptures), 2);
 
-    await page.getByRole("link", { name: "Licenses" }).click();
+    await page.getByRole("link", { name: "Workflows", exact: true }).click();
+    await page.evaluate(() => {
+      window.__delayFirst = true;
+    });
+    await page.getByRole("button", { name: /Asset check/ }).click();
+    await page.waitForFunction(
+      () => typeof window.__finishFirst === "function",
+    );
+    await page.getByRole("button", { name: /Material check/ }).click();
+    await page
+      .getByRole("heading", { name: "Material check", exact: true })
+      .waitFor();
+    await page.evaluate(() => {
+      window.__finishFirst();
+    });
+    await page.getByRole("button", { name: /Inspect scene/ }).click();
+    assert.equal(
+      await page.getByRole("textbox", { name: "Standard output" }).inputValue(),
+      "Material check",
+    );
+    await page.getByRole("tab", { name: "Code", exact: true }).click();
+    assert.equal(
+      await page.getByRole("textbox", { name: "Executed code" }).inputValue(),
+      "print('Material check')",
+    );
+
+    await page.setViewportSize({ width: 500, height: 750 });
+    await page
+      .getByRole("button", { name: "Back to Workflows", exact: true })
+      .click();
+    await page.getByRole("button", { name: /Material check/ }).waitFor();
+    assert.equal(new URL(page.url()).hash, "#/workflows");
+    await page.setViewportSize({ width: 1280, height: 850 });
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await page.getByRole("combobox", { name: "Theme" }).click();
+    await page.getByRole("option", { name: "Dark", exact: true }).click();
+    await page.reload();
+    await page.waitForFunction(
+      () => document.documentElement.dataset.cairnAppearance === "dark",
+    );
+    await page.getByRole("link", { name: "Open-source licenses" }).click();
     await page.getByRole("heading", { name: "Typography licenses" }).waitFor();
-    await page.getByRole("link", { name: "Back to Flint" }).click();
+    await page.getByRole("button", { name: "Back to settings" }).click();
 
-    await page.getByRole("button", { name: "Stop backend" }).click();
-    const dialog = page.getByRole("alertdialog", { name: "Stop Flint?" });
-    await dialog.waitFor();
-    await dialog.getByRole("button", { name: "Stop backend" }).click();
-    assert.equal(await page.evaluate(() => window.__invokeCalls.includes("stop_backend")), true);
+    await page
+      .getByRole("button", { name: "Stop backend", exact: true })
+      .click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Stop backend", exact: true })
+      .click();
+    await page
+      .getByText("Executions are still active", { exact: true })
+      .waitFor();
+    await page.getByRole("alertdialog").waitFor({ state: "hidden" });
+    await page.evaluate(() => {
+      window.__allowStop = true;
+    });
+    await page
+      .getByRole("button", { name: "Stop backend", exact: true })
+      .click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Stop backend", exact: true })
+      .click();
+    assert.equal(
+      await page.evaluate(
+        () =>
+          window.__invokeCalls.filter((call) => call.command === "stop_backend")
+            .length,
+      ),
+      2,
+    );
   } finally {
     await application.close();
-    await new Promise((resolve, reject) => {
-      server.httpServer.close((error) => (error === undefined ? resolve() : reject(error)));
-    });
+    await new Promise((resolve, reject) =>
+      server.httpServer.close((error) => (error ? reject(error) : resolve())),
+    );
   }
 });

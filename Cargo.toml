@@ -28,6 +28,7 @@ serde_json = "1"
 sysinfo = { version = "0.33", default-features = false }
 tauri = "2"
 tauri-build = "2"
+tauri-plugin-decoration = "3.0.5"
 tempfile = "3"
 tokio = "1"
 tokio-util = "0.7"

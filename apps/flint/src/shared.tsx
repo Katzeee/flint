@@ -1,0 +1,56 @@
+import { Box, Button, Callout, Flex, Spinner, Text } from "@cairn/ui";
+import type { ReactNode } from "react";
+
+export function ErrorNotice({
+  error,
+  retry,
+}: Readonly<{ error: string; retry?: () => void }>) {
+  if (!error) return null;
+  return (
+    <Callout.Root tone="danger">
+      <Callout.Body>
+        <Callout.Title>Request failed</Callout.Title>
+        <Callout.Text>{error}</Callout.Text>
+        {retry ? (
+          <Box pt="3">
+            <Button onClick={retry} size="sm" variant="outline">
+              Try again
+            </Button>
+          </Box>
+        ) : null}
+      </Callout.Body>
+    </Callout.Root>
+  );
+}
+
+export function Loading({
+  children = "Loading",
+}: Readonly<{ children?: ReactNode }>) {
+  return (
+    <Flex align="center" gap="2" p="5" role="status">
+      <Spinner size="sm" />
+      <Text tone="muted">{children}</Text>
+    </Flex>
+  );
+}
+
+export function Property({
+  label,
+  children,
+}: Readonly<{ label: string; children: ReactNode }>) {
+  return (
+    <Flex direction="column" gap="1" minWidth="0">
+      <Text size="label" tone="muted">
+        {label}
+      </Text>
+      <Box overflowX="auto">
+        <Text>{children}</Text>
+      </Box>
+    </Flex>
+  );
+}
+
+export function formatTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}

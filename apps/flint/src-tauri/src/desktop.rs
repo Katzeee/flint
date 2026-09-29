@@ -5,6 +5,66 @@ use tauri::{
     tray::TrayIconBuilder,
     Manager,
 };
+use tauri_plugin_decoration::WebviewWindowExt;
+
+mod window_preview;
+
+// A blocked host cannot create unbounded capture workers or block the desktop UI.
+static CAPTURE_SLOTS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Semaphore>> =
+    std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Semaphore::new(2)));
+
+#[tauri::command]
+async fn window_preview(
+    state: tauri::State<'_, BackendHandle>,
+    instance_id: String,
+) -> Result<serde_json::Value, String> {
+    let permit = CAPTURE_SLOTS
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| "Window previews are busy".to_string())?;
+    let backend = state.inner().clone();
+    let capture = tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        let pid = window_preview::local_pid(&backend, &instance_id)?;
+        window_preview::preview(pid)
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), capture)
+        .await
+        .map_err(|_| "Window preview timed out".to_string())?
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn focus_instance(
+    state: tauri::State<'_, BackendHandle>,
+    instance_id: String,
+) -> Result<(), String> {
+    let backend = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let pid = window_preview::local_pid(&backend, &instance_id)?;
+        window_preview::focus(pid)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+// A failed activation restores the native frame before it resolves, so either mode leaves a usable window.
+#[tauri::command]
+async fn activate_title_bar(window: tauri::WebviewWindow) -> &'static str {
+    if let Err(error) = window.activate_decoration().await {
+        eprintln!("Custom title bar unavailable: {error}");
+        return "native";
+    }
+    #[cfg(target_os = "macos")]
+    if let Err(error) = window.set_traffic_lights_inset(16.0, 12.0).await {
+        eprintln!("Custom title bar unavailable: {error}");
+        let _ = window.restore_decoration().await;
+        return "native";
+    }
+    "custom"
+}
 
 #[tauri::command]
 fn snapshot(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
@@ -14,6 +74,43 @@ fn snapshot(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
 fn candidates() -> serde_json::Value {
     let hosts = flint_connect::discover();
     serde_json::json!({"hosts": hosts})
+}
+#[tauri::command]
+async fn workflows(state: tauri::State<'_, BackendHandle>) -> Result<serde_json::Value, String> {
+    let backend = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        backend
+            .workflows()
+            .map(|items| serde_json::json!(items))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn workflow(
+    state: tauri::State<'_, BackendHandle>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let backend = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        backend
+            .workflow(&id)
+            .map(|item| serde_json::json!(item))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+fn desktop_info(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
+    let config = state.config();
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "control_endpoint": format!("{}:{}", config.host, config.port),
+        "registry_endpoint": format!("{}:{}", config.registry_host, config.registry_port),
+        "state_dir": config.state_dir,
+    })
 }
 #[tauri::command]
 fn stop_backend(state: tauri::State<'_, BackendHandle>) -> Result<(), String> {
@@ -30,8 +127,9 @@ pub fn run(backend: Backend, runtime: tokio::runtime::Runtime) -> anyhow::Result
     // Keep window icons sharp regardless of the frame order inside the ICO.
     context.set_default_window_icon(Some(tauri::include_image!("icons/icon.png")));
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_decoration::init())
         .manage(handle)
-        .invoke_handler(tauri::generate_handler![snapshot, candidates, stop_backend])
+        .invoke_handler(tauri::generate_handler![activate_title_bar, snapshot, candidates, workflows, workflow, desktop_info, window_preview, focus_instance, stop_backend])
         .setup(move |app| {
             let show = MenuItem::with_id(app, "show", "Open flint", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Stop flint", true, None::<&str>)?;

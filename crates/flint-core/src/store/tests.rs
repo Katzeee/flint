@@ -50,3 +50,33 @@ fn workflow_ids_cannot_escape_the_store() {
     let store = Store::open(directory.path().into()).unwrap();
     assert!(store.load("../outside").is_err());
 }
+
+#[test]
+fn workflow_index_tracks_updates_and_survives_restart_without_execution_payloads() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Store::open(directory.path().into()).unwrap();
+    let first = store.create("First".into(), "".into()).unwrap();
+    let second = store.create("Second".into(), "".into()).unwrap();
+    let execution = record(&store, &first, "sensitive_source()", "request1");
+    assert_eq!(store.list().unwrap()[0].running_count, 1);
+    store
+        .update(&first, &execution, |e| {
+            e.status = "failed".into();
+            e.stderr = "failure details".into();
+            e.finished_at = Some("2099-01-01T00:00:00+00:00".into());
+        })
+        .unwrap();
+    drop(store);
+    let store = Store::open(directory.path().into()).unwrap();
+    let index = store.list().unwrap();
+    assert_eq!(index.len(), 2);
+    assert_eq!(index[0].workflow_id, first);
+    assert_eq!(index[0].failed_count, 1);
+    assert_eq!(index[0].running_count, 0);
+    assert_eq!(index[0].instance_ids, ["host"]);
+    assert_eq!(index[1].workflow_id, second);
+    assert_eq!(index[1].execution_count, 0);
+    let json = serde_json::to_string(&index).unwrap();
+    assert!(!json.contains("sensitive_source"));
+    assert!(!json.contains("failure details"));
+}

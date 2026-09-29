@@ -69,6 +69,15 @@ struct Shared {
 #[derive(Clone)]
 pub struct BackendHandle(Arc<Shared>);
 impl BackendHandle {
+    pub fn workflows(&self) -> Result<Vec<crate::store::WorkflowSummary>> {
+        self.0.store.list()
+    }
+    pub fn workflow(&self, id: &str) -> Result<crate::store::Workflow> {
+        self.0.store.load(id)
+    }
+    pub fn config(&self) -> &Config {
+        &self.0.config
+    }
     pub fn shutdown_token(&self) -> CancellationToken {
         self.0.shutdown.clone()
     }
