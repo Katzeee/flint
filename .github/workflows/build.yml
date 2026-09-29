@@ -7,15 +7,11 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          submodules: true
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: apps/flint/package-lock.json
-      - name: Install desktop UI dependencies
-        run: npm ci --prefix apps/flint
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: '0.12.17'
@@ -23,7 +19,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Build directly from source
-        run: cargo build --locked --release
+        run: cargo xtask build --release
       - name: Export Python Bridge
         run: target/release/flint.exe bridge export python --output target/release/flint-python.zip
       - name: Export C# Bridge
@@ -48,15 +44,11 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          submodules: true
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: apps/flint/package-lock.json
-      - name: Install desktop UI dependencies
-        run: npm ci --prefix apps/flint
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: '0.12.17'

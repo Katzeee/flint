@@ -18,7 +18,7 @@ Keep host-specific runtime code and configuration within the owning subproject. 
 
 Protocol changes start in the owning schema. Keep wire semantics beside the corresponding fields and framing implementation, and update generated bindings with their schemas in the same change. Use the configured generator; generated message files are not hand-edited.
 
-Builds use declared, locked dependencies and remain independent of developer-local environments. Tooling declares the interpreters it requires but never provisions them; a missing prerequisite fails with an error naming the requirement.
+Builds use declared, locked dependencies and remain independent of developer-local environments. xtask owns dependency preparation; application build scripts compile and package prepared sources. Tooling declares the interpreters it requires but never provisions them; a missing prerequisite fails with an error naming the requirement.
 
 ## Tests
 

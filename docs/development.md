@@ -4,23 +4,26 @@ This guide takes a Windows source checkout to a working flint executable. For im
 
 ## Prepare the environment
 
-Install Rust through rustup, Visual Studio Build Tools with the Desktop development with C++ workload and a Windows SDK, Node.js 22.12 or later, and uv. The C# tests also require the .NET SDK selected by [global.json](../bridges/dotnet/global.json). Make cargo, npm, uv, and, when testing C#, dotnet available on PATH.
+Install Git, Rust through rustup, Visual Studio Build Tools with the Desktop development with C++ workload and a Windows SDK, Node.js 22.12 or later, and uv. The C# tests also require the .NET SDK selected by [global.json](../bridges/dotnet/global.json). Make git, cargo, node, npm, uv, and, when testing C#, dotnet available on PATH.
 
 The first build needs network access to obtain toolchains and dependencies. Install Python 3.11 through 3.14 yourself; uv discovers it on PATH, in the Windows registry, or among uv-managed installations, and never downloads one for this repository. Set `UV_PYTHON` if several interpreters qualify. The exported Python Bridge runs in the host's interpreter and supports Python 3.7 or later. To open the desktop window, install the runtime dependencies listed under [Run flint](../README.md#run-flint).
 
 ## Build and run
 
-Initialize Cairn and install the locked frontend dependencies before the first build:
+From the repository root in PowerShell, use the complete build entry point:
 
 ```powershell
-git submodule update --init
-npm ci --prefix apps/flint
+cargo xtask build
 ```
 
-`cargo build` runs the Cairn package builds and Vite through the Tauri build script, then embeds `apps/flint/dist` in the executable. The frontend dependencies are installed once with `npm ci`; a separate frontend build command is not required. From the repository root in PowerShell:
+The command prepares the recorded Cairn submodule and locked frontend dependencies, then builds the application with its embedded desktop UI.
+
+For local iteration after preparation, use `cargo build` or `cargo check`. Return to `cargo xtask build` after pulling dependency or submodule changes, or removing `node_modules`.
+
+The debug executable is `target/debug/flint.exe`. For an optimized executable, use:
 
 ```powershell
-cargo build --locked --release
+cargo xtask build --release
 ```
 
 The resulting executable is target/release/flint.exe and includes the Bridge export packages for Python, Blender, C#, and Unity. The build compiles the native connection core from the locked Rust workspace and places it in each package. Confirm that the executable starts and exposes its command interface:

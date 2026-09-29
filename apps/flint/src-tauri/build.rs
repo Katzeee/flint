@@ -8,7 +8,7 @@ fn watch_frontend_sources(directory: &Path) {
         if path.is_dir() {
             if !matches!(
                 name.to_str(),
-                Some("dist" | "build" | "node_modules" | ".git")
+                Some("dist" | "build" | "node_modules" | ".git" | "generated")
             ) {
                 watch_frontend_sources(&path);
             }
@@ -38,6 +38,13 @@ fn package(root: &Path, script: &str, output: &Path, native: &Path) {
 fn main() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    assert!(
+        root.join("apps/flint/cairn/package.json").is_file()
+            && root
+                .join("apps/flint/node_modules/.package-lock.json")
+                .is_file(),
+        "Frontend dependencies are not prepared; run cargo xtask build from the repository root"
+    );
     for input in [
         "apps/flint/index.html",
         "apps/flint/vite.config.ts",
@@ -150,7 +157,7 @@ fn main() {
         );
     assert!(
         status.success(),
-        "Flint desktop UI build failed; run npm ci in apps/flint"
+        "Flint desktop UI build failed; see the npm error above. Use cargo xtask build to prepare locked dependencies"
     );
     println!("cargo:rerun-if-changed=windows-app-manifest.xml");
     let windows = tauri_build::WindowsAttributes::new()

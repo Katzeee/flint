@@ -1,4 +1,4 @@
 [submodule "apps/flint/cairn"]
 	path = apps/flint/cairn
-	url = git@github.com:Katzeee/cairn.git
+	url = https://github.com/Katzeee/cairn.git
 	branch = main

@@ -43,6 +43,36 @@ const SUITES: &[Suite] = &[
     },
 ];
 
+fn prepare(root: &Path) -> Result<()> {
+    execute(
+        root,
+        "git",
+        &["submodule", "update", "--init", "--", "apps/flint/cairn"],
+        &[],
+    )?;
+    let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    execute(
+        &root.join("apps/flint"),
+        npm,
+        &["ci", "--include=dev", "--no-audit", "--no-fund"],
+        &[],
+    )
+}
+
+fn build(root: &Path, args: &[String]) -> Result<()> {
+    let release = match args {
+        [] => false,
+        [flag] if flag == "--release" => true,
+        _ => return Err(usage().into()),
+    };
+    prepare(root)?;
+    let mut args = vec!["build", "--locked", "--package", "flint"];
+    if release {
+        args.push("--release");
+    }
+    execute(root, "cargo", &args, &[])
+}
+
 fn rust(root: &Path) -> Result<()> {
     execute(root, "cargo", &["test", "--workspace", "--locked"], &[])
 }
@@ -180,7 +210,7 @@ fn execute(directory: &Path, program: &str, args: &[&str], envs: &[(&str, &OsStr
 fn usage() -> String {
     let names: Vec<_> = SUITES.iter().map(|suite| suite.name).collect();
     format!(
-        "Usage: cargo xtask test [{}]...\nWithout suite names, runs every default suite.",
+        "Usage: cargo xtask build [--release]\n       cargo xtask test [{}]...\nBoth commands prepare the submodule and locked frontend dependencies.\nWithout suite names, test runs every default suite.",
         names.join("|")
     )
 }
@@ -199,6 +229,7 @@ fn test(root: &Path, names: &[String]) -> Result<()> {
             })
             .collect::<std::result::Result<_, _>>()?
     };
+    prepare(root)?;
     for suite in selected {
         println!("[{}]", suite.name);
         (suite.run)(root).map_err(|error| format!("[{}] {error}", suite.name))?;
@@ -211,6 +242,7 @@ fn dispatch(args: &[String]) -> Result<()> {
         .join("../..")
         .canonicalize()?;
     match args.split_first() {
+        Some((command, args)) if command == "build" => build(&root, args),
         Some((command, names)) if command == "test" => test(&root, names),
         _ => Err(usage().into()),
     }
