@@ -14,12 +14,13 @@ import {
   PageBar,
   Section,
   Separator,
+  Spinner,
   Text,
 } from "@cairn/ui";
-import { useState } from "react";
+import { AppWindow, RefreshCw } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import {
-  discoverHosts,
-  focusInstance,
+  focusApplication,
   readWorkflows,
   type ConnectedInstance,
   type HostCandidate,
@@ -42,21 +43,31 @@ const hostNames: Readonly<Record<string, string>> = {
   unity: "Unity",
   python: "Python",
 };
+// eslint-disable-next-line cairn/no-raw-visual-values -- Preview tile width is a Flint layout choice.
+const cardColumns = "repeat(auto-fill, min(100%, 280px))";
 function hostName(host: string) {
   return hostNames[host.toLowerCase()] ?? host;
 }
 
-function InstanceCard({
+function ApplicationCard({
   instance,
+  candidate,
   revision,
-}: Readonly<{ instance: ConnectedInstance; revision: number }>) {
+}: Readonly<{
+  instance?: ConnectedInstance;
+  candidate?: HostCandidate;
+  revision: number;
+}>) {
+  const pid = instance?.pid ?? candidate!.pid;
+  const host = instance?.instance_type ?? candidate!.host;
+  const href = `#/${instance ? instancePath(instance.instance_id) : `apps/candidates/${pid}`}`;
   const preview = useResource(
-    `preview:${instance.instance_id}`,
-    (signal) => loadWindowPreview(instance.instance_id, signal),
+    `preview:${host}:${pid}`,
+    (signal) => loadWindowPreview(pid, host, signal),
     10000,
     revision,
   );
-  const title = preview.data?.title || instance.instance_name;
+  const title = preview.data?.title || instance?.instance_name || hostName(host);
   return (
     <Card as="article">
       <Card.Media>
@@ -67,7 +78,7 @@ function InstanceCard({
           fit="contain"
           fallback={
             <>
-              <Icon name="app-window" size="lg" />
+              <Icon glyph={AppWindow} size="lg" />
               <Text size="label" tone="muted">
                 {preview.loading
                   ? "Loading preview"
@@ -79,44 +90,60 @@ function InstanceCard({
       </Card.Media>
       <Flex direction="column" gap="4" minWidth="0">
         <Flex direction="column" gap="2">
-          <Heading as="h3" size="body-large">
-            <Card.Link href={`#/${instancePath(instance.instance_id)}`}>
+          <Heading as="h3" size="body-large" truncate title={title}>
+            <Card.Link href={href}>
               {title}
             </Card.Link>
           </Heading>
           <Text size="label" tone="muted">
-            {hostName(instance.instance_type)} · PID {instance.pid}
+            {hostName(host)} · PID {pid}
           </Text>
-          <Box>
-            <Badge tone={instance.execution_ready ? "success" : "warning"}>
-              {instance.execution_ready ? "Ready to execute" : "Connecting"}
+          <Flex align="center" justify="between" gap="2">
+            <Badge tone={instance ? (instance.execution_ready ? "success" : "warning") : "neutral"}>
+              {instance ? (instance.execution_ready ? "Ready" : "Connecting") : "Not connected"}
             </Badge>
-          </Box>
+            <Button size="sm" variant="ghost" onClick={() => navigate(href.slice(2))}>
+              {instance ? "Details" : "Set up"}
+            </Button>
+          </Flex>
         </Flex>
       </Flex>
     </Card>
   );
 }
 
-function CandidateCard({ candidate }: Readonly<{ candidate: HostCandidate }>) {
+function ApplicationGroup({
+  title, count, ready, loading, error, retry, emptyTitle, description, children,
+}: Readonly<{
+  title: string;
+  count: number;
+  ready: boolean;
+  loading: boolean;
+  error: string;
+  retry: () => void;
+  emptyTitle: string;
+  description: string;
+  children: ReactNode;
+}>) {
   return (
-    <Card as="article">
+    <Section size="1">
       <Flex direction="column" gap="3">
-        <Heading as="h3" size="body-large">
-          <Card.Link href={`#/apps/candidates/${candidate.pid}`}>
-            {hostName(candidate.host)}
-          </Card.Link>
-        </Heading>
-        <Text size="label" tone="muted">
-          PID {candidate.pid}
-        </Text>
-        <Text size="label">
-          {candidate.attach_supported
-            ? "Injection supported"
-            : "Connect from host"}
-        </Text>
+        <Flex align="center" gap="3">
+          <Heading size="title-small">{title}</Heading>
+          {ready ? <Badge>{count}</Badge> : null}
+          {loading ? <Spinner size="sm" aria-label={`Updating ${title.toLowerCase()}`} /> : null}
+        </Flex>
+        <ErrorNotice error={error} retry={retry} />
+        {count > 0 ? (
+          <Grid columns={cardColumns} gap="4">{children}</Grid>
+        ) : !error ? (
+          <Flex direction="column" gap="1" role="status">
+            <Text>{ready ? emptyTitle : "Looking for applications…"}</Text>
+            <Text tone="muted">{description}</Text>
+          </Flex>
+        ) : null}
       </Flex>
-    </Card>
+    </Section>
   );
 }
 
@@ -129,23 +156,26 @@ function ApplicationDetail({
   candidate?: HostCandidate;
   loading: boolean;
 }>) {
+  const pid = instance?.pid ?? candidate?.pid;
+  const host = instance?.instance_type ?? candidate?.host;
+  const name = instance?.instance_name ?? (host ? hostName(host) : "Application");
   const preview = useResource(
-    instance ? `preview:${instance.instance_id}` : null,
-    (signal) => loadWindowPreview(instance!.instance_id, signal),
+    pid !== undefined ? `preview:${host}:${pid}` : null,
+    (signal) => loadWindowPreview(pid!, host!, signal),
     10000,
   );
   const [actionError, setActionError] = useState("");
   const focus = async () => {
-    if (!instance) return;
+    if (pid === undefined || host === undefined) return;
     setActionError("");
     try {
-      await focusInstance(instance.instance_id);
+      await focusApplication(pid, host);
     } catch (error) {
       setActionError(messageOf(error));
     }
   };
   const related = useResource(
-    instance ? `related:${instance.instance_id}` : null,
+    instance ? "workflows" : null,
     readWorkflows,
     5000,
   );
@@ -164,9 +194,9 @@ function ApplicationDetail({
           {instance?.instance_name ??
             (candidate ? hostName(candidate.host) : "Application")}
         </PageBar.Title>
-        {instance ? (
+        {instance || candidate ? (
           <PageBar.Action
-            icon="compass"
+            icon={RefreshCw}
             label="Refresh preview"
             onSelect={preview.reload}
             disabled={preview.loading}
@@ -183,20 +213,20 @@ function ApplicationDetail({
             </EmptyState.Description>
           </EmptyState>
         ) : null}
-        {instance ? (
+        {instance || candidate ? (
           <Section size="1">
             <Flex direction="column" gap="5">
               <ErrorNotice error={actionError} />
               <Image
-                key={instance.instance_id}
+                key={pid}
                 src={preview.data?.image ?? undefined}
-                alt={`Window preview of ${preview.data?.title || instance.instance_name}`}
+                alt={`Window preview of ${preview.data?.title || name}`}
                 aspectRatio="16/10"
                 fit="contain"
                 loading="eager"
                 fallback={
                   <>
-                    <Icon name="app-window" size="lg" />
+                    <Icon glyph={AppWindow} size="lg" />
                     <Text tone="muted">
                       {preview.loading
                         ? "Loading preview"
@@ -217,43 +247,47 @@ function ApplicationDetail({
                   </Button>
                 </Box>
               ) : null}
-              <Box>
-                <Badge tone={instance.execution_ready ? "success" : "warning"}>
-                  {instance.execution_ready ? "Ready to execute" : "Connecting"}
-                </Badge>
-              </Box>
-              <Grid columns={{ initial: "1", sm: "2" }} gap="5">
-                <Property label="Application">
-                  {hostName(instance.instance_type)}
-                </Property>
-                <Property label="Process ID">{instance.pid}</Property>
-                <Property label="Runtime">{instance.runtime_version}</Property>
-                <Property label="Bridge version">
-                  {instance.bridge_version}
-                </Property>
-              </Grid>
-              <Property label="Instance ID">{instance.instance_id}</Property>
-              <Separator />
-              <Heading size="title-small">Related workflows</Heading>
-              <ErrorNotice error={related.error} retry={related.reload} />
-              {related.loading && !related.data ? (
-                <Loading />
-              ) : records.length === 0 ? (
-                <Text tone="muted">
-                  No executions recorded for this connection.
-                </Text>
-              ) : (
-                <Flex direction="column" gap="3">
-                  {records.map((record) => (
-                    <Link
-                      href={`#/${workflowPath(record.workflow_id)}`}
-                      key={record.workflow_id}
-                    >
-                      {record.name || "Untitled workflow"}
-                    </Link>
-                  ))}
-                </Flex>
-              )}
+              {instance ? (
+                <>
+                  <Box>
+                    <Badge tone={instance.execution_ready ? "success" : "warning"}>
+                      {instance.execution_ready ? "Ready to execute" : "Connecting"}
+                    </Badge>
+                  </Box>
+                  <Grid columns={{ initial: "1", sm: "2" }} gap="5">
+                    <Property label="Application">
+                      {hostName(instance.instance_type)}
+                    </Property>
+                    <Property label="Process ID">{instance.pid}</Property>
+                    <Property label="Runtime">{instance.runtime_version}</Property>
+                    <Property label="Bridge version">
+                      {instance.bridge_version}
+                    </Property>
+                  </Grid>
+                  <Property label="Instance ID">{instance.instance_id}</Property>
+                  <Separator />
+                  <Heading size="title-small">Related workflows</Heading>
+                  <ErrorNotice error={related.error} retry={related.reload} />
+                  {related.loading && !related.data ? (
+                    <Loading />
+                  ) : records.length === 0 ? (
+                    <Text tone="muted">
+                      No executions recorded for this connection.
+                    </Text>
+                  ) : (
+                    <Flex direction="column" gap="3">
+                      {records.map((record) => (
+                        <Link
+                          href={`#/${workflowPath(record.workflow_id)}`}
+                          key={record.workflow_id}
+                        >
+                          {record.name || "Untitled workflow"}
+                        </Link>
+                      ))}
+                    </Flex>
+                  )}
+                </>
+              ) : null}
             </Flex>
           </Section>
         ) : null}
@@ -288,24 +322,26 @@ export function Applications({
   loading,
   error,
   refresh,
+  discovery,
 }: Readonly<{
   route: Route;
   snapshot: Snapshot | null;
   loading: boolean;
   error: string;
   refresh: () => void;
+  discovery: Readonly<{
+    data: readonly HostCandidate[] | null;
+    loading: boolean;
+    error: string;
+    reload: () => void;
+  }>;
 }>) {
-  const discovery = useResource("candidates", discoverHosts, 10000);
   const [previewRevision, setPreviewRevision] = useState(0);
   const instances = snapshot?.instances ?? [];
   const connectedPids = new Set(instances.map((instance) => instance.pid));
   const candidates = (discovery.data ?? []).filter(
     (candidate) => !connectedPids.has(candidate.pid),
   );
-  const injectable = candidates.filter(
-    (candidate) => candidate.attach_supported,
-  );
-  const manual = candidates.filter((candidate) => !candidate.attach_supported);
   const reload = () => {
     setPreviewRevision((value) => value + 1);
     discovery.reload();
@@ -322,7 +358,7 @@ export function Applications({
     return (
       <>
         <ApplicationDetail
-          key={instance?.instance_id ?? `candidate:${route.id}`}
+          key={instance?.pid ?? candidate?.pid ?? route.id}
           instance={instance}
           candidate={candidate}
           loading={loading || discovery.loading}
@@ -335,81 +371,64 @@ export function Applications({
       </>
     );
   }
+  const firstLoad = snapshot === null || discovery.data === null;
+  const pageEmpty = instances.length === 0 && candidates.length === 0 && !error && !discovery.error;
   return (
     <>
       <PageBar.Root>
         <PageBar.Title>Applications</PageBar.Title>
         <PageBar.Action
-          icon="compass"
+          icon={RefreshCw}
           label="Refresh applications"
-          placement="primary"
           onSelect={reload}
-          disabled={discovery.loading}
+          disabled={loading || discovery.loading}
         />
       </PageBar.Root>
       <Container size="4" px="5" pb="6">
-        <ErrorNotice error={error} retry={refresh} />
-        <Section size="1">
-          <Flex direction="column" gap="4">
-            <Flex align="center" gap="3">
-              <Heading size="title-small">Connected</Heading>
-              <Badge>{instances.length}</Badge>
-            </Flex>
-            {loading && !snapshot ? <Loading /> : null}
-            {!loading && !error && instances.length === 0 ? (
-              <EmptyState>
-                <EmptyState.Illustration>
-                  <Icon name="app-window" size="lg" />
-                </EmptyState.Illustration>
-                <EmptyState.Title>No connected applications</EmptyState.Title>
-                <EmptyState.Description>
-                  Connect a Flint Bridge from a running application to get
-                  started.
-                </EmptyState.Description>
-              </EmptyState>
-            ) : null}
-            <Grid columns={{ initial: "1", sm: "2", lg: "3" }} gap="4">
-              {instances.map((instance) => (
-                <InstanceCard
-                  key={instance.instance_id}
-                  instance={instance}
-                  revision={previewRevision}
-                />
-              ))}
-            </Grid>
-          </Flex>
-        </Section>
-        <Separator />
-        <Section size="1">
-          <Flex direction="column" gap="4">
-            <Heading size="title-small">Available to connect</Heading>
-            <ErrorNotice error={discovery.error} retry={discovery.reload} />
-            {discovery.loading && !discovery.data ? (
-              <Loading>Discovering applications</Loading>
-            ) : null}
-            {injectable.length ? (
-              <Grid columns={{ initial: "1", sm: "2", lg: "3" }} gap="4">
-                {injectable.map((candidate) => (
-                  <CandidateCard key={candidate.pid} candidate={candidate} />
-                ))}
-              </Grid>
-            ) : !discovery.loading && !discovery.error ? (
-              <Text tone="muted">No applications available for injection.</Text>
-            ) : null}
-          </Flex>
-        </Section>
-        {manual.length ? (
+        {pageEmpty ? (
           <Section size="1">
-            <Flex direction="column" gap="4">
-              <Heading size="title-small">Connect from host</Heading>
-              <Grid columns={{ initial: "1", sm: "2", lg: "3" }} gap="4">
-                {manual.map((candidate) => (
-                  <CandidateCard key={candidate.pid} candidate={candidate} />
-                ))}
-              </Grid>
-            </Flex>
+            <EmptyState role="status">
+              <EmptyState.Illustration>
+                {firstLoad ? <Spinner size="sm" /> : <Icon glyph={AppWindow} size="lg" />}
+              </EmptyState.Illustration>
+              <EmptyState.Title>{firstLoad ? "Looking for applications…" : "No applications running"}</EmptyState.Title>
+              <EmptyState.Description>
+                Open Blender, Maya, 3ds Max or Unity to get started.
+              </EmptyState.Description>
+            </EmptyState>
           </Section>
-        ) : null}
+        ) : (
+          <>
+            <ApplicationGroup
+              title="Connected"
+              count={instances.length}
+              ready={snapshot !== null}
+              loading={loading}
+              error={error}
+              retry={refresh}
+              emptyTitle="No connected applications"
+              description="Choose an application below to set up its Bridge."
+            >
+              {instances.map((instance) => (
+                <ApplicationCard key={instance.pid} instance={instance} revision={previewRevision} />
+              ))}
+            </ApplicationGroup>
+            <ApplicationGroup
+              title="Available to connect"
+              count={candidates.length}
+              ready={discovery.data !== null}
+              loading={discovery.loading}
+              error={discovery.error}
+              retry={discovery.reload}
+              emptyTitle="No other applications found"
+              description="Open another supported application and it will appear here."
+            >
+              {candidates.map((candidate) => (
+                <ApplicationCard key={candidate.pid} candidate={candidate} revision={previewRevision} />
+              ))}
+            </ApplicationGroup>
+          </>
+        )}
       </Container>
     </>
   );

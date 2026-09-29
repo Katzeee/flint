@@ -107,20 +107,26 @@ export type WindowPreview = Readonly<{
   can_focus: boolean;
 }>;
 
-export function readWindowPreview(instanceId: string): Promise<WindowPreview> {
-  return invoke("window_preview", { instanceId });
+export function readWindowPreview(pid: number, host: string): Promise<WindowPreview> {
+  return invoke("window_preview", { pid, host });
 }
 
-export function focusInstance(instanceId: string): Promise<void> {
-  return invoke("focus_instance", { instanceId });
+export function focusApplication(pid: number, host: string): Promise<void> {
+  return invoke("focus_application", { pid, host });
 }
 
 export function activateTitleBar(): Promise<"custom" | "native"> {
   return invoke<"custom" | "native">("activate_title_bar");
 }
 
-export function readSnapshot(): Promise<Snapshot> {
-  return invoke<Snapshot>("snapshot");
+let previousSnapshot: Snapshot | undefined;
+
+export async function readSnapshot(): Promise<Snapshot> {
+  const next = await invoke<Snapshot>("snapshot");
+  // Unchanged global status must not rerender every page on each heartbeat poll.
+  if (previousSnapshot && JSON.stringify(previousSnapshot) === JSON.stringify(next)) return previousSnapshot;
+  previousSnapshot = next;
+  return next;
 }
 
 export async function discoverHosts(): Promise<readonly HostCandidate[]> {

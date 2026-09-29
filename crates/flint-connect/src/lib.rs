@@ -1,5 +1,5 @@
 use serde::Serialize;
-use sysinfo::System;
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 #[derive(Serialize)]
 pub struct HostCandidate {
@@ -11,7 +11,22 @@ pub struct HostCandidate {
 
 /// Process discovery does not imply that a bridge is connected or injectable.
 pub fn discover() -> Vec<HostCandidate> {
-    let system = System::new_all();
+    collect(ProcessesToUpdate::All)
+}
+
+pub fn candidate(pid: u32) -> Option<HostCandidate> {
+    collect(ProcessesToUpdate::Some(&[Pid::from_u32(pid)]))
+        .into_iter()
+        .find(|candidate| candidate.pid == pid)
+}
+
+fn collect(processes: ProcessesToUpdate<'_>) -> Vec<HostCandidate> {
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        processes,
+        true,
+        ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet),
+    );
     let mut found = vec![];
     for (pid, process) in system.processes() {
         let name = process.name().to_string_lossy().to_ascii_lowercase();

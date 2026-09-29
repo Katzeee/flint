@@ -1,5 +1,5 @@
 import { Box, Button, Callout, Flex, Spinner, Text } from "@cairn/ui";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export function ErrorNotice({
   error,
@@ -21,6 +21,19 @@ export function ErrorNotice({
       </Callout.Body>
     </Callout.Root>
   );
+}
+
+// Loads that finish sooner than the delay show nothing, so a fast response never flashes a placeholder.
+export function Deferred({
+  children,
+  delay = 300,
+}: Readonly<{ children: ReactNode; delay?: number }>) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setShown(true), delay);
+    return () => clearTimeout(timer);
+  }, [delay]);
+  return shown ? children : null;
 }
 
 export function Loading({

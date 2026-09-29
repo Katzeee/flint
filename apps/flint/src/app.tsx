@@ -11,9 +11,10 @@ import {
   type CairnAppearance,
 } from "@cairn/ui";
 import { tauriDragRegion } from "@cairn/host-tauri";
+import { AppWindow, Layers, Settings as SettingsGlyph } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Applications } from "./applications.js";
-import { activateTitleBar, readSnapshot } from "./backend.js";
+import { activateTitleBar, discoverHosts, readSnapshot } from "./backend.js";
 import { navigate, useRoute } from "./navigation.js";
 import { messageOf, useResource } from "./resource.js";
 import { Settings } from "./settings.js";
@@ -31,6 +32,7 @@ function savedAppearance(): CairnAppearance {
 export function App() {
   const route = useRoute();
   const snapshot = useResource("snapshot", readSnapshot, 1500);
+  const discovery = useResource(route.page === "apps" ? "candidates" : null, discoverHosts, 10000);
   const [appearance, setAppearance] = useState(savedAppearance);
   const [preferenceError, setPreferenceError] = useState("");
   const [chrome, setChrome] = useState(false);
@@ -76,14 +78,14 @@ export function App() {
             <AppShell.NavItem
               active={route.page === "apps"}
               href="#/apps"
-              icon="app-window"
+              icon={AppWindow}
             >
               Applications
             </AppShell.NavItem>
             <AppShell.NavItem
               active={route.page === "workflows"}
               href="#/workflows"
-              icon="layers"
+              icon={Layers}
             >
               Workflows
             </AppShell.NavItem>
@@ -92,7 +94,7 @@ export function App() {
             <AppShell.NavItem
               active={route.page === "settings" || route.page === "legal"}
               href="#/settings"
-              icon="settings"
+              icon={SettingsGlyph}
             >
               Settings
             </AppShell.NavItem>
@@ -120,6 +122,7 @@ export function App() {
               loading={snapshot.loading}
               error={snapshot.error}
               refresh={snapshot.reload}
+              discovery={discovery}
             />
           ) : null}
           {route.page === "workflows" ? (

@@ -110,9 +110,9 @@ test("desktop navigation preserves connection identity, asynchronous selection a
               window.__captures -= 1;
               return {
                 title:
-                  args.instanceId === "maya-1"
+                  args.pid === 4520
                     ? "Character_Rig.ma"
-                    : `Scene ${args.instanceId}`,
+                    : `Scene maya-${args.pid - 4519}`,
                 image:
                   "data:image/svg+xml," +
                   encodeURIComponent(
@@ -122,7 +122,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
                 can_focus: true,
               };
             }
-            if (command === "focus_instance") return;
+            if (command === "focus_application") return;
             if (command === "desktop_info")
               return {
                 version: "0.1.0",
@@ -145,11 +145,11 @@ test("desktop navigation preserves connection identity, asynchronous selection a
     await page
       .getByText("No connected applications", { exact: true })
       .waitFor();
-    await page.getByRole("link", { name: "Maya", exact: true }).click();
+    await page.getByRole("article").getByRole("link").click();
     await page.getByText("C:/Maya/maya.exe", { exact: true }).waitFor();
 
     // A discovered process becomes connected while its detail is open. The same PID must not
-    // remain in both sections, and operations must use the new registration's ID.
+    // remain in both sections, and its window operations retain the process identity.
     await page.evaluate(() => {
       window.__mockSnapshot.instances = [
         {
@@ -163,6 +163,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
         },
       ];
     });
+    await page.getByText("Ready to execute", { exact: true }).waitFor();
     await page
       .getByRole("button", { name: "Switch to application", exact: true })
       .click();
@@ -176,8 +177,8 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       await page.evaluate(() =>
         window.__invokeCalls.some(
           (call) =>
-            call.command === "focus_instance" &&
-            call.args.instanceId === "maya-1",
+            call.command === "focus_application" &&
+            call.args.pid === 4520 && call.args.host === "maya",
         ),
       ),
     );

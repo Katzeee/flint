@@ -1,23 +1,15 @@
 //! Native window identification stays in the desktop adapter, outside Bridge and execution state.
 use anyhow::{bail, Result};
 
-pub fn local_pid(state: &flint_core::BackendHandle, instance_id: &str) -> Result<u32> {
-    let instance = state
-        .instances()
-        .into_iter()
-        .find(|i| i.instance_id == instance_id)
-        .ok_or_else(|| anyhow::anyhow!("This connection is no longer available"))?;
-    let matches_host = |host: &str| {
-        let kind = instance.instance_type.to_ascii_lowercase();
-        kind == host || (host == "max" && (kind == "3dsmax" || kind == "3ds max"))
+pub fn local_pid(pid: u32, host: &str) -> Result<u32> {
+    let matches_host = |candidate: &str| {
+        let kind = host.to_ascii_lowercase();
+        kind == candidate || (candidate == "max" && (kind == "3dsmax" || kind == "3ds max"))
     };
-    if !flint_connect::discover()
-        .iter()
-        .any(|candidate| candidate.pid == instance.pid && matches_host(candidate.host))
-    {
+    if !flint_connect::candidate(pid).is_some_and(|candidate| matches_host(candidate.host)) {
         bail!("No matching local application window");
     }
-    Ok(instance.pid)
+    Ok(pid)
 }
 
 #[cfg(not(windows))]

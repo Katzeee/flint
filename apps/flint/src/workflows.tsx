@@ -8,10 +8,12 @@ import {
   List,
   ListDetail,
   PageBar,
+  Skeleton,
   Tabs,
   Text,
   TextArea,
 } from "@cairn/ui";
+import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import {
   readWorkflow,
@@ -21,7 +23,32 @@ import {
 } from "./backend.js";
 import { navigate, workflowPath } from "./navigation.js";
 import { useResource } from "./resource.js";
-import { ErrorNotice, formatTime, Loading } from "./shared.js";
+import { Deferred, ErrorNotice, formatTime } from "./shared.js";
+
+const placeholderNames = ["Export scene assets", "Rebuild lighting", "Publish animation"];
+
+function PlaceholderRows({
+  label,
+  description,
+  trailing,
+}: Readonly<{ label: string; description: string; trailing?: string }>) {
+  return (
+    <Box aria-busy>
+      <List.Root label={label}>
+        {placeholderNames.map((name) => (
+          <List.Item
+            key={name}
+            inert
+            description={<Skeleton>{description}</Skeleton>}
+            trailing={trailing ? <Skeleton>{trailing}</Skeleton> : undefined}
+          >
+            <Skeleton>{name}</Skeleton>
+          </List.Item>
+        ))}
+      </List.Root>
+    </Box>
+  );
+}
 
 function ExecutionRecord({
   execution,
@@ -141,7 +168,7 @@ export function Workflows({
         <PageBar.Root>
           <PageBar.Title>Workflows</PageBar.Title>
           <PageBar.Action
-            icon="compass"
+            icon={RefreshCw}
             label="Refresh workflows"
             onSelect={index.reload}
           />
@@ -151,17 +178,22 @@ export function Workflows({
             <ErrorNotice error={index.error} retry={index.reload} />
           </Box>
         ) : null}
-        {index.loading && !index.data ? <Loading /> : null}
+        {index.loading && !index.data ? (
+          <Deferred>
+            <PlaceholderRows
+              label="Loading workflows"
+              description="12 executions · Yesterday"
+            />
+          </Deferred>
+        ) : null}
         {index.data?.length === 0 ? (
-          <Box p="5">
-            <EmptyState>
-              <EmptyState.Title>No workflows yet</EmptyState.Title>
-              <EmptyState.Description>
-                Workflows created through Flint appear here with their execution
-                records.
-              </EmptyState.Description>
-            </EmptyState>
-          </Box>
+          <EmptyState>
+            <EmptyState.Title>No workflows yet</EmptyState.Title>
+            <EmptyState.Description>
+              Workflows created through Flint appear here with their execution
+              records.
+            </EmptyState.Description>
+          </EmptyState>
         ) : null}
         <List.Root>
           {index.data?.map((item) => (
@@ -188,28 +220,39 @@ export function Workflows({
           </PageBar.Title>
           {selectedId ? (
             <PageBar.Action
-              icon="compass"
+              icon={RefreshCw}
               label="Refresh execution records"
               onSelect={selected.reload}
             />
           ) : null}
         </PageBar.Root>
         {!selectedId ? (
-          <Box p="5">
-            <EmptyState>
-              <EmptyState.Title>Select a workflow</EmptyState.Title>
-              <EmptyState.Description>
-                Inspect its executions, code, output and errors.
-              </EmptyState.Description>
-            </EmptyState>
-          </Box>
+          <EmptyState>
+            <EmptyState.Title>Select a workflow</EmptyState.Title>
+            <EmptyState.Description>
+              Inspect its executions, code, output and errors.
+            </EmptyState.Description>
+          </EmptyState>
         ) : null}
         {selected.error ? (
           <Box p="5">
             <ErrorNotice error={selected.error} retry={selected.reload} />
           </Box>
         ) : null}
-        {selected.loading && !selected.data ? <Loading /> : null}
+        {selected.loading && !selected.data ? (
+          <Deferred>
+            <Box p="5">
+              <Flex direction="column" gap="4">
+                <Heading size="title-small">Executions</Heading>
+                <PlaceholderRows
+                  label="Loading executions"
+                  description="Maya session · 10:24"
+                  trailing="succeeded"
+                />
+              </Flex>
+            </Box>
+          </Deferred>
+        ) : null}
         {selected.data ? (
           <Box p="5">
             <Flex direction="column" gap="4">

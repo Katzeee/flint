@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ResourceCache } from "./resource-cache.js";
+
+const resources = new ResourceCache();
 
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -11,6 +14,9 @@ export function useResource<T>(
   interval = 0,
   refreshVersion = 0,
 ) {
+  const cached = key === null ? undefined : resources.peek<T>(key);
+  const freshness = interval || 30000;
+  const previous = useRef({ key, refreshVersion, revision: 0 });
   const reader = useRef(read);
   useEffect(() => {
     reader.current = read;
@@ -22,28 +28,40 @@ export function useResource<T>(
     error: string;
     loading: boolean;
   }>({
-    key: null,
-    data: null,
+    key,
+    data: cached?.data ?? null,
     error: "",
     loading: true,
   });
   useEffect(() => {
     if (key === null) return;
+    const force = previous.current.key === key && (
+      previous.current.revision !== revision || previous.current.refreshVersion !== refreshVersion
+    );
+    previous.current = { key, refreshVersion, revision };
+    const entry = resources.acquire<T>(key);
     let active = true;
-    const controller = new AbortController();
     let timer: number | undefined;
-    setResult((previous) => ({
+    const remaining = freshness - (Date.now() - entry.updatedAt);
+    const fresh = entry.data !== null && remaining > 0 && !force;
+    setResult({
       key,
-      data: previous.key === key ? previous.data : null,
+      data: entry.data,
       error: "",
-      loading: true,
-    }));
+      loading: !fresh,
+    });
     const refresh = async () => {
+      let cancelled = false;
       try {
-        const data = await reader.current(controller.signal);
-        if (active) setResult({ key, data, error: "", loading: false });
+        const data = await resources.read(entry, reader.current);
+        if (active) setResult((previous) =>
+          previous.key === key && previous.data === data && !previous.error && !previous.loading
+            ? previous
+            : { key, data, error: "", loading: false },
+        );
       } catch (error) {
-        if (active)
+        cancelled = error instanceof DOMException && error.name === "AbortError";
+        if (active && !cancelled)
           setResult((previous) => ({
             ...previous,
             key,
@@ -51,20 +69,21 @@ export function useResource<T>(
             loading: false,
           }));
       } finally {
-        if (active && interval > 0)
-          timer = window.setTimeout(refresh, interval);
+        if (active && (cancelled || interval > 0))
+          timer = window.setTimeout(refresh, cancelled ? 0 : interval);
       }
     };
-    void refresh();
+    if (!fresh) void refresh();
+    else if (interval > 0) timer = window.setTimeout(refresh, remaining);
     return () => {
       active = false;
-      controller.abort();
       window.clearTimeout(timer);
+      resources.release(entry);
     };
-  }, [key, interval, revision, refreshVersion]);
+  }, [key, interval, revision, refreshVersion, freshness]);
   const reload = useCallback(() => setRevision((value) => value + 1), []);
   return {
-    data: result.key === key ? result.data : null,
+    data: result.key === key ? result.data : cached?.data ?? null,
     error: result.key === key ? result.error : "",
     loading: key !== null && (result.key !== key || result.loading),
     reload,

@@ -14,18 +14,14 @@ static CAPTURE_SLOTS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Semaphore>
     std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Semaphore::new(2)));
 
 #[tauri::command]
-async fn window_preview(
-    state: tauri::State<'_, BackendHandle>,
-    instance_id: String,
-) -> Result<serde_json::Value, String> {
+async fn window_preview(pid: u32, host: String) -> Result<serde_json::Value, String> {
     let permit = CAPTURE_SLOTS
         .clone()
         .try_acquire_owned()
         .map_err(|_| "Window previews are busy".to_string())?;
-    let backend = state.inner().clone();
     let capture = tauri::async_runtime::spawn_blocking(move || {
         let _permit = permit;
-        let pid = window_preview::local_pid(&backend, &instance_id)?;
+        let pid = window_preview::local_pid(pid, &host)?;
         window_preview::preview(pid)
     });
     tokio::time::timeout(std::time::Duration::from_secs(3), capture)
@@ -36,13 +32,9 @@ async fn window_preview(
 }
 
 #[tauri::command]
-async fn focus_instance(
-    state: tauri::State<'_, BackendHandle>,
-    instance_id: String,
-) -> Result<(), String> {
-    let backend = state.inner().clone();
+async fn focus_application(pid: u32, host: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let pid = window_preview::local_pid(&backend, &instance_id)?;
+        let pid = window_preview::local_pid(pid, &host)?;
         window_preview::focus(pid)
     })
     .await
@@ -71,9 +63,10 @@ fn snapshot(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
     serde_json::json!({"backend":status_json(state.status()),"instances":state.instances().into_iter().map(instance_json).collect::<Vec<_>>()})
 }
 #[tauri::command]
-fn candidates() -> serde_json::Value {
-    let hosts = flint_connect::discover();
-    serde_json::json!({"hosts": hosts})
+async fn candidates() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(|| serde_json::json!({"hosts": flint_connect::discover()}))
+        .await
+        .map_err(|error| error.to_string())
 }
 #[tauri::command]
 async fn workflows(state: tauri::State<'_, BackendHandle>) -> Result<serde_json::Value, String> {
@@ -129,7 +122,7 @@ pub fn run(backend: Backend, runtime: tokio::runtime::Runtime) -> anyhow::Result
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_decoration::init())
         .manage(handle)
-        .invoke_handler(tauri::generate_handler![activate_title_bar, snapshot, candidates, workflows, workflow, desktop_info, window_preview, focus_instance, stop_backend])
+        .invoke_handler(tauri::generate_handler![activate_title_bar, snapshot, candidates, workflows, workflow, desktop_info, window_preview, focus_application, stop_backend])
         .setup(move |app| {
             let show = MenuItem::with_id(app, "show", "Open flint", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Stop flint", true, None::<&str>)?;

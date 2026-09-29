@@ -9,7 +9,7 @@ function drain() {
   while (running < 2 && pending.length) pending.shift()!();
 }
 
-export function loadWindowPreview(instanceId: string, signal: AbortSignal) {
+export function loadWindowPreview(pid: number, host: string, signal: AbortSignal) {
   return new Promise<WindowPreview>((resolve, reject) => {
     const cancel = () => {
       const index = pending.indexOf(start);
@@ -19,7 +19,7 @@ export function loadWindowPreview(instanceId: string, signal: AbortSignal) {
     const start = () => {
       signal.removeEventListener("abort", cancel);
       running += 1;
-      void readWindowPreview(instanceId)
+      void readWindowPreview(pid, host)
         .then(resolve, reject)
         .finally(() => {
           running -= 1;
