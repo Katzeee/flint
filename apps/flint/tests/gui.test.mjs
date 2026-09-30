@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -9,7 +10,15 @@ const appRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const chromeMode = process.env.FLINT_GUI_CHROME ?? "custom";
 
 test("desktop navigation preserves connection identity, asynchronous selection and service actions", async () => {
-  const server = await preview({ preview: { host: "127.0.0.1", port: 0 } });
+  // Serve the window's own content security policy, so the view loads under the rules Tauri applies.
+  const tauri = JSON.parse(await readFile(join(appRoot, "src-tauri/tauri.conf.json"), "utf8"));
+  const server = await preview({
+    preview: {
+      host: "127.0.0.1",
+      port: 0,
+      headers: { "Content-Security-Policy": tauri.app.security.csp },
+    },
+  });
   const address = server.httpServer.address();
   assert.ok(address && typeof address !== "string");
   const application = await _electron.launch({
@@ -19,6 +28,12 @@ test("desktop navigation preserves connection identity, asynchronous selection a
   try {
     const page = await application.firstWindow();
     await page.setViewportSize({ width: 1280, height: 850 });
+    await page.addInitScript(() => {
+      window.__cspViolations = [];
+      document.addEventListener("securitypolicyviolation", (event) =>
+        window.__cspViolations.push(`${event.effectiveDirective} ${event.blockedURI}`),
+      );
+    });
     await page.addInitScript((chromeMode) => {
       window.__invokeCalls = [];
       window.__mockSnapshot = {
@@ -315,6 +330,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       ),
       2,
     );
+    assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
   } finally {
     await application.close();
     await new Promise((resolve, reject) =>

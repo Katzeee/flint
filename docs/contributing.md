@@ -24,7 +24,7 @@ Application capabilities and data must be reachable through the CLI. The desktop
 
 The React desktop interface lives in `apps/flint/src`, with its npm project and build output beside `src-tauri`. Cairn is the first-party design-system submodule at `apps/flint/cairn`. Build reusable visual components and tokens in Cairn, then consume them in Flint's application-specific interface. Commit Cairn changes in the submodule before updating Flint's recorded submodule commit.
 
-Compose the desktop view from Cairn's page, layout, and component contracts; Flint has no stylesheet of its own. When the view needs a visual rule or variant Cairn lacks, add it to Cairn. Flint's `lint` script runs Cairn's application rules, and the `gui` xtask suite runs it with the typecheck and GUI test. The frontend entry point imports `@cairn/ui/styles.css` and the `@cairn/ui/themes/forest.css` theme stylesheet.
+Build the desktop view as [Cairn's application guide](../apps/flint/cairn/docs/applications.md) describes; Flint has no stylesheet of its own. When the view needs a visual rule or variant Cairn lacks, add it to Cairn. Flint's `lint` script runs Cairn's application rules, and the `gui` xtask suite runs it with the typecheck and GUI test. The GUI test serves the window's content security policy from `tauri.conf.json` and fails on any violation. The frontend entry point imports `@cairn/ui/styles.css` and the `@cairn/ui/themes/forest.css` theme stylesheet.
 
 Workflow files own durable state. Live connections and pending requests are transient. After a backend restart, Bridges reconnect; interrupted executions have an unknown host outcome and must not be replayed automatically.
 
