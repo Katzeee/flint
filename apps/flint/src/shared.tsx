@@ -1,4 +1,4 @@
-import { Box, Callout, Flex, Spinner, Text } from "@cairn/ui";
+import { Callout, Flex, Spinner, Text } from "@cairn/ui";
 import { useEffect, useState, type ReactNode } from "react";
 
 export function ErrorNotice({
@@ -41,22 +41,6 @@ export function Loading({
     <Flex align="center" gap="2" p="5" role="status">
       <Spinner size="sm" />
       <Text tone="muted">{children}</Text>
-    </Flex>
-  );
-}
-
-export function Property({
-  label,
-  children,
-}: Readonly<{ label: string; children: ReactNode }>) {
-  return (
-    <Flex direction="column" gap="1" minWidth="0">
-      <Text size="label" tone="muted">
-        {label}
-      </Text>
-      <Box overflowX="auto">
-        <Text>{children}</Text>
-      </Box>
     </Flex>
   );
 }

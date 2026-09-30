@@ -272,18 +272,22 @@ test("desktop navigation preserves connection identity, asynchronous selection a
     await page.evaluate(() => {
       window.__finishFirst();
     });
-    await page.getByRole("button", { name: /Inspect scene/ }).click();
+    await page.getByRole("link", { name: /Inspect scene/ }).click();
+    assert.equal(new URL(page.url()).hash, "#/workflows/second/executions/0001");
     assert.equal(
-      await page.getByRole("textbox", { name: "Standard output" }).inputValue(),
+      await page.getByLabel("Output", { exact: true }).textContent(),
       "Material check",
     );
-    await page.getByRole("tab", { name: "Code", exact: true }).click();
     assert.equal(
-      await page.getByRole("textbox", { name: "Executed code" }).inputValue(),
+      await page.getByLabel("Code", { exact: true }).textContent(),
       "print('Material check')",
     );
 
     await page.setViewportSize({ width: 500, height: 750 });
+    await page
+      .getByRole("button", { name: "Back to workflow", exact: true })
+      .click();
+    await page.getByRole("link", { name: /Inspect scene/ }).waitFor();
     await page
       .getByRole("button", { name: "Back to Workflows", exact: true })
       .click();
@@ -302,7 +306,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
     await page.getByRole("button", { name: "Back to settings" }).click();
 
     await page
-      .getByRole("button", { name: "Stop backend", exact: true })
+      .getByRole("button", { name: "Stop", exact: true })
       .click();
     await page
       .getByRole("alertdialog")
@@ -316,7 +320,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       window.__allowStop = true;
     });
     await page
-      .getByRole("button", { name: "Stop backend", exact: true })
+      .getByRole("button", { name: "Stop", exact: true })
       .click();
     await page
       .getByRole("alertdialog")

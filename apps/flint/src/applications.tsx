@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Card,
+  Code,
   Container,
   EmptyState,
   Flex,
@@ -10,15 +11,16 @@ import {
   Heading,
   Icon,
   Image,
-  Link,
+  List,
   PageBar,
   Section,
-  Separator,
   Spinner,
   Status,
+  Tabs,
   Text,
+  TextArea,
 } from "@cairn/ui";
-import { AppWindow, RefreshCw } from "lucide-react";
+import { AppWindow, Play, RefreshCw, SquareArrowOutUpRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import {
   focusApplication,
@@ -34,7 +36,7 @@ import {
   type Route,
 } from "./navigation.js";
 import { messageOf, useResource } from "./resource.js";
-import { ErrorNotice, Loading, Property } from "./shared.js";
+import { ErrorNotice, formatTime, Loading } from "./shared.js";
 import { loadWindowPreview } from "./window-preview.js";
 
 const hostNames: Readonly<Record<string, string>> = {
@@ -148,6 +150,21 @@ function ApplicationGroup({
   );
 }
 
+// One labelled fact in a record's summary, beside its preview.
+function Fact({
+  label,
+  children,
+}: Readonly<{ label: string; children: ReactNode }>) {
+  return (
+    <Flex direction="column" gap="1" minWidth="0">
+      <Text size="label" tone="muted">
+        {label}
+      </Text>
+      <Text wrap="pretty">{children}</Text>
+    </Flex>
+  );
+}
+
 function ApplicationDetail({
   instance,
   candidate,
@@ -159,7 +176,6 @@ function ApplicationDetail({
 }>) {
   const pid = instance?.pid ?? candidate?.pid;
   const host = instance?.instance_type ?? candidate?.host;
-  const name = instance?.instance_name ?? (host ? hostName(host) : "Application");
   const preview = useResource(
     pid !== undefined ? `preview:${host}:${pid}` : null,
     (signal) => loadWindowPreview(pid!, signal),
@@ -184,6 +200,11 @@ function ApplicationDetail({
     related.data?.filter(
       (item) => instance && item.instance_ids.includes(instance.instance_id),
     ) ?? [];
+  const hostWindow = preview.data?.window;
+  const application = host ? hostName(host) : "Application";
+  const name = instance?.instance_name || application;
+  const executable = preview.data?.executable || candidate?.executable;
+  const [view, setView] = useState("overview");
   return (
     <>
       <PageBar.Root>
@@ -192,9 +213,11 @@ function ApplicationDetail({
           onSelect={() => navigate("apps")}
         />
         <PageBar.Title>
-          {instance?.instance_name ??
-            (candidate ? hostName(candidate.host) : "Application")}
+          {pid === undefined ? name : `${name} · PID ${pid}`}
         </PageBar.Title>
+        {hostWindow?.title ? (
+          <PageBar.Subtitle>{hostWindow.title}</PageBar.Subtitle>
+        ) : null}
         {instance || candidate ? (
           <PageBar.Action
             icon={RefreshCw}
@@ -203,8 +226,16 @@ function ApplicationDetail({
             disabled={preview.loading}
           />
         ) : null}
+        {hostWindow ? (
+          <PageBar.Action
+            icon={SquareArrowOutUpRight}
+            label="Switch to application"
+            onSelect={() => void focus()}
+            priority="primary"
+          />
+        ) : null}
       </PageBar.Root>
-      <Container size="3" px="5" pb="6">
+      <Container size="4" px="5" pb="6">
         {loading && !instance && !candidate ? <Loading /> : null}
         {!loading && !instance && !candidate ? (
           <EmptyState>
@@ -215,97 +246,175 @@ function ApplicationDetail({
           </EmptyState>
         ) : null}
         {instance || candidate ? (
-          <Section size="1">
-            <Flex direction="column" gap="5">
-              <ErrorNotice error={actionError} />
-              <Image
-                key={pid}
-                src={preview.data?.preview?.image ?? undefined}
-                alt={`Window preview of ${preview.data?.window?.title || name}`}
-                aspectRatio="16/10"
-                fit="contain"
-                loading="eager"
-                fallback={
-                  <>
-                    <Icon glyph={AppWindow} size="lg" />
-                    <Text tone="muted">
-                      {preview.loading
-                        ? "Loading preview"
-                        : preview.data?.preview?.unavailable_reason ||
-                          "Window preview unavailable"}
-                    </Text>
-                  </>
-                }
-              />
-              <ErrorNotice error={preview.error} retry={preview.reload} />
-              {preview.data?.window?.title ? (
-                <Property label="Window">{preview.data.window.title}</Property>
-              ) : null}
-              {preview.data?.window ? (
-                <Box>
-                  <Button onClick={() => void focus()}>
-                    Switch to application
-                  </Button>
-                </Box>
-              ) : null}
-              {instance ? (
-                <>
-                  <Box>
-                    <Status tone={instance.execution_ready ? "success" : "warning"}>
-                      {instance.execution_ready ? "Ready to execute" : "Connecting"}
+          <Flex direction="column" gap="6" pt="2">
+            <Flex gap="5" wrap="wrap" align="start">
+              {/* eslint-disable-next-line cairn/no-raw-visual-values -- Matches the application cards' preview width. */}
+              <Box width="280px" maxWidth="100%" flexShrink="0">
+                <Image
+                  key={pid}
+                  src={preview.data?.preview?.image ?? undefined}
+                  alt={`Window preview of ${hostWindow?.title || name}`}
+                  aspectRatio="16/10"
+                  fit="contain"
+                  loading="eager"
+                  fallback={
+                    <>
+                      <Icon glyph={AppWindow} size="lg" />
+                      <Text size="label" tone="muted">
+                        {preview.loading
+                          ? "Loading preview"
+                          : preview.data?.preview?.unavailable_reason ||
+                            "Window preview unavailable"}
+                      </Text>
+                    </>
+                  }
+                />
+              </Box>
+              {/* eslint-disable-next-line cairn/no-raw-visual-values -- Below this width the summary moves under the preview. */}
+              <Flex direction="column" gap="4" flexGrow="1" flexBasis="320px" minWidth="0" pt="1">
+                <Grid columns="2" gapX="6" gapY="4">
+                  <Fact label="Bridge">
+                    <Status
+                      tone={
+                        instance
+                          ? instance.execution_ready
+                            ? "success"
+                            : "warning"
+                          : "neutral"
+                      }
+                    >
+                      {instance
+                        ? instance.execution_ready
+                          ? "Ready to execute"
+                          : "Connecting"
+                        : "Not connected"}
                     </Status>
-                  </Box>
-                  <Grid columns={{ initial: "1", sm: "2" }} gap="5">
-                    <Property label="Application">
-                      {hostName(instance.instance_type)}
-                    </Property>
-                    <Property label="Process ID">{instance.pid}</Property>
-                    <Property label="Runtime">{instance.runtime_version}</Property>
-                    <Property label="Bridge version">
-                      {instance.bridge_version}
-                    </Property>
-                  </Grid>
-                  <Property label="Instance ID">{instance.instance_id}</Property>
-                  <Separator />
-                  <Heading size="title-small">Related workflows</Heading>
-                  <ErrorNotice error={related.error} retry={related.reload} />
-                  {related.loading && !related.data ? (
-                    <Loading />
-                  ) : records.length === 0 ? (
-                    <Text tone="muted">
-                      No executions recorded for this connection.
-                    </Text>
-                  ) : (
-                    <Flex direction="column" gap="3">
-                      {records.map((record) => (
-                        <Link
-                          href={`#/${workflowPath(record.workflow_id)}`}
-                          key={record.workflow_id}
-                        >
-                          {record.name || "Untitled workflow"}
-                        </Link>
-                      ))}
+                  </Fact>
+                  <Fact label="Application">{application}</Fact>
+                  {instance ? (
+                    <>
+                      <Fact label="Runtime">{instance.runtime_version}</Fact>
+                      <Fact label="Bridge version">{instance.bridge_version}</Fact>
+                    </>
+                  ) : null}
+                </Grid>
+                {instance ? null : (
+                  <Text as="p" size="label" tone="muted" wrap="pretty">
+                    Load the Flint Bridge inside {application}. Once it
+                    connects, this application moves to Connected and can run
+                    code from Flint.
+                  </Text>
+                )}
+              </Flex>
+            </Flex>
+            <ErrorNotice error={preview.error} retry={preview.reload} />
+            <ErrorNotice error={actionError} />
+
+            <Tabs.Root value={view} onValueChange={setView}>
+              <Tabs.List aria-label="Application views">
+                <Tabs.Trigger value="overview">Overview</Tabs.Trigger>
+                <Tabs.Trigger value="console">Console</Tabs.Trigger>
+                <Tabs.Trigger value="workflows">Workflows</Tabs.Trigger>
+              </Tabs.List>
+
+              <Tabs.Content value="overview">
+                <Flex direction="column" gap="6" pt="2">
+                  <List.Section title="Details">
+                    {instance ? (
+                      <List.Item trailing={<Code>{instance.instance_id}</Code>}>
+                        Instance ID
+                      </List.Item>
+                    ) : null}
+                    <List.Item trailing={pid}>Process ID</List.Item>
+                    {hostWindow?.title ? (
+                      <List.Item description={hostWindow.title}>Window</List.Item>
+                    ) : null}
+                    {executable ? (
+                      <List.Item description={executable}>Executable</List.Item>
+                    ) : null}
+                  </List.Section>
+                </Flex>
+              </Tabs.Content>
+
+              <Tabs.Content value="console">
+                {instance ? (
+                  <Flex direction="column" gap="4" pt="2">
+                    <TextArea
+                      aria-label="Code to run"
+                      monospaced
+                      placeholder={`# Runs inside ${application} on its main thread\n`}
+                      rows={10}
+                      spellCheck={false}
+                    />
+                    <Flex align="center" justify="between" gap="3" wrap="wrap">
+                      <Text size="label" tone="muted">
+                        Running code from the desktop is not available yet.
+                      </Text>
+                      <Button disabled>
+                        <Icon glyph={Play} size="sm" />
+                        Run
+                      </Button>
                     </Flex>
-                  )}
-                </>
-              ) : null}
-            </Flex>
-          </Section>
-        ) : null}
-        {candidate ? (
-          <Section size="1">
-            <Flex direction="column" gap="5">
-              <Property label="Process ID">{candidate.pid}</Property>
-              <Property label="Executable">
-                {candidate.executable || "Unavailable"}
-              </Property>
-              <Heading size="title-small">Connect a Bridge</Heading>
-              <Text as="p">
-                Load the Flint Bridge inside {hostName(candidate.host)}. Once it
-                connects, the application appears in Connected.
-              </Text>
-            </Flex>
-          </Section>
+                    <Flex direction="column" gap="2">
+                      <Heading as="h2" size="label">
+                        Output
+                      </Heading>
+                      <Code aria-label="Output" block>
+                        {"Output from the last run appears here."}
+                      </Code>
+                    </Flex>
+                  </Flex>
+                ) : (
+                  <EmptyState>
+                    <EmptyState.Title>Connect the Bridge to run code</EmptyState.Title>
+                    <EmptyState.Description>
+                      The console runs code inside {application} once its Bridge
+                      connects.
+                    </EmptyState.Description>
+                  </EmptyState>
+                )}
+              </Tabs.Content>
+
+              <Tabs.Content value="workflows">
+                {instance ? (
+                  <Flex direction="column" gap="3" pt="2">
+                    {records.length > 0 ? (
+                      <List.Section>
+                        {records.map((record) => (
+                          <List.Item
+                            key={record.workflow_id}
+                            href={`#/${workflowPath(record.workflow_id)}`}
+                            description={`${record.execution_count} executions · ${formatTime(record.updated_at)}`}
+                          >
+                            {record.name || "Untitled workflow"}
+                          </List.Item>
+                        ))}
+                      </List.Section>
+                    ) : (
+                      <EmptyState>
+                        <EmptyState.Title>
+                          {related.loading && !related.data
+                            ? "Loading workflows…"
+                            : "No workflows yet"}
+                        </EmptyState.Title>
+                        <EmptyState.Description>
+                          Workflows that run code in this application appear here.
+                        </EmptyState.Description>
+                      </EmptyState>
+                    )}
+                    <ErrorNotice error={related.error} retry={related.reload} />
+                  </Flex>
+                ) : (
+                  <EmptyState>
+                    <EmptyState.Title>No workflows yet</EmptyState.Title>
+                    <EmptyState.Description>
+                      Workflows can use this application once its Bridge connects.
+                    </EmptyState.Description>
+                  </EmptyState>
+                )}
+              </Tabs.Content>
+            </Tabs.Root>
+          </Flex>
         ) : null}
       </Container>
     </>

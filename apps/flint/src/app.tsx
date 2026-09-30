@@ -141,7 +141,11 @@ export function App() {
             />
           ) : null}
           {route.page === "workflows" ? (
-            <Workflows selectedId={route.id} instances={instances} />
+            <Workflows
+              selectedId={route.id}
+              executionId={route.execution}
+              instances={instances}
+            />
           ) : null}
           {route.page === "settings" ? (
             <Settings

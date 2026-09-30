@@ -1,7 +1,8 @@
 import {
   Badge,
   Box,
-  Card,
+  Callout,
+  Code,
   EmptyState,
   Flex,
   Heading,
@@ -9,19 +10,17 @@ import {
   ListDetail,
   PageBar,
   Skeleton,
-  Tabs,
   Text,
-  TextArea,
 } from "@cairn/ui";
 import { RefreshCw } from "lucide-react";
-import { useState } from "react";
 import {
   readWorkflow,
   readWorkflows,
   type ConnectedInstance,
   type Execution,
+  type Workflow,
 } from "./backend.js";
-import { navigate, workflowPath } from "./navigation.js";
+import { executionPath, navigate, workflowPath } from "./navigation.js";
 import { useResource } from "./resource.js";
 import { Deferred, ErrorNotice, formatTime } from "./shared.js";
 
@@ -50,107 +49,181 @@ function PlaceholderRows({
   );
 }
 
-function ExecutionRecord({
+function statusTone(status: string) {
+  return status === "succeeded"
+    ? "success"
+    : status === "failed"
+      ? "danger"
+      : "neutral";
+}
+
+function statusLabel(status: string) {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function instanceName(instances: readonly ConnectedInstance[], id: string) {
+  return instances.find((item) => item.instance_id === id)?.instance_name ?? id;
+}
+
+function executionName(execution: Execution) {
+  return execution.name || `Execution ${execution.execution_id}`;
+}
+
+function OutputBlock({
+  title,
+  children,
+}: Readonly<{ title: string; children: string }>) {
+  return (
+    <Flex direction="column" gap="2">
+      <Heading as="h2" size="label" tone="muted">
+        {title}
+      </Heading>
+      <Code aria-label={title} block>
+        {children}
+      </Code>
+    </Flex>
+  );
+}
+
+function ExecutionPage({
+  workflow,
   execution,
   instances,
 }: Readonly<{
-  execution: Execution;
+  workflow: Workflow;
+  execution: Execution | undefined;
   instances: readonly ConnectedInstance[];
 }>) {
-  const [expanded, setExpanded] = useState(false);
-  const instance = instances.find(
-    (item) => item.instance_id === execution.instance_id,
+  const back = (
+    <PageBar.Back
+      label="Back to workflow"
+      onSelect={() => navigate(workflowPath(workflow.workflow_id))}
+    />
   );
+  if (!execution) {
+    return (
+      <>
+        <PageBar.Root>
+          {back}
+          <PageBar.Title>Execution</PageBar.Title>
+        </PageBar.Root>
+        <EmptyState>
+          <EmptyState.Title>Execution not found</EmptyState.Title>
+          <EmptyState.Description>
+            This workflow has no execution with that identifier.
+          </EmptyState.Description>
+        </EmptyState>
+      </>
+    );
+  }
   const status = execution.status;
+  const errors = [execution.stderr, execution.traceback]
+    .filter(Boolean)
+    .join("\n");
+  const silent = !execution.stdout && !errors && !execution.error;
   return (
-    <Box>
-      <List.Root>
-        <List.Item
-          aria-expanded={expanded}
-          onClick={() => setExpanded(!expanded)}
-          description={`${instance?.instance_name ?? execution.instance_id} · ${formatTime(execution.started_at)}`}
-          trailing={
-            <Badge
-              tone={
-                status === "succeeded"
-                  ? "success"
-                  : status === "failed"
-                    ? "danger"
-                    : "neutral"
+    <>
+      <PageBar.Root>
+        {back}
+        <PageBar.Title>{executionName(execution)}</PageBar.Title>
+        <PageBar.Subtitle>{workflow.name || "Untitled workflow"}</PageBar.Subtitle>
+      </PageBar.Root>
+      <Box px="5" pt="2" pb="6">
+        <Flex direction="column" gap="6">
+          <List.Section title="Details">
+            <List.Item
+              trailing={
+                <Badge tone={statusTone(status)}>{statusLabel(status)}</Badge>
               }
             >
-              {status}
-            </Badge>
-          }
-        >
-          {execution.name || `Execution ${execution.execution_id}`}
-        </List.Item>
-      </List.Root>
-      {expanded ? (
-        <Box px="4" pb="4">
-          <Card>
-            <Tabs.Root defaultValue="output">
-              <Tabs.List aria-label="Execution details">
-                <Tabs.Trigger value="output">Output</Tabs.Trigger>
-                <Tabs.Trigger value="code">Code</Tabs.Trigger>
-              </Tabs.List>
-              <Tabs.Content value="output">
-                <Flex direction="column" gap="3" pt="3">
-                  {execution.error ? (
-                    <ErrorNotice error={execution.error} />
-                  ) : null}
-                  {execution.stdout ? (
-                    <TextArea
-                      aria-label="Standard output"
-                      readOnly
-                      value={execution.stdout}
-                      rows={8}
-                    />
-                  ) : null}
-                  {execution.stderr || execution.traceback ? (
-                    <TextArea
-                      aria-label="Error output"
-                      readOnly
-                      value={[execution.stderr, execution.traceback]
-                        .filter(Boolean)
-                        .join("\n")}
-                      rows={8}
-                    />
-                  ) : null}
-                  {!execution.stdout &&
-                  !execution.stderr &&
-                  !execution.traceback &&
-                  !execution.error ? (
-                    <Text tone="muted">
-                      {status === "running" || status === "pending"
-                        ? "Waiting for output…"
-                        : "No output recorded."}
-                    </Text>
-                  ) : null}
-                </Flex>
-              </Tabs.Content>
-              <Tabs.Content value="code">
-                <Box pt="3">
-                  <TextArea
-                    aria-label="Executed code"
-                    readOnly
-                    value={execution.code}
-                    rows={12}
-                  />
-                </Box>
-              </Tabs.Content>
-            </Tabs.Root>
-          </Card>
-        </Box>
+              Status
+            </List.Item>
+            <List.Item trailing={instanceName(instances, execution.instance_id)}>
+              Application
+            </List.Item>
+            <List.Item trailing={formatTime(execution.started_at)}>
+              Started
+            </List.Item>
+            {execution.finished_at ? (
+              <List.Item trailing={formatTime(execution.finished_at)}>
+                Finished
+              </List.Item>
+            ) : null}
+          </List.Section>
+          {execution.error ? (
+            <Callout.Root tone="danger">
+              <Callout.Body>
+                <Callout.Title>Execution failed</Callout.Title>
+                <Callout.Text>{execution.error}</Callout.Text>
+              </Callout.Body>
+            </Callout.Root>
+          ) : null}
+          {execution.stdout ? (
+            <OutputBlock title="Output">{execution.stdout}</OutputBlock>
+          ) : null}
+          {errors ? <OutputBlock title="Error output">{errors}</OutputBlock> : null}
+          {silent ? (
+            <Text tone="muted">
+              {status === "running" || status === "pending"
+                ? "Waiting for output…"
+                : "No output recorded."}
+            </Text>
+          ) : null}
+          <OutputBlock title="Code">{execution.code}</OutputBlock>
+        </Flex>
+      </Box>
+    </>
+  );
+}
+
+function WorkflowPage({
+  workflow,
+  instances,
+}: Readonly<{
+  workflow: Workflow;
+  instances: readonly ConnectedInstance[];
+}>) {
+  return (
+    <Flex direction="column" gap="6">
+      {workflow.description ? (
+        <Text as="p" tone="muted">
+          {workflow.description}
+        </Text>
       ) : null}
-    </Box>
+      <List.Section
+        title="Executions"
+        description={
+          workflow.execs.length === 0 ? "No executions recorded." : undefined
+        }
+      >
+        {workflow.execs.map((execution) => (
+          <List.Item
+            key={execution.execution_id}
+            href={`#/${executionPath(workflow.workflow_id, execution.execution_id)}`}
+            description={`${instanceName(instances, execution.instance_id)} · ${formatTime(execution.started_at)}`}
+            trailing={
+              <Badge tone={statusTone(execution.status)}>
+                {statusLabel(execution.status)}
+              </Badge>
+            }
+          >
+            {executionName(execution)}
+          </List.Item>
+        ))}
+      </List.Section>
+    </Flex>
   );
 }
 
 export function Workflows({
   selectedId,
+  executionId,
   instances,
-}: Readonly<{ selectedId?: string; instances: readonly ConnectedInstance[] }>) {
+}: Readonly<{
+  selectedId?: string;
+  executionId?: string;
+  instances: readonly ConnectedInstance[];
+}>) {
   const index = useResource("workflows", readWorkflows, 3000);
   const selected = useResource(
     selectedId ? `workflow:${selectedId}` : null,
@@ -214,70 +287,60 @@ export function Workflows({
         </List.Root>
       </ListDetail.List>
       <ListDetail.Detail label="Workflow details">
-        <PageBar.Root>
-          <PageBar.Title>
-            {selected.data?.name || (selectedId ? "Workflow" : "Workflows")}
-          </PageBar.Title>
-          {selectedId ? (
-            <PageBar.Action
-              icon={RefreshCw}
-              label="Refresh execution records"
-              onSelect={selected.reload}
-            />
-          ) : null}
-        </PageBar.Root>
-        {!selectedId ? (
-          <EmptyState>
-            <EmptyState.Title>Select a workflow</EmptyState.Title>
-            <EmptyState.Description>
-              Inspect its executions, code, output and errors.
-            </EmptyState.Description>
-          </EmptyState>
-        ) : null}
-        {selected.error ? (
-          <Box p="5">
-            <ErrorNotice error={selected.error} retry={selected.reload} />
-          </Box>
-        ) : null}
-        {selected.loading && !selected.data ? (
-          <Deferred>
-            <Box p="5">
-              <Flex direction="column" gap="4">
-                <Heading size="title-small">Executions</Heading>
-                <PlaceholderRows
-                  label="Loading executions"
-                  description="Maya session · 10:24"
-                  trailing="succeeded"
+        {executionId && selected.data ? (
+          <ExecutionPage
+            key={executionId}
+            workflow={selected.data}
+            execution={selected.data.execs.find(
+              (item) => item.execution_id === executionId,
+            )}
+            instances={instances}
+          />
+        ) : (
+          <>
+            <PageBar.Root>
+              <PageBar.Title>
+                {selected.data?.name || (selectedId ? "Workflow" : "Workflows")}
+              </PageBar.Title>
+              {selectedId ? (
+                <PageBar.Action
+                  icon={RefreshCw}
+                  label="Refresh execution records"
+                  onSelect={selected.reload}
                 />
-              </Flex>
-            </Box>
-          </Deferred>
-        ) : null}
-        {selected.data ? (
-          <Box p="5">
-            <Flex direction="column" gap="4">
-              {selected.data.description ? (
-                <Text as="p" tone="muted">
-                  {selected.data.description}
-                </Text>
               ) : null}
-              <Heading size="title-small">Executions</Heading>
-              {selected.data.execs.length === 0 ? (
-                <Text tone="muted">No executions recorded.</Text>
-              ) : (
-                <Box key={selected.data.workflow_id}>
-                  {selected.data.execs.map((execution) => (
-                    <ExecutionRecord
-                      key={execution.execution_id}
-                      execution={execution}
-                      instances={instances}
-                    />
-                  ))}
+            </PageBar.Root>
+            {!selectedId ? (
+              <EmptyState>
+                <EmptyState.Title>Select a workflow</EmptyState.Title>
+                <EmptyState.Description>
+                  Inspect its executions, code, output and errors.
+                </EmptyState.Description>
+              </EmptyState>
+            ) : null}
+            {selected.error ? (
+              <Box p="5">
+                <ErrorNotice error={selected.error} retry={selected.reload} />
+              </Box>
+            ) : null}
+            {selected.loading && !selected.data ? (
+              <Deferred>
+                <Box px="5" pt="2">
+                  <PlaceholderRows
+                    label="Loading executions"
+                    description="Maya session · 10:24"
+                    trailing="succeeded"
+                  />
                 </Box>
-              )}
-            </Flex>
-          </Box>
-        ) : null}
+              </Deferred>
+            ) : null}
+            {selected.data ? (
+              <Box px="5" pt="2" pb="6">
+                <WorkflowPage workflow={selected.data} instances={instances} />
+              </Box>
+            ) : null}
+          </>
+        )}
       </ListDetail.Detail>
     </ListDetail.Root>
   );

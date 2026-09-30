@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export type Route = Readonly<{
   page: "apps" | "workflows" | "settings" | "legal";
   id?: string;
+  execution?: string;
   candidate?: boolean;
 }>;
 
@@ -15,6 +16,10 @@ function readRoute(): Route {
       return {
         page,
         id: segments[0] ? decodeURIComponent(segments[0]) : undefined,
+        execution:
+          segments[1] === "executions" && segments[2]
+            ? decodeURIComponent(segments[2])
+            : undefined,
       };
     if (page === "settings" || page === "legal") return { page };
     return {
@@ -48,6 +53,9 @@ export function navigate(path: string) {
 
 export function workflowPath(id: string) {
   return `workflows/${encodeURIComponent(id)}`;
+}
+export function executionPath(workflowId: string, executionId: string) {
+  return `${workflowPath(workflowId)}/executions/${encodeURIComponent(executionId)}`;
 }
 export function instancePath(id: string) {
   return `apps/${encodeURIComponent(id)}`;
