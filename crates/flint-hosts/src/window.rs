@@ -6,13 +6,10 @@ use anyhow::{Context, Result};
 #[cfg(all(test, windows))]
 mod tests;
 
-#[derive(serde::Serialize)]
 pub struct HostInfo {
-    #[serde(flatten)]
     pub candidate: crate::HostCandidate,
     pub window: Option<WindowInfo>,
-    /// Omitted unless the caller explicitly requests image capture.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Absent unless the caller explicitly requests image capture.
     pub preview: Option<WindowPreview>,
 }
 
@@ -22,10 +19,10 @@ pub struct WindowInfo {
     pub minimized: bool,
 }
 
-#[derive(serde::Serialize)]
-pub struct WindowPreview {
-    pub image: Option<String>,
-    pub unavailable_reason: Option<String>,
+/// Callers choose how to encode the PNG for their own presentation boundary.
+pub enum WindowPreview {
+    Png(Vec<u8>),
+    Unavailable(String),
 }
 
 // Timed-out native calls retain their permits until they actually finish.
@@ -42,16 +39,15 @@ pub async fn host_info(pid: u32, include_preview: bool) -> Result<HostInfo> {
     })
     .await??;
     if include_preview {
-        let image = capture_preview(pid).await;
-        info.preview = Some(WindowPreview {
-            unavailable_reason: image.as_ref().err().map(ToString::to_string),
-            image: image.ok(),
+        info.preview = Some(match capture_preview(pid).await {
+            Ok(png) => WindowPreview::Png(png),
+            Err(error) => WindowPreview::Unavailable(error.to_string()),
         });
     }
     Ok(info)
 }
 
-async fn capture_preview(pid: u32) -> Result<String> {
+async fn capture_preview(pid: u32) -> Result<Vec<u8>> {
     let permit = CAPTURE_SLOTS
         .clone()
         .try_acquire_owned()
@@ -79,7 +75,7 @@ fn window_info(_pid: u32) -> Option<WindowInfo> {
 }
 
 #[cfg(not(windows))]
-fn capture(_pid: u32) -> Result<String> {
+fn capture(_pid: u32) -> Result<Vec<u8>> {
     bail!("Window previews are unavailable on this platform")
 }
 #[cfg(not(windows))]
@@ -94,7 +90,6 @@ use platform::{capture, focus, window_info};
 mod platform {
     use super::WindowInfo;
     use anyhow::{bail, ensure, Context, Result};
-    use base64::Engine;
     use std::{mem::size_of, ptr::null_mut};
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, RECT},
@@ -205,7 +200,7 @@ mod platform {
         })
     }
 
-    pub fn capture(pid: u32) -> Result<String> {
+    pub fn capture(pid: u32) -> Result<Vec<u8>> {
         let hwnd = find(pid)?;
         unsafe {
             ensure!(IsIconic(hwnd) == 0, "Window is minimized");
@@ -296,10 +291,7 @@ mod platform {
                     .write_image_data(&rgb)
                     .context("Could not encode window preview")?;
             }
-            Ok(format!(
-                "data:image/png;base64,{}",
-                base64::engine::general_purpose::STANDARD.encode(png)
-            ))
+            Ok(png)
         }
     }
 }

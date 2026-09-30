@@ -8,9 +8,10 @@ use tauri::{
 use tauri_plugin_decoration::WebviewWindowExt;
 
 #[tauri::command]
-async fn host_info(pid: u32, preview: bool) -> Result<flint_hosts::HostInfo, String> {
+async fn host_info(pid: u32, preview: bool) -> Result<serde_json::Value, String> {
     flint_hosts::host_info(pid, preview)
         .await
+        .map(crate::hosts::host_info_json)
         .map_err(|e| e.to_string())
 }
 

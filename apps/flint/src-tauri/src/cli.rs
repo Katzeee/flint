@@ -226,7 +226,7 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
                 let result = runtime.block_on(flint_hosts::host_info(*pid, *preview));
                 // A timed-out native capture must not keep a CLI invocation alive.
                 runtime.shutdown_background();
-                serde_json::to_value(result?)?
+                crate::hosts::host_info_json(result?)
             }
             Some(HostCommand::Focus { pid }) => {
                 flint_hosts::focus_application(*pid)?;
