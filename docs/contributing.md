@@ -4,9 +4,23 @@ This guide covers implementation ownership and test placement. Prepare a Windows
 
 ## Ownership
 
-The Rust backend owns execution coordination and durable workflow records. Tauri owns the window, tray, and native IPC, while React renders the desktop interface. CLI invocations communicate with the backend through the control client. Keep Tauri dependencies out of the core and protocol crates.
+Each Rust crate owns one concept from the [glossary](../CONTEXT.md). Place a feature in the crate that owns its concept, not in the crate that happens to call it:
 
-Application capabilities and data must be reachable through the CLI. The desktop adapts shared services for presentation rather than owning application behavior. Local host discovery, window previews, and window focus belong to `flint-connect`, which both CLI and Tauri call without requiring a Bridge or backend connection. Discovery identifies host processes, including batch-mode editors, and excludes recognized internal workers; the presence of a visible window does not define a host candidate.
+| Crate | Owns | Depends on |
+|---|---|---|
+| `crates/flint-protocol` | Wire protocol schema, generated messages, framing, and heartbeat timing | — |
+| `crates/flint-config` | Local backend deployment conventions: control and registry endpoints, state directory, and runtime lock files | — |
+| `crates/flint-backend` | The backend service: control and registry listeners, request dispatch, connected instances, executions, and workflow records | protocol, config |
+| `crates/flint-control-client` | Control client requests and the local backend lifecycle: start, stop, and restart | protocol, config |
+| `crates/flint-bridge-core` | Bridge core and its C ABI for host adapters | protocol |
+| `crates/flint-hosts` | Local host candidates: process discovery, window information, window previews, and window focus | — |
+| `apps/flint/src-tauri` | The executable: CLI commands, Tauri window, tray, and IPC that compose the crates above | all crates except bridge-core |
+
+Dependencies point from the executable toward the protocol and never between peers: the backend and control client share only protocol and config, and the Bridge core never depends on the backend. A feature that needs a new dependency between crates signals misplaced ownership; move the shared concept down instead. Keep Tauri and UI dependencies out of every crate under `crates`.
+
+The Rust backend owns execution coordination and durable workflow records. Tauri owns the window, tray, and native IPC, while React renders the desktop interface. CLI invocations communicate with the backend through the control client.
+
+Application capabilities and data must be reachable through the CLI. The desktop adapts shared services for presentation rather than owning application behavior. Local host discovery, window previews, and window focus belong to `flint-hosts`, which both CLI and Tauri call without requiring a Bridge or backend connection. Discovery identifies host processes, including batch-mode editors, and excludes recognized internal workers; the presence of a visible window does not define a host candidate.
 
 The React desktop interface lives in `apps/flint/src`, with its npm project and build output beside `src-tauri`. Cairn is the first-party design-system submodule at `apps/flint/cairn`. Build reusable visual components and tokens in Cairn, then consume them in Flint's application-specific interface. Commit Cairn changes in the submodule before updating Flint's recorded submodule commit.
 

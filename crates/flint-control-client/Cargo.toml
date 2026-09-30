@@ -5,7 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-flint-core.workspace = true
+flint-config.workspace = true
 flint-protocol.workspace = true
 tokio = { workspace = true, features = ["rt", "net", "time"] }
 tokio-util = { workspace = true, features = ["codec"] }

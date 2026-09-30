@@ -991,9 +991,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "flint-connect",
+ "flint-backend",
+ "flint-config",
  "flint-control-client",
- "flint-core",
+ "flint-hosts",
  "flint-protocol",
  "serde_json",
  "tauri",
@@ -1002,6 +1003,23 @@ dependencies = [
  "tempfile",
  "tokio",
  "wait-timeout",
+]
+
+[[package]]
+name = "flint-backend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "flint-config",
+ "flint-protocol",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "uuid",
 ]
 
 [[package]]
@@ -1018,7 +1036,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "flint-connect"
+name = "flint-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "fs2",
+ "serde",
+]
+
+[[package]]
+name = "flint-control-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "flint-config",
+ "flint-protocol",
+ "fs2",
+ "futures-util",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
+name = "flint-hosts"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1028,39 +1071,6 @@ dependencies = [
  "sysinfo",
  "tokio",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "flint-control-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "flint-core",
- "flint-protocol",
- "fs2",
- "futures-util",
- "serde_json",
- "tokio",
- "tokio-util",
- "uuid",
-]
-
-[[package]]
-name = "flint-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "dirs",
- "flint-protocol",
- "fs2",
- "futures-util",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "uuid",
 ]
 
 [[package]]

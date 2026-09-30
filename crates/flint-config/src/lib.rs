@@ -1,3 +1,4 @@
+//! Local endpoint and state-directory conventions shared by the backend and control clients.
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{

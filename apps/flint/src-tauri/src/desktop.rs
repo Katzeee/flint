@@ -1,5 +1,5 @@
+use flint_backend::{Backend, BackendHandle};
 use flint_control_client::{instance_json, status_json};
-use flint_core::{Backend, BackendHandle};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -8,15 +8,15 @@ use tauri::{
 use tauri_plugin_decoration::WebviewWindowExt;
 
 #[tauri::command]
-async fn host_info(pid: u32, preview: bool) -> Result<flint_connect::HostInfo, String> {
-    flint_connect::host_info(pid, preview)
+async fn host_info(pid: u32, preview: bool) -> Result<flint_hosts::HostInfo, String> {
+    flint_hosts::host_info(pid, preview)
         .await
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn focus_application(pid: u32) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || flint_connect::focus_application(pid))
+    tauri::async_runtime::spawn_blocking(move || flint_hosts::focus_application(pid))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -44,7 +44,7 @@ fn snapshot(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
 }
 #[tauri::command]
 async fn candidates() -> Result<serde_json::Value, String> {
-    tauri::async_runtime::spawn_blocking(|| serde_json::json!({"hosts": flint_connect::discover()}))
+    tauri::async_runtime::spawn_blocking(|| serde_json::json!({"hosts": flint_hosts::discover()}))
         .await
         .map_err(|error| error.to_string())
 }

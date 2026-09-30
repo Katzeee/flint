@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/flint-protocol", "crates/flint-core", "crates/flint-control-client", "crates/flint-connect", "crates/flint-bridge-core", "apps/flint/src-tauri", "tools/protocol-codegen", "tools/xtask"]
+members = ["crates/flint-protocol", "crates/flint-config", "crates/flint-backend", "crates/flint-control-client", "crates/flint-hosts", "crates/flint-bridge-core", "apps/flint/src-tauri", "tools/protocol-codegen", "tools/xtask"]
 default-members = ["apps/flint/src-tauri"]
 resolver = "2"
 
@@ -10,9 +10,10 @@ publish = false
 
 [workspace.dependencies]
 flint-protocol = { path = "crates/flint-protocol" }
-flint-core = { path = "crates/flint-core" }
+flint-config = { path = "crates/flint-config" }
+flint-backend = { path = "crates/flint-backend" }
 flint-control-client = { path = "crates/flint-control-client" }
-flint-connect = { path = "crates/flint-connect" }
+flint-hosts = { path = "crates/flint-hosts" }
 
 anyhow = "1"
 bytes = "1"

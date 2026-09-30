@@ -1,0 +1,11 @@
+[package]
+name = "flint-config"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+anyhow.workspace = true
+fs2.workspace = true
+dirs.workspace = true

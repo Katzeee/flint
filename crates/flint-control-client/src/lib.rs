@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use flint_core::Config;
+use flint_config::Config;
 use flint_protocol::{envelope::Payload, *};
 use fs2::FileExt;
 use futures_util::{SinkExt, StreamExt};

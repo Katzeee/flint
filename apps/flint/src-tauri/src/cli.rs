@@ -1,8 +1,9 @@
 use crate::bridge_export::BridgeExport;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+use flint_backend::Backend;
+use flint_config::Config;
 use flint_control_client::{payload_json, request, status_json, Lifecycle, RemoteError};
-use flint_core::{Backend, Config};
 use flint_protocol::{envelope::Payload, *};
 use std::{io::Read, path::PathBuf};
 
@@ -219,16 +220,16 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
     }
     if let Command::Hosts { command, .. } = &command {
         let value = match command {
-            None => serde_json::json!({"hosts": flint_connect::discover()}),
+            None => serde_json::json!({"hosts": flint_hosts::discover()}),
             Some(HostCommand::Info { pid, preview }) => {
                 let runtime = tokio::runtime::Runtime::new()?;
-                let result = runtime.block_on(flint_connect::host_info(*pid, *preview));
+                let result = runtime.block_on(flint_hosts::host_info(*pid, *preview));
                 // A timed-out native capture must not keep a CLI invocation alive.
                 runtime.shutdown_background();
                 serde_json::to_value(result?)?
             }
             Some(HostCommand::Focus { pid }) => {
-                flint_connect::focus_application(*pid)?;
+                flint_hosts::focus_application(*pid)?;
                 serde_json::json!({"pid": pid, "focused": true})
             }
         };

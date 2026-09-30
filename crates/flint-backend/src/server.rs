@@ -1,8 +1,6 @@
-use crate::{
-    store::{now, Store},
-    Config,
-};
+use crate::store::{now, Store};
 use anyhow::{Context, Result};
+use flint_config::Config;
 use flint_protocol::timing::HEARTBEAT_IDLE_TIMEOUT;
 use flint_protocol::{envelope::Payload, *};
 use futures_util::{SinkExt, StreamExt};
