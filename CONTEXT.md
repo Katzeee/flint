@@ -16,6 +16,10 @@ _Avoid_: Runtime without qualification.
 A discovered host application process that may support a Bridge but has not necessarily connected to the backend.
 _Avoid_: Instance for a merely discovered process.
 
+**Window preview**:
+A reduced image of a host candidate's own main window, captured on request. It never contains other windows or screen content, and an unavailable preview has a stated reason.
+_Avoid_: Screenshot, thumbnail.
+
 **Bridge**:
 The host-side connector that registers an application with the backend and carries execution requests and results. It runs within the host process.
 _Avoid_: Host application, instance.
@@ -28,7 +32,7 @@ The host-side code that dispatches a Bridge execution request through the host r
 
 **Backend**:
 The Flint service that accepts control commands and Bridge connections, coordinates executions, and owns workflow records.
-_Avoid_: Server when referring to this service as a whole.
+_Avoid_: Server or core when referring to this service as a whole.
 
 **Connected instance**:
 A transient backend registration of a Bridge in a host application, identified by an instance ID. Reconnection can produce a new instance ID for the same Bridge.
