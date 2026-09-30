@@ -990,13 +990,11 @@ name = "flint"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "clap",
  "flint-connect",
  "flint-control-client",
  "flint-core",
  "flint-protocol",
- "png 0.17.16",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -1004,7 +1002,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "wait-timeout",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1024,8 +1021,13 @@ dependencies = [
 name = "flint-connect"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "png 0.17.16",
  "serde",
  "sysinfo",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

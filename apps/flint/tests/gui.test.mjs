@@ -79,7 +79,6 @@ test("desktop navigation preserves connection identity, asynchronous selection a
                     host: "maya",
                     pid: 4520,
                     executable: "C:/Maya/maya.exe",
-                    attach_supported: false,
                   },
                 ],
               };
@@ -96,7 +95,9 @@ test("desktop navigation preserves connection identity, asynchronous selection a
                 args.id === "first" ? "Asset check" : "Material check",
               );
             }
-            if (command === "window_preview") {
+            if (command === "host_info") {
+              if (args.preview !== true)
+                throw new Error("Application cards must request previews explicitly");
               window.__captures = (window.__captures ?? 0) + 1;
               window.__peakCaptures = Math.max(
                 window.__peakCaptures ?? 0,
@@ -108,18 +109,32 @@ test("desktop navigation preserves connection identity, asynchronous selection a
               }
               await new Promise((resolve) => setTimeout(resolve, 80));
               window.__captures -= 1;
+              if (args.pid === 4522)
+                return {
+                  pid: args.pid,
+                  host: "maya",
+                  executable: "C:/Maya/maya.exe",
+                  window: { title: "Scene maya-3", minimized: true },
+                  preview: { image: null, unavailable_reason: "Window is minimized" },
+                };
               return {
-                title:
-                  args.pid === 4520
+                pid: args.pid,
+                host: "maya",
+                executable: "C:/Maya/maya.exe",
+                window: {
+                  minimized: false,
+                  title: args.pid === 4520
                     ? "Character_Rig.ma"
                     : `Scene maya-${args.pid - 4519}`,
-                image:
-                  "data:image/svg+xml," +
-                  encodeURIComponent(
-                    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#344842"/><rect x="16" y="40" width="150" height="344" fill="#263630"/><rect x="182" y="40" width="442" height="344" fill="#78988b"/><text x="208" y="214" font-size="24" fill="white">Character_Rig.ma</text></svg>',
-                  ),
-                unavailable_reason: null,
-                can_focus: true,
+                },
+                preview: {
+                  image:
+                    "data:image/svg+xml," +
+                    encodeURIComponent(
+                      '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#344842"/><rect x="16" y="40" width="150" height="344" fill="#263630"/><rect x="182" y="40" width="442" height="344" fill="#78988b"/><text x="208" y="214" font-size="24" fill="white">Character_Rig.ma</text></svg>',
+                    ),
+                  unavailable_reason: null,
+                },
               };
             }
             if (command === "focus_application") return;
@@ -178,7 +193,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
         window.__invokeCalls.some(
           (call) =>
             call.command === "focus_application" &&
-            call.args.pid === 4520 && call.args.host === "maya",
+            call.args.pid === 4520 && Object.keys(call.args).length === 1,
         ),
       ),
     );
@@ -223,6 +238,9 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       .getByRole("link", { name: "Scene maya-3", exact: true })
       .waitFor();
     assert.equal(await page.evaluate(() => window.__peakCaptures), 2);
+    await page.getByRole("article").filter({
+      has: page.getByRole("link", { name: "Scene maya-3", exact: true }),
+    }).getByText("Window is minimized", { exact: true }).waitFor();
 
     await page.getByRole("link", { name: "Workflows", exact: true }).click();
     await page.evaluate(() => {

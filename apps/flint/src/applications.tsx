@@ -63,16 +63,16 @@ function ApplicationCard({
   const href = `#/${instance ? instancePath(instance.instance_id) : `apps/candidates/${pid}`}`;
   const preview = useResource(
     `preview:${host}:${pid}`,
-    (signal) => loadWindowPreview(pid, host, signal),
+    (signal) => loadWindowPreview(pid, signal),
     10000,
     revision,
   );
-  const title = preview.data?.title || instance?.instance_name || hostName(host);
+  const title = preview.data?.window?.title || instance?.instance_name || hostName(host);
   return (
     <Card as="article">
       <Card.Media>
         <Image
-          src={preview.data?.image ?? undefined}
+          src={preview.data?.preview?.image ?? undefined}
           alt=""
           aspectRatio="16/10"
           fit="contain"
@@ -82,7 +82,7 @@ function ApplicationCard({
               <Text size="label" tone="muted">
                 {preview.loading
                   ? "Loading preview"
-                  : "Window preview unavailable"}
+                  : preview.data?.preview?.unavailable_reason || preview.error || "Window preview unavailable"}
               </Text>
             </>
           }
@@ -161,15 +161,15 @@ function ApplicationDetail({
   const name = instance?.instance_name ?? (host ? hostName(host) : "Application");
   const preview = useResource(
     pid !== undefined ? `preview:${host}:${pid}` : null,
-    (signal) => loadWindowPreview(pid!, host!, signal),
+    (signal) => loadWindowPreview(pid!, signal),
     10000,
   );
   const [actionError, setActionError] = useState("");
   const focus = async () => {
-    if (pid === undefined || host === undefined) return;
+    if (pid === undefined) return;
     setActionError("");
     try {
-      await focusApplication(pid, host);
+      await focusApplication(pid);
     } catch (error) {
       setActionError(messageOf(error));
     }
@@ -219,8 +219,8 @@ function ApplicationDetail({
               <ErrorNotice error={actionError} />
               <Image
                 key={pid}
-                src={preview.data?.image ?? undefined}
-                alt={`Window preview of ${preview.data?.title || name}`}
+                src={preview.data?.preview?.image ?? undefined}
+                alt={`Window preview of ${preview.data?.window?.title || name}`}
                 aspectRatio="16/10"
                 fit="contain"
                 loading="eager"
@@ -230,17 +230,17 @@ function ApplicationDetail({
                     <Text tone="muted">
                       {preview.loading
                         ? "Loading preview"
-                        : preview.data?.unavailable_reason ||
+                        : preview.data?.preview?.unavailable_reason ||
                           "Window preview unavailable"}
                     </Text>
                   </>
                 }
               />
               <ErrorNotice error={preview.error} retry={preview.reload} />
-              {preview.data?.title ? (
-                <Property label="Window">{preview.data.title}</Property>
+              {preview.data?.window?.title ? (
+                <Property label="Window">{preview.data.window.title}</Property>
               ) : null}
-              {preview.data?.can_focus ? (
+              {preview.data?.window ? (
                 <Box>
                   <Button onClick={() => void focus()}>
                     Switch to application
@@ -303,11 +303,6 @@ function ApplicationDetail({
                 Load the Flint Bridge inside {hostName(candidate.host)}. Once it
                 connects, the application appears in Connected.
               </Text>
-              {candidate.attach_supported ? (
-                <Text tone="muted">
-                  Injection is not available in this desktop build.
-                </Text>
-              ) : null}
             </Flex>
           </Section>
         ) : null}

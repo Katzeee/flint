@@ -19,7 +19,6 @@ export type HostCandidate = Readonly<{
   host: string;
   pid: number;
   executable: string;
-  attach_supported: boolean;
 }>;
 
 export type WorkflowSummary = Readonly<{
@@ -100,19 +99,20 @@ export function readDesktopInfo(): Promise<DesktopInfo> {
   return invoke("desktop_info");
 }
 
-export type WindowPreview = Readonly<{
-  title: string;
-  image: string | null;
-  unavailable_reason: string | null;
-  can_focus: boolean;
+export type HostInfo = HostCandidate & Readonly<{
+  window: Readonly<{ title: string; minimized: boolean }> | null;
+  preview?: Readonly<{
+    image: string | null;
+    unavailable_reason: string | null;
+  }>;
 }>;
 
-export function readWindowPreview(pid: number, host: string): Promise<WindowPreview> {
-  return invoke("window_preview", { pid, host });
+export function readHostInfo(pid: number, preview = false): Promise<HostInfo> {
+  return invoke("host_info", { pid, preview });
 }
 
-export function focusApplication(pid: number, host: string): Promise<void> {
-  return invoke("focus_application", { pid, host });
+export function focusApplication(pid: number): Promise<void> {
+  return invoke("focus_application", { pid });
 }
 
 export function activateTitleBar(): Promise<"custom" | "native"> {

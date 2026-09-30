@@ -34,6 +34,8 @@ flint instances --json
 
 hosts discovers running applications; instances lists registered connections. Discovery alone does not establish a connection. Use a connected instance's ID when submitting code.
 
+The desktop's application discovery, inspection, and window switching use the same local services as the CLI. Use `flint hosts info --help` and `flint hosts focus --help` to inspect or focus a local application by PID. Information queries return process identity and window metadata without capturing an image. Request a preview explicitly when visual context is needed; image capture failure leaves the process information available and includes the reason. Minimized and headless processes remain discoverable. Inspection does not restore windows; window switching is an explicit action. Unity asset import workers are internal editor processes and are excluded from discovery.
+
 ## Execute and inspect
 
 List connected instances, create a workflow, and use the returned identifiers to submit code:

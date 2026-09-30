@@ -7,39 +7,19 @@ use tauri::{
 };
 use tauri_plugin_decoration::WebviewWindowExt;
 
-mod window_preview;
-
-// A blocked host cannot create unbounded capture workers or block the desktop UI.
-static CAPTURE_SLOTS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Semaphore>> =
-    std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Semaphore::new(2)));
-
 #[tauri::command]
-async fn window_preview(pid: u32, host: String) -> Result<serde_json::Value, String> {
-    let permit = CAPTURE_SLOTS
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| "Window previews are busy".to_string())?;
-    let capture = tauri::async_runtime::spawn_blocking(move || {
-        let _permit = permit;
-        let pid = window_preview::local_pid(pid, &host)?;
-        window_preview::preview(pid)
-    });
-    tokio::time::timeout(std::time::Duration::from_secs(3), capture)
+async fn host_info(pid: u32, preview: bool) -> Result<flint_connect::HostInfo, String> {
+    flint_connect::host_info(pid, preview)
         .await
-        .map_err(|_| "Window preview timed out".to_string())?
-        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn focus_application(pid: u32, host: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let pid = window_preview::local_pid(pid, &host)?;
-        window_preview::focus(pid)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())
+async fn focus_application(pid: u32) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || flint_connect::focus_application(pid))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 // A failed activation restores the native frame before it resolves, so either mode leaves a usable window.
@@ -122,7 +102,7 @@ pub fn run(backend: Backend, runtime: tokio::runtime::Runtime) -> anyhow::Result
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_decoration::init())
         .manage(handle)
-        .invoke_handler(tauri::generate_handler![activate_title_bar, snapshot, candidates, workflows, workflow, desktop_info, window_preview, focus_application, stop_backend])
+        .invoke_handler(tauri::generate_handler![activate_title_bar, snapshot, candidates, workflows, workflow, desktop_info, host_info, focus_application, stop_backend])
         .setup(move |app| {
             let show = MenuItem::with_id(app, "show", "Open flint", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Stop flint", true, None::<&str>)?;

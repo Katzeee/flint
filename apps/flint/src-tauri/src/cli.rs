@@ -27,8 +27,10 @@ enum Command {
         instance_type: Option<String>,
     },
     Hosts {
-        #[arg(long)]
+        #[arg(long, global = true)]
         json: bool,
+        #[command(subcommand)]
+        command: Option<HostCommand>,
     },
     Workflow {
         #[command(flatten)]
@@ -54,6 +56,25 @@ enum Command {
         command: BridgeCommand,
     },
 }
+#[derive(Subcommand)]
+enum HostCommand {
+    /// Inspect a local host process and its window without changing window state.
+    Info {
+        #[arg(long)]
+        pid: u32,
+        #[arg(
+            long,
+            help = "Capture and include a PNG data URL; unavailable captures include a reason"
+        )]
+        preview: bool,
+    },
+    /// Restore and focus a local application's window.
+    Focus {
+        #[arg(long)]
+        pid: u32,
+    },
+}
+
 #[derive(Subcommand)]
 enum BridgeCommand {
     Export {
@@ -196,9 +217,22 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
     {
         return Ok(Some(format.write()?));
     }
-    if let Command::Hosts { .. } = &command {
-        let hosts = flint_connect::discover();
-        return Ok(Some(serde_json::json!({"hosts": hosts})));
+    if let Command::Hosts { command, .. } = &command {
+        let value = match command {
+            None => serde_json::json!({"hosts": flint_connect::discover()}),
+            Some(HostCommand::Info { pid, preview }) => {
+                let runtime = tokio::runtime::Runtime::new()?;
+                let result = runtime.block_on(flint_connect::host_info(*pid, *preview));
+                // A timed-out native capture must not keep a CLI invocation alive.
+                runtime.shutdown_background();
+                serde_json::to_value(result?)?
+            }
+            Some(HostCommand::Focus { pid }) => {
+                flint_connect::focus_application(*pid)?;
+                serde_json::json!({"pid": pid, "focused": true})
+            }
+        };
+        return Ok(Some(value));
     }
     let options = match &command {
         Command::Start(o)

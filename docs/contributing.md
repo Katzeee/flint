@@ -6,6 +6,8 @@ This guide covers implementation ownership and test placement. Prepare a Windows
 
 The Rust backend owns execution coordination and durable workflow records. Tauri owns the window, tray, and native IPC, while React renders the desktop interface. CLI invocations communicate with the backend through the control client. Keep Tauri dependencies out of the core and protocol crates.
 
+Application capabilities and data must be reachable through the CLI. The desktop adapts shared services for presentation rather than owning application behavior. Local host discovery, window previews, and window focus belong to `flint-connect`, which both CLI and Tauri call without requiring a Bridge or backend connection. Discovery identifies host processes, including batch-mode editors, and excludes recognized internal workers; the presence of a visible window does not define a host candidate.
+
 The React desktop interface lives in `apps/flint/src`, with its npm project and build output beside `src-tauri`. Cairn is the first-party design-system submodule at `apps/flint/cairn`. Build reusable visual components and tokens in Cairn, then consume them in Flint's application-specific interface. Commit Cairn changes in the submodule before updating Flint's recorded submodule commit.
 
 Compose the desktop view from Cairn's page, layout, and component contracts; Flint has no stylesheet of its own. When the view needs a visual rule or variant Cairn lacks, add it to Cairn. Flint's `lint` script runs Cairn's application rules, and the `gui` xtask suite runs it with the typecheck and GUI test. The frontend entry point imports `@cairn/ui/styles.css` and the `@cairn/ui/themes/forest.css` theme stylesheet.

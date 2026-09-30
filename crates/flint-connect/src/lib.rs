@@ -1,12 +1,18 @@
 use serde::Serialize;
+use std::ffi::OsString;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+mod window;
+pub use window::{focus_application, host_info, HostInfo, WindowInfo, WindowPreview};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Serialize)]
 pub struct HostCandidate {
     pub pid: u32,
     pub host: &'static str,
     pub executable: String,
-    pub attach_supported: bool,
 }
 
 /// Process discovery does not imply that a bridge is connected or injectable.
@@ -25,17 +31,15 @@ fn collect(processes: ProcessesToUpdate<'_>) -> Vec<HostCandidate> {
     system.refresh_processes_specifics(
         processes,
         true,
-        ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet),
+        ProcessRefreshKind::nothing()
+            .with_exe(UpdateKind::OnlyIfNotSet)
+            .with_cmd(UpdateKind::OnlyIfNotSet),
     );
     let mut found = vec![];
     for (pid, process) in system.processes() {
         let name = process.name().to_string_lossy().to_ascii_lowercase();
-        let host = match name.as_str() {
-            "maya.exe" | "maya" => "maya",
-            "3dsmax.exe" => "max",
-            "blender.exe" | "blender" => "blender",
-            "unity.exe" => "unity",
-            _ => continue,
+        let Some(host) = host_kind(&name, process.cmd()) else {
+            continue;
         };
         found.push(HostCandidate {
             pid: pid.as_u32(),
@@ -44,9 +48,34 @@ fn collect(processes: ProcessesToUpdate<'_>) -> Vec<HostCandidate> {
                 .exe()
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
-            attach_supported: false,
         });
     }
     found.sort_by_key(|p| p.pid);
     found
+}
+
+fn host_kind(name: &str, command: &[OsString]) -> Option<&'static str> {
+    match name {
+        "maya.exe" | "maya" => Some("maya"),
+        "3dsmax.exe" => Some("max"),
+        "blender.exe" | "blender" => Some("blender"),
+        // Asset import workers run the editor executable but are not independent hosts.
+        // Batch-mode editors remain discoverable even when they have no window.
+        "unity.exe" if !is_unity_import_worker(command) => Some("unity"),
+        _ => None,
+    }
+}
+
+fn is_unity_import_worker(command: &[OsString]) -> bool {
+    command
+        .iter()
+        .skip(1)
+        .any(|arg| arg.eq_ignore_ascii_case("-assetImportWorker"))
+        || command.windows(2).any(|pair| {
+            pair[0].eq_ignore_ascii_case("-name")
+                && pair[1]
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .starts_with("assetimportworker")
+        })
 }

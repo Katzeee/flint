@@ -221,11 +221,7 @@ pub(super) fn verify_host(
         .as_array()
         .unwrap()
         .iter()
-        .any(|candidate| {
-            candidate["pid"] == host.0.id()
-                && candidate["host"] == kind
-                && candidate["attach_supported"] == false
-        }));
+        .any(|candidate| { candidate["pid"] == host.0.id() && candidate["host"] == kind }));
     evidence.checkpoint("native_startup_and_registration")?;
     let workflow = app.workflow(&format!("{kind}-rust-validation"))?;
     let scene = app.execute(id, &workflow, scene_code, 0)?;

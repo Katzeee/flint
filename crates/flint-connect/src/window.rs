@@ -1,31 +1,98 @@
-//! Native window identification stays in the desktop adapter, outside Bridge and execution state.
-use anyhow::{bail, Result};
+//! Local application windows are shared by CLI and desktop callers, independently of Bridges.
+#[cfg(not(windows))]
+use anyhow::bail;
+use anyhow::{Context, Result};
 
-pub fn local_pid(pid: u32, host: &str) -> Result<u32> {
-    let matches_host = |candidate: &str| {
-        let kind = host.to_ascii_lowercase();
-        kind == candidate || (candidate == "max" && (kind == "3dsmax" || kind == "3ds max"))
-    };
-    if !flint_connect::candidate(pid).is_some_and(|candidate| matches_host(candidate.host)) {
-        bail!("No matching local application window");
+#[cfg(all(test, windows))]
+mod tests;
+
+#[derive(serde::Serialize)]
+pub struct HostInfo {
+    #[serde(flatten)]
+    pub candidate: crate::HostCandidate,
+    pub window: Option<WindowInfo>,
+    /// Omitted unless the caller explicitly requests image capture.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<WindowPreview>,
+}
+
+#[derive(serde::Serialize)]
+pub struct WindowInfo {
+    pub title: String,
+    pub minimized: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct WindowPreview {
+    pub image: Option<String>,
+    pub unavailable_reason: Option<String>,
+}
+
+// Timed-out native calls retain their permits until they actually finish.
+static CAPTURE_SLOTS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Semaphore>> =
+    std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Semaphore::new(2)));
+
+pub async fn host_info(pid: u32, include_preview: bool) -> Result<HostInfo> {
+    let mut info = tokio::task::spawn_blocking(move || {
+        Ok::<_, anyhow::Error>(HostInfo {
+            candidate: local_candidate(pid)?,
+            window: window_info(pid),
+            preview: None,
+        })
+    })
+    .await??;
+    if include_preview {
+        let image = capture_preview(pid).await;
+        info.preview = Some(WindowPreview {
+            unavailable_reason: image.as_ref().err().map(ToString::to_string),
+            image: image.ok(),
+        });
     }
-    Ok(pid)
+    Ok(info)
+}
+
+async fn capture_preview(pid: u32) -> Result<String> {
+    let permit = CAPTURE_SLOTS
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| anyhow::anyhow!("Window previews are busy"))?;
+    let capture = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        capture(pid)
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), capture)
+        .await
+        .map_err(|_| anyhow::anyhow!("Window preview timed out"))??
+}
+
+pub fn focus_application(pid: u32) -> Result<()> {
+    focus(local_candidate(pid)?.pid)
+}
+
+fn local_candidate(pid: u32) -> Result<crate::HostCandidate> {
+    crate::candidate(pid).with_context(|| format!("No supported local host process with PID {pid}"))
 }
 
 #[cfg(not(windows))]
-pub fn preview(_pid: u32) -> Result<serde_json::Value> {
+fn window_info(_pid: u32) -> Option<WindowInfo> {
+    None
+}
+
+#[cfg(not(windows))]
+fn capture(_pid: u32) -> Result<String> {
     bail!("Window previews are unavailable on this platform")
 }
 #[cfg(not(windows))]
-pub fn focus(_pid: u32) -> Result<()> {
+fn focus(_pid: u32) -> Result<()> {
     bail!("Window switching is unavailable on this platform")
 }
 
 #[cfg(windows)]
-pub use platform::{focus, preview};
+use platform::{capture, focus, window_info};
 
 #[cfg(windows)]
 mod platform {
+    use super::WindowInfo;
     use anyhow::{bail, ensure, Context, Result};
     use base64::Engine;
     use std::{mem::size_of, ptr::null_mut};
@@ -125,25 +192,21 @@ mod platform {
         }
     }
 
-    pub fn preview(pid: u32) -> Result<serde_json::Value> {
-        let hwnd = find(pid)?;
+    pub fn window_info(pid: u32) -> Option<WindowInfo> {
+        let hwnd = find(pid).ok()?;
         let title = unsafe {
             let mut buffer = vec![0u16; (GetWindowTextLengthW(hwnd).max(0) + 1) as usize];
             let count = GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32);
             String::from_utf16_lossy(&buffer[..count.max(0) as usize])
         };
-        let image = capture(hwnd);
-        Ok(match image {
-            Ok(data_url) => {
-                serde_json::json!({ "title": title, "image": data_url, "unavailable_reason": null, "can_focus": true })
-            }
-            Err(error) => {
-                serde_json::json!({ "title": title, "image": null, "unavailable_reason": error.to_string(), "can_focus": true })
-            }
+        Some(WindowInfo {
+            title,
+            minimized: unsafe { IsIconic(hwnd) != 0 },
         })
     }
 
-    fn capture(hwnd: HWND) -> Result<String> {
+    pub fn capture(pid: u32) -> Result<String> {
+        let hwnd = find(pid)?;
         unsafe {
             ensure!(IsIconic(hwnd) == 0, "Window is minimized");
             ensure!(IsHungAppWindow(hwnd) == 0, "Application is not responding");
