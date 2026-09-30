@@ -15,6 +15,7 @@ import {
   Section,
   Separator,
   Spinner,
+  Status,
   Text,
 } from "@cairn/ui";
 import { AppWindow, RefreshCw } from "lucide-react";
@@ -99,9 +100,9 @@ function ApplicationCard({
             {hostName(host)} · PID {pid}
           </Text>
           <Flex align="center" justify="between" gap="2">
-            <Badge tone={instance ? (instance.execution_ready ? "success" : "warning") : "neutral"}>
+            <Status tone={instance ? (instance.execution_ready ? "success" : "warning") : "neutral"}>
               {instance ? (instance.execution_ready ? "Ready" : "Connecting") : "Not connected"}
-            </Badge>
+            </Status>
             <Button size="sm" variant="ghost" onClick={() => navigate(href.slice(2))}>
               {instance ? "Details" : "Set up"}
             </Button>
@@ -119,7 +120,7 @@ function ApplicationGroup({
   count: number;
   ready: boolean;
   loading: boolean;
-  error: string;
+  error?: string;
   retry: () => void;
   emptyTitle: string;
   description: string;
@@ -133,7 +134,7 @@ function ApplicationGroup({
           {ready ? <Badge>{count}</Badge> : null}
           {loading ? <Spinner size="sm" aria-label={`Updating ${title.toLowerCase()}`} /> : null}
         </Flex>
-        <ErrorNotice error={error} retry={retry} />
+        <ErrorNotice error={error ?? ""} retry={retry} />
         {count > 0 ? (
           <Grid columns={cardColumns} gap="4">{children}</Grid>
         ) : !error ? (
@@ -250,9 +251,9 @@ function ApplicationDetail({
               {instance ? (
                 <>
                   <Box>
-                    <Badge tone={instance.execution_ready ? "success" : "warning"}>
+                    <Status tone={instance.execution_ready ? "success" : "warning"}>
                       {instance.execution_ready ? "Ready to execute" : "Connecting"}
-                    </Badge>
+                    </Status>
                   </Box>
                   <Grid columns={{ initial: "1", sm: "2" }} gap="5">
                     <Property label="Application">
@@ -315,14 +316,12 @@ export function Applications({
   route,
   snapshot,
   loading,
-  error,
   refresh,
   discovery,
 }: Readonly<{
   route: Route;
   snapshot: Snapshot | null;
   loading: boolean;
-  error: string;
   refresh: () => void;
   discovery: Readonly<{
     data: readonly HostCandidate[] | null;
@@ -358,16 +357,17 @@ export function Applications({
           candidate={candidate}
           loading={loading || discovery.loading}
         />
-        {error || discovery.error ? (
+        {/* The shell's banner reports a backend that cannot be reached. */}
+        {discovery.error ? (
           <Box p="5">
-            <ErrorNotice error={error || discovery.error} retry={reload} />
+            <ErrorNotice error={discovery.error} retry={reload} />
           </Box>
         ) : null}
       </>
     );
   }
   const firstLoad = snapshot === null || discovery.data === null;
-  const pageEmpty = instances.length === 0 && candidates.length === 0 && !error && !discovery.error;
+  const pageEmpty = instances.length === 0 && candidates.length === 0 && !discovery.error;
   return (
     <>
       <PageBar.Root>
@@ -399,7 +399,6 @@ export function Applications({
               count={instances.length}
               ready={snapshot !== null}
               loading={loading}
-              error={error}
               retry={refresh}
               emptyTitle="No connected applications"
               description="Choose an application below to set up its Bridge."

@@ -1,22 +1,22 @@
 import {
   AppShell,
-  Badge,
-  Box,
+  Callout,
   CairnTheme,
   Flex,
   Heading,
+  Icon,
   LegalPage,
   PageBar,
-  Text,
   type CairnAppearance,
 } from "@cairn/ui";
 import { tauriDragRegion } from "@cairn/host-tauri";
-import { AppWindow, Layers, Settings as SettingsGlyph } from "lucide-react";
+import { AppWindow, CircleAlert, Layers, LoaderCircle, Settings as SettingsGlyph } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Applications } from "./applications.js";
 import { activateTitleBar, discoverHosts, readSnapshot } from "./backend.js";
 import { navigate, useRoute } from "./navigation.js";
 import { messageOf, useResource } from "./resource.js";
+import { Deferred } from "./shared.js";
 import { Settings } from "./settings.js";
 import { Workflows } from "./workflows.js";
 
@@ -58,6 +58,7 @@ export function App() {
     }
   };
   const ready = snapshot.data?.backend.ready === true && !snapshot.error;
+  const connecting = !ready && snapshot.loading && !snapshot.data;
   const instances = snapshot.data?.instances ?? [];
   return (
     <CairnTheme appearance={appearance}>
@@ -68,17 +69,18 @@ export function App() {
         {!chrome ? (
           <AppShell.Header>
             <Flex align="center" gap="3">
-              <AppShell.SidebarToggle />
+              <AppShell.NavigationToggle />
               <Heading size="body-large">Flint</Heading>
             </Flex>
           </AppShell.Header>
         ) : null}
-        <AppShell.Sidebar collapsible label="Flint navigation">
+        <AppShell.Navigation collapsible label="Flint navigation">
           <AppShell.NavGroup>
             <AppShell.NavItem
               active={route.page === "apps"}
               href="#/apps"
               icon={AppWindow}
+              badge={instances.length}
             >
               Applications
             </AppShell.NavItem>
@@ -90,7 +92,7 @@ export function App() {
               Workflows
             </AppShell.NavItem>
           </AppShell.NavGroup>
-          <AppShell.SidebarFooter>
+          <AppShell.NavGroup placement="end">
             <AppShell.NavItem
               active={route.page === "settings" || route.page === "legal"}
               href="#/settings"
@@ -98,29 +100,42 @@ export function App() {
             >
               Settings
             </AppShell.NavItem>
-            <Box px="3" py="3">
-              <Flex direction="column" align="start" gap="2">
-                <Badge tone={ready ? "success" : "warning"}>
-                  {ready
-                    ? "Backend running"
-                    : snapshot.loading && !snapshot.data
-                      ? "Connecting"
-                      : "Backend unavailable"}
-                </Badge>
-                <Text size="caption" tone="muted">
-                  {instances.length} connected
-                </Text>
-              </Flex>
-            </Box>
-          </AppShell.SidebarFooter>
-        </AppShell.Sidebar>
+          </AppShell.NavGroup>
+        </AppShell.Navigation>
+        {ready ? null : connecting ? (
+          <Deferred delay={1000}>
+            <AppShell.Banner>
+              <Callout.Root tone="warning">
+                <Callout.Icon>
+                  <Icon glyph={LoaderCircle} size="sm" />
+                </Callout.Icon>
+                <Callout.Body>
+                  <Callout.Text>Connecting to the backend…</Callout.Text>
+                </Callout.Body>
+              </Callout.Root>
+            </AppShell.Banner>
+          </Deferred>
+        ) : (
+          <AppShell.Banner>
+            <Callout.Root tone="danger">
+              <Callout.Icon>
+                <Icon glyph={CircleAlert} size="sm" />
+              </Callout.Icon>
+              <Callout.Body>
+                <Callout.Text>Cannot reach the backend: {snapshot.error}</Callout.Text>
+              </Callout.Body>
+              <Callout.Actions>
+                <Callout.Action label="Try again" onSelect={snapshot.reload} priority="primary" />
+              </Callout.Actions>
+            </Callout.Root>
+          </AppShell.Banner>
+        )}
         <AppShell.Main>
           {route.page === "apps" ? (
             <Applications
               route={route}
               snapshot={snapshot.data}
               loading={snapshot.loading}
-              error={snapshot.error}
               refresh={snapshot.reload}
               discovery={discovery}
             />

@@ -1,4 +1,4 @@
-import { Box, Button, Callout, Flex, Spinner, Text } from "@cairn/ui";
+import { Box, Callout, Flex, Spinner, Text } from "@cairn/ui";
 import { useEffect, useState, type ReactNode } from "react";
 
 export function ErrorNotice({
@@ -11,14 +11,12 @@ export function ErrorNotice({
       <Callout.Body>
         <Callout.Title>Request failed</Callout.Title>
         <Callout.Text>{error}</Callout.Text>
-        {retry ? (
-          <Box pt="3">
-            <Button onClick={retry} size="sm" variant="outline">
-              Try again
-            </Button>
-          </Box>
-        ) : null}
       </Callout.Body>
+      {retry ? (
+        <Callout.Actions>
+          <Callout.Action label="Try again" onSelect={retry} priority="primary" />
+        </Callout.Actions>
+      ) : null}
     </Callout.Root>
   );
 }
