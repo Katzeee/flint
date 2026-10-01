@@ -20,10 +20,12 @@ import {
   Text,
   TextArea,
 } from "@cairn/ui";
-import { AppWindow, Play, RefreshCw, SquareArrowOutUpRight } from "lucide-react";
+import { AppWindow, Play, RefreshCw, SquareArrowOutUpRight, Zap } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import {
+  attachHost,
   focusApplication,
+  readDesktopInfo,
   readWorkflows,
   type ConnectedInstance,
   type HostCandidate,
@@ -182,6 +184,9 @@ function ApplicationDetail({
     10000,
   );
   const [actionError, setActionError] = useState("");
+  const [attaching, setAttaching] = useState(false);
+  const desktop = useResource("desktop-info", readDesktopInfo);
+  const attachSupported = desktop.data?.attach_supported ?? false;
   const focus = async () => {
     if (pid === undefined) return;
     setActionError("");
@@ -189,6 +194,20 @@ function ApplicationDetail({
       await focusApplication(pid);
     } catch (error) {
       setActionError(messageOf(error));
+    }
+  };
+  const attach = async () => {
+    if (pid === undefined || host === undefined) return;
+    setActionError("");
+    setAttaching(true);
+    try {
+      // The backend confirms registration; snapshot polling then reveals the
+      // connected instance and this view re-renders for it.
+      await attachHost(pid, host);
+    } catch (error) {
+      setActionError(messageOf(error));
+    } finally {
+      setAttaching(false);
     }
   };
   const related = useResource(
@@ -224,6 +243,15 @@ function ApplicationDetail({
             label="Refresh preview"
             onSelect={preview.reload}
             disabled={preview.loading}
+          />
+        ) : null}
+        {candidate && !instance && attachSupported ? (
+          <PageBar.Action
+            icon={Zap}
+            label="Attach Bridge"
+            onSelect={() => void attach()}
+            priority="primary"
+            disabled={attaching}
           />
         ) : null}
         {hostWindow ? (
@@ -299,11 +327,23 @@ function ApplicationDetail({
                   ) : null}
                 </Grid>
                 {instance ? null : (
-                  <Text as="p" size="label" tone="muted" wrap="pretty">
-                    Load the Flint Bridge inside {application}. Once it
-                    connects, this application moves to Connected and can run
-                    code from Flint.
-                  </Text>
+                  <Flex direction="column" gap="3" align="start">
+                    <Text as="p" size="label" tone="muted" wrap="pretty">
+                      {attachSupported
+                        ? `Attach injects the Flint Bridge into ${application} so it connects without running any code inside it. You can also load the Bridge inside the application yourself.`
+                        : `Load the Flint Bridge inside ${application}. Once it connects, this application moves to Connected and can run code from Flint.`}
+                    </Text>
+                    {candidate && attachSupported ? (
+                      <Button onClick={() => void attach()} disabled={attaching}>
+                        {attaching ? (
+                          <Spinner size="sm" />
+                        ) : (
+                          <Icon glyph={Zap} size="sm" />
+                        )}
+                        {attaching ? "Attaching…" : "Attach Bridge"}
+                      </Button>
+                    ) : null}
+                  </Flex>
                 )}
               </Flex>
             </Flex>

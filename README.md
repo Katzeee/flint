@@ -34,6 +34,14 @@ flint instances --json
 
 hosts discovers running applications; instances lists registered connections. Discovery alone does not establish a connection. Use a connected instance's ID when submitting code.
 
+Alternatively, on Windows, attach injects the Bridge into a running host so it connects without loading any flint code yourself:
+
+```text
+flint attach --pid <pid>
+```
+
+attach injects flint's bootstrap into the process, starts the Bridge on the host's own thread, and prints the registered instance once it connects. A host process runs at most one Bridge, so attaching a process that is already connected returns its existing instance. Pass `--host-kind` for a process discovery does not classify (such as a plain Python interpreter), and `--name` to label the instance. Maya, 3ds Max, and Blender are fully supported. Unity attach connects and registers, but running code through an attached Unity is not yet available. This complements the in-host Bridges above, which remain the way to connect on other platforms.
+
 The desktop's application discovery, inspection, and window switching use the same local services as the CLI. Use `flint hosts info --help` and `flint hosts focus --help` to inspect or focus a local application by PID. Information queries return process identity and window metadata without capturing an image. Request a preview explicitly when visual context is needed; image capture failure leaves the process information available and includes the reason. Minimized and headless processes remain discoverable. Inspection does not restore windows; window switching is an explicit action. Unity asset import workers are internal editor processes and are excluded from discovery.
 
 ## Execute and inspect

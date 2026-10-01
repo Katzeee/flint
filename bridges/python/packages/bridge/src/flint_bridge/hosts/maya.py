@@ -10,3 +10,9 @@ def create_strategy():
     except BaseException:
         strategy.close()
         raise
+
+
+def enter_main_thread(callback):
+    """Schedule `callback` on Maya's main thread from any thread."""
+    import maya.utils
+    maya.utils.executeDeferred(callback)

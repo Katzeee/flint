@@ -59,8 +59,11 @@ unsafe fn take(value: *mut c_char) -> Option<String> {
 }
 
 fn config(port: u16) -> String {
-    json!({"host": "python", "address": "127.0.0.1", "port": port, "name": "场景", "runtime_version": "test"})
-        .to_string()
+    // Each simulated host gets a distinct claim scope so several cores coexist
+    // in the one test process; production keys the claim on the process id.
+    json!({"host": "python", "address": "127.0.0.1", "port": port, "name": "场景",
+           "runtime_version": "test", "claim_id": Uuid::new_v4().simple().to_string()})
+    .to_string()
 }
 
 fn settings(port: u16, name: &str, enabled: bool) -> Value {
@@ -227,6 +230,28 @@ fn connected(registry: &mut Registry) -> Core {
         core.connected()
     });
     core
+}
+
+#[test]
+fn a_process_admits_only_one_bridge_per_claim_scope() {
+    // A second core sharing a claim scope is refused, as a second Bridge in one
+    // host process would be. Releasing the first frees the scope for a new core.
+    let scope = Uuid::new_v4().simple().to_string();
+    let with_scope = |port| {
+        let mut value: Value = serde_json::from_str(&config(port)).unwrap();
+        value["claim_id"] = scope.clone().into();
+        value.to_string()
+    };
+    let first = Core::create(&with_scope(unused_port()));
+    assert!(!first.is_null());
+    assert!(Core::create(&with_scope(unused_port())).is_null());
+    unsafe { flint_bridge_destroy(first) };
+    let third = Core::create(&with_scope(unused_port()));
+    assert!(
+        !third.is_null(),
+        "claim not released after the owner is destroyed"
+    );
+    unsafe { flint_bridge_destroy(third) };
 }
 
 #[test]

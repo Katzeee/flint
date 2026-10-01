@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from flint_bridge import configure, connect, disconnect
+from flint_bridge import attach, configure, connect, disconnect
 
 
 def test_explicit_endpoint_change_does_not_replace_running_bridge(monkeypatch):
@@ -56,3 +56,57 @@ def test_failed_start_releases_host_dispatch(monkeypatch):
     with pytest.raises(RuntimeError, match="could not start"):
         connect("blender")
     assert closed == [True]
+
+
+def _connected_bridge_factory(record):
+    class FakeBridge:
+        def __init__(self, runner, host, address, port, name, enabled=True):
+            self.runner = runner
+            self.host, self.address, self.port = host, address, port
+            self.name, self.enabled = name, enabled
+            self.thread = SimpleNamespace(is_alive=lambda: True)
+            self.instance_id = "instance-1"
+
+        def apply_settings(self, address, port, name, enabled=True):
+            record.append(("apply", address, port, name, enabled))
+            self.address, self.port, self.name, self.enabled = address, port, name, enabled
+
+        def start(self):
+            return self
+
+        def wait_until_connected(self, timeout=10):
+            return True
+
+        def stop(self):
+            self.runner.close()
+            return True
+
+    return FakeBridge
+
+
+def test_attach_marshals_onto_the_host_main_thread_and_returns_the_instance(monkeypatch):
+    scheduled = []
+    monkeypatch.setattr("flint_bridge.hosts.strategy_for", lambda host: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr("flint_bridge.connection.service.Bridge", _connected_bridge_factory([]))
+    # A real host runs the callback later on its main thread; capture and run it.
+    monkeypatch.setattr("flint_bridge.hosts.enter_main_thread",
+                        lambda host, callback: scheduled.append(callback) or callback())
+    try:
+        assert attach("maya", port=6400, name="Injected") == "instance-1"
+        assert len(scheduled) == 1
+    finally:
+        assert disconnect()
+
+
+def test_attach_repoints_an_existing_bridge_so_the_latest_configuration_wins(monkeypatch):
+    applied = []
+    monkeypatch.setattr("flint_bridge.hosts.strategy_for", lambda host: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr("flint_bridge.connection.service.Bridge", _connected_bridge_factory(applied))
+    monkeypatch.setattr("flint_bridge.hosts.enter_main_thread", lambda host, callback: callback())
+    bridge = connect("maya", port=6400)
+    try:
+        assert attach("maya", port=6500, name="Reattached") == "instance-1"
+        assert (bridge.port, bridge.name) == (6500, "Reattached")
+        assert applied and applied[-1][2:4] == (6500, "Reattached")
+    finally:
+        assert disconnect()

@@ -56,6 +56,25 @@ enum Command {
         #[command(subcommand)]
         command: BridgeCommand,
     },
+    /// Inject the Bridge into a running host process and confirm it connects.
+    Attach(Attach),
+}
+#[derive(Args)]
+struct Attach {
+    #[command(flatten)]
+    options: Options,
+    #[arg(long)]
+    pid: u32,
+    #[arg(
+        long,
+        help = "Override the detected host kind: maya, max, blender, unity, or python"
+    )]
+    host_kind: Option<String>,
+    #[arg(
+        long,
+        help = "Instance name for the injected Bridge; defaults to the host kind"
+    )]
+    name: Option<String>,
 }
 #[derive(Subcommand)]
 enum HostCommand {
@@ -246,6 +265,7 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
         | Command::Workflow { options, .. }
         | Command::Execution { options, .. } => options,
         Command::Exec(e) => &e.options,
+        Command::Attach(a) => &a.options,
         _ => unreachable!(),
     }
     .clone();
@@ -299,6 +319,40 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
                     Command::Start(_)|Command::Status(_) => status_json(lifecycle.ensure().await?),
                     Command::Stop(_) => lifecycle.stop().await?,
                     Command::Restart(_) => status_json(lifecycle.restart().await?),
+                    Command::Attach(args) => {
+                        lifecycle.ensure().await?;
+                        let host = match &args.host_kind {
+                            Some(kind) => kind.clone(),
+                            None => flint_hosts::candidate(args.pid)
+                                .ok_or_else(|| anyhow::anyhow!(
+                                    "Process {} is not a recognized host; pass --host-kind", args.pid))?
+                                .host.to_string(),
+                        };
+                        crate::attach::inject(&config, args.pid, &host, args.name.clone())?;
+                        // The injected Bridge connects asynchronously; wait for the
+                        // backend to register an instance for this process.
+                        let deadline = tokio::time::Instant::now()
+                            + std::time::Duration::from_secs_f64(options.timeout);
+                        loop {
+                            let response = request(&config,
+                                Payload::ListInstancesRequest(ListInstancesRequest{instance_type: None})).await?;
+                            let listed = payload_json(response)?;
+                            let found = listed["instances"].as_array().and_then(|instances|
+                                instances.iter().find(|instance|
+                                    instance["pid"].as_u64() == Some(args.pid as u64)));
+                            if let Some(instance) = found {
+                                break serde_json::json!({"attached": true, "pid": args.pid, "host": host,
+                                    "instance_id": instance["instance_id"],
+                                    "execution_ready": instance["execution_ready"]});
+                            }
+                            if tokio::time::Instant::now() >= deadline {
+                                break serde_json::json!({"status": "failed", "attached": false,
+                                    "pid": args.pid, "host": host,
+                                    "message": "The injected Bridge did not register before the timeout"});
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                        }
+                    }
                     other => {
                         lifecycle.ensure().await?;
                         let payload = match other {

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <AssemblyName>Flint.Unity.Attach</AssemblyName>
+    <RootNamespace>Flint.Unity</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Reuse the shared connection binding; it is pure P/Invoke, no Unity. -->
+    <Compile Include="Attach.cs" />
+    <Compile Include="../Flint.Bridge/NativeBridge.cs" />
+  </ItemGroup>
+</Project>

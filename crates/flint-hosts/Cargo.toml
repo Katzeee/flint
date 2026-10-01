@@ -7,9 +7,10 @@ publish.workspace = true
 [dependencies]
 sysinfo = { workspace = true, features = ["system", "multithread"] }
 serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 anyhow.workspace = true
 tokio = { workspace = true, features = ["rt", "sync", "time"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_System_Memory", "Win32_System_LibraryLoader", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_SystemInformation", "Win32_Security"] }
 png = "0.17"

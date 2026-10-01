@@ -50,6 +50,44 @@ async fn candidates() -> Result<serde_json::Value, String> {
         .map_err(|error| error.to_string())
 }
 #[tauri::command]
+async fn attach(
+    state: tauri::State<'_, BackendHandle>,
+    pid: u32,
+    host_kind: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let backend = state.inner().clone();
+    let config = backend.config().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let host = match host_kind {
+            Some(kind) => kind,
+            None => flint_hosts::candidate(pid)
+                .ok_or_else(|| format!("Process {pid} is not a recognized host"))?
+                .host
+                .to_string(),
+        };
+        crate::attach::inject(&config, pid, &host, None).map_err(|error| error.to_string())?;
+        // The injected Bridge connects to this in-process backend; wait for it.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            if let Some(instance) = backend.instances().into_iter().find(|item| item.pid == pid) {
+                return Ok(serde_json::json!({
+                    "attached": true,
+                    "pid": pid,
+                    "host": host,
+                    "instance_id": instance.instance_id,
+                    "execution_ready": instance.execution_ready,
+                }));
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err("The injected Bridge did not register before the timeout".to_string());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+#[tauri::command]
 async fn workflows(state: tauri::State<'_, BackendHandle>) -> Result<serde_json::Value, String> {
     let backend = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -84,6 +122,7 @@ fn desktop_info(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
         "control_endpoint": format!("{}:{}", config.host, config.port),
         "registry_endpoint": format!("{}:{}", config.registry_host, config.registry_port),
         "state_dir": config.state_dir,
+        "attach_supported": cfg!(windows),
     })
 }
 #[tauri::command]
@@ -103,7 +142,7 @@ pub fn run(backend: Backend, runtime: tokio::runtime::Runtime) -> anyhow::Result
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_decoration::init())
         .manage(handle)
-        .invoke_handler(tauri::generate_handler![activate_title_bar, snapshot, candidates, workflows, workflow, desktop_info, host_info, focus_application, stop_backend])
+        .invoke_handler(tauri::generate_handler![activate_title_bar, snapshot, candidates, attach, workflows, workflow, desktop_info, host_info, focus_application, stop_backend])
         .setup(move |app| {
             let show = MenuItem::with_id(app, "show", "Open flint", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Stop flint", true, None::<&str>)?;

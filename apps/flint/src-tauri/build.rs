@@ -71,6 +71,8 @@ fn main() {
         "crates/flint-protocol/src",
         "crates/flint-bridge-core/Cargo.toml",
         "crates/flint-bridge-core/src",
+        "crates/flint-bridge-bootstrap/Cargo.toml",
+        "crates/flint-bridge-bootstrap/src",
         "bridges/python/tools/package_bridge.py",
         "bridges/python/packages/bridge/src/flint_bridge",
         "bridges/python/hosts/blender",
@@ -79,6 +81,8 @@ fn main() {
         "bridges/dotnet/tools/package_csharp.py",
         "bridges/dotnet/hosts/unity",
         "bridges/dotnet/src/Flint.Bridge/NativeBridge.cs",
+        "bridges/dotnet/src/Flint.Unity.Attach/Attach.cs",
+        "bridges/dotnet/src/Flint.Unity.Attach/Flint.Unity.Attach.csproj",
     ] {
         println!("cargo:rerun-if-changed={}", root.join(input).display());
     }
@@ -105,7 +109,7 @@ fn main() {
         "macos" => "libflint_bridge_core.dylib",
         _ => "libflint_bridge_core.so",
     };
-    let native = native_target.join(target).join("release").join(library);
+    let native = native_target.join(&target).join("release").join(library);
     package(
         &root,
         "bridges/python/tools/package_bridge.py",
@@ -146,6 +150,60 @@ fn main() {
             );
         }
     }
+    // Build the injected attach bootstrap with a static CRT so it needs no VC
+    // runtime present in the target host, and embed it. Only meaningful on
+    // Windows; elsewhere embed an empty placeholder the runtime never injects.
+    let bootstrap = out.join("flint-bootstrap.dll");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        let bootstrap_target = out.join("bootstrap-target");
+        let status = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+            .current_dir(&root)
+            .env("RUSTFLAGS", "-C target-feature=+crt-static")
+            .args([
+                "build",
+                "--locked",
+                "--release",
+                "-p",
+                "flint-bridge-bootstrap",
+                "--target",
+            ])
+            .arg(&target)
+            .arg("--target-dir")
+            .arg(&bootstrap_target)
+            .status()
+            .expect("Cannot build the attach bootstrap");
+        assert!(status.success(), "Attach bootstrap build failed");
+        let built = bootstrap_target
+            .join(&target)
+            .join("release")
+            .join("flint_bridge_bootstrap.dll");
+        std::fs::copy(&built, &bootstrap).expect("Cannot stage the attach bootstrap");
+    } else {
+        std::fs::write(&bootstrap, []).expect("Cannot stage the attach bootstrap placeholder");
+    }
+
+    // Stage the native core and build the managed attach assembly for Unity, and
+    // embed both. The assembly is portable IL (one build for any platform); it is
+    // compiled with the .NET SDK. Windows only, where attach is available.
+    let core = out.join("flint_bridge_core.dll");
+    let unity_attach = out.join("flint-unity-attach.dll");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        std::fs::copy(&native, &core).expect("Cannot stage the native core for attach");
+        let build_dir = out.join("unity-attach-build");
+        let status = Command::new("dotnet")
+            .current_dir(root.join("bridges/dotnet/src/Flint.Unity.Attach"))
+            .args(["build", "-c", "Release", "--nologo", "-v", "quiet", "-o"])
+            .arg(&build_dir)
+            .status()
+            .expect("dotnet (from global.json) is required to build the Unity attach assembly");
+        assert!(status.success(), "Unity attach assembly build failed");
+        std::fs::copy(build_dir.join("Flint.Unity.Attach.dll"), &unity_attach)
+            .expect("Cannot stage the Unity attach assembly");
+    } else {
+        std::fs::write(&core, []).expect("Cannot stage the core placeholder");
+        std::fs::write(&unity_attach, []).expect("Cannot stage the Unity attach placeholder");
+    }
+
     let frontend = root.join("apps/flint");
     let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
     let status = Command::new(npm)

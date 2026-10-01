@@ -2,7 +2,9 @@ use serde::Serialize;
 use std::ffi::OsString;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
+mod attach;
 mod window;
+pub use attach::{attach, AttachRequest, Runtime};
 pub use window::{focus_application, host_info, HostInfo, WindowInfo, WindowPreview};
 
 #[cfg(test)]

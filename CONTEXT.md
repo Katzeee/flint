@@ -25,7 +25,15 @@ The host-side connector that registers an application with the backend and carri
 _Avoid_: Host application, instance.
 
 **Bridge core**:
-The shared native component of a Bridge that owns its connection, registration, heartbeat, framing, and reconnection behavior. It does not execute host code.
+The shared native component of a Bridge that owns its connection, registration, heartbeat, framing, and reconnection behavior. It does not execute host code, and it holds a process-wide claim so a host process runs at most one Bridge.
+
+**Attach**:
+Starting a Bridge from outside its host process by injecting the Bridge into the running process, rather than the host loading the Bridge itself. Both paths connect the same Bridge to the backend; attach lets flint connect a host without the user running flint's code inside it.
+_Avoid_: Inject for the whole operation; injection is only the entry step.
+
+**Process claim**:
+The host process's exclusive right to run one Bridge, held by its Bridge core through an operating-system lock keyed by the process. It prevents a second Bridge, whatever runtime or Bridge version attempts it, and releases when the process exits.
+
 
 **Host adapter**:
 The host-side code that dispatches a Bridge execution request through the host runtime on the thread required by that application.

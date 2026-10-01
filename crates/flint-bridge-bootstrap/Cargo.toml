@@ -1,0 +1,24 @@
+[package]
+name = "flint-bridge-bootstrap"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Injected into a running host, so it must not drag in the VC runtime; the app
+# build compiles it with a static CRT. It exposes no Rust API, only DllMain.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemServices",
+] }

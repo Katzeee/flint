@@ -428,16 +428,21 @@ async fn host_connection(backend: BackendHandle, socket: TcpStream) -> Result<()
                 req.pid != 0 && !req.bridge_id.is_empty(),
                 "Invalid bridge identity"
             );
-            let existing = backend
+            // A host process owns at most one Bridge. Reconnecting the same Bridge
+            // reuses its bridge_id; a distinct bridge_id on the same pid means a
+            // prior session is defunct (the process-level claim prevents two live
+            // Bridges from one process). Replace either to keep one instance per pid.
+            let superseded: Vec<String> = backend
                 .0
                 .state
                 .lock()
                 .unwrap()
                 .sessions
                 .iter()
-                .find(|(_, s)| s.bridge_id == req.bridge_id)
-                .map(|(id, _)| id.clone());
-            if let Some(id) = existing {
+                .filter(|(_, s)| s.bridge_id == req.bridge_id || s.info.pid == req.pid)
+                .map(|(id, _)| id.clone())
+                .collect();
+            for id in superseded {
                 disconnect(&backend, &id);
             }
             let hint: String = req

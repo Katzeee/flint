@@ -22,6 +22,9 @@ use tokio::{
 use tokio_util::{codec::Framed, sync::CancellationToken};
 use uuid::Uuid;
 
+mod claim;
+use claim::ClaimOutcome;
+
 type Wire = Framed<TcpStream, EnvelopeCodec>;
 
 #[derive(Clone, Deserialize)]
@@ -34,6 +37,11 @@ struct Config {
     runtime_version: String,
     #[serde(default = "default_enabled")]
     enabled: bool,
+    // Identifies the owning process for the single-Bridge claim. Absent in
+    // production, where the process id is used; a test process sets a distinct
+    // value per simulated host so several cores can coexist in one process.
+    #[serde(default)]
+    claim_id: Option<String>,
 }
 
 fn default_enabled() -> bool {
@@ -163,6 +171,8 @@ pub struct BridgeCore {
     reconnect: Arc<tokio::sync::Notify>,
     settings: watch::Sender<VersionedSettings>,
     thread: Mutex<Option<thread::JoinHandle<()>>>,
+    // Held for the core's lifetime; dropping it releases the process's Bridge claim.
+    _claim: claim::ProcessClaim,
 }
 
 #[repr(u32)]
@@ -444,6 +454,29 @@ impl BridgeCore {
             host: config.host,
             runtime_version: config.runtime_version,
         };
+        // Claim the process before starting any work, so a second Bridge in the
+        // same process never reaches registration.
+        let scope = config
+            .claim_id
+            .unwrap_or_else(|| std::process::id().to_string());
+        let descriptor = serde_json::to_string(&serde_json::json!({
+            "host": identity.host,
+            "runtime_version": identity.runtime_version,
+            "bridge_version": env!("CARGO_PKG_VERSION"),
+            "address": settings.address,
+            "port": settings.port,
+        }))
+        .unwrap();
+        let claim = match claim::acquire(&scope, &descriptor) {
+            Ok(ClaimOutcome::Acquired(claim)) => claim,
+            Ok(ClaimOutcome::Occupied(owner)) => {
+                return Err(match owner {
+                    Some(owner) => format!("another Bridge already owns this process: {owner}"),
+                    None => "another Bridge already owns this process".into(),
+                })
+            }
+            Err(error) => return Err(format!("cannot claim the process: {error}")),
+        };
         let (events_tx, events_rx) = mpsc::channel();
         let (outbound_tx, outbound_rx) = async_mpsc::unbounded_channel();
         let state = Arc::new(Mutex::new(State::new(settings.clone())));
@@ -482,6 +515,7 @@ impl BridgeCore {
             reconnect,
             settings: settings_tx,
             thread: Mutex::new(Some(thread)),
+            _claim: claim,
         })
     }
 

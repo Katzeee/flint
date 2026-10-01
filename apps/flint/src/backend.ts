@@ -59,6 +59,7 @@ export type DesktopInfo = Readonly<{
   control_endpoint: string;
   registry_endpoint: string;
   state_dir: string;
+  attach_supported: boolean;
 }>;
 
 export type Snapshot = Readonly<{
@@ -113,6 +114,21 @@ export function readHostInfo(pid: number, preview = false): Promise<HostInfo> {
 
 export function focusApplication(pid: number): Promise<void> {
   return invoke("focus_application", { pid });
+}
+
+export type AttachResult = Readonly<{
+  attached: boolean;
+  pid: number;
+  host: string;
+  instance_id: string;
+  execution_ready: boolean;
+}>;
+
+export function attachHost(
+  pid: number,
+  hostKind?: string,
+): Promise<AttachResult> {
+  return invoke<AttachResult>("attach", { pid, hostKind });
 }
 
 export function activateTitleBar(): Promise<"custom" | "native"> {

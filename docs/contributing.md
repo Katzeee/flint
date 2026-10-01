@@ -12,9 +12,10 @@ Each Rust crate owns one concept from the [glossary](../CONTEXT.md). Place a fea
 | `crates/flint-config` | Local backend deployment conventions: control and registry endpoints, state directory, and runtime lock files | — |
 | `crates/flint-backend` | The backend service: control and registry listeners, request dispatch, connected instances, executions, and workflow records | protocol, config |
 | `crates/flint-control-client` | Control client requests and the local backend lifecycle: start, stop, and restart | protocol, config |
-| `crates/flint-bridge-core` | Bridge core and its C ABI for host adapters | protocol |
-| `crates/flint-hosts` | Local host candidates: process discovery, window information, window previews, and window focus | — |
-| `apps/flint/src-tauri` | The executable: CLI commands, Tauri window, tray, and IPC that compose the crates above | all crates except bridge-core |
+| `crates/flint-bridge-core` | Bridge core and its C ABI for host adapters, and the process claim that limits a host process to one Bridge | protocol |
+| `crates/flint-bridge-bootstrap` | The library flint injects to attach a Bridge into a running host: it drives the host runtime to start the Bridge | — |
+| `crates/flint-hosts` | Local host candidates: process discovery, window information, window previews, window focus, and injecting the attach bootstrap | — |
+| `apps/flint/src-tauri` | The executable: CLI commands, Tauri window, tray, and IPC that compose the crates above | all crates except bridge-core and bridge-bootstrap |
 
 Dependencies point from the executable toward the protocol and never between peers: the backend and control client share only protocol and config, and the Bridge core never depends on the backend. A feature that needs a new dependency between crates signals misplaced ownership; move the shared concept down instead. Keep Tauri and UI dependencies out of every crate under `crates`.
 
@@ -35,6 +36,8 @@ Keep host-specific runtime code and configuration within the owning subproject. 
 Protocol changes start in the owning schema. Keep wire semantics beside the corresponding fields and framing implementation, and update generated bindings with their schemas in the same change. Use the configured generator; generated message files are not hand-edited.
 
 Builds use declared, locked dependencies and remain independent of developer-local environments. xtask owns dependency preparation; application build scripts compile and package prepared sources. Tooling declares the interpreters it requires but never provisions them; a missing prerequisite fails with an error naming the requirement.
+
+The application build compiles the native Bridge core and, on Windows, the attach bootstrap from the locked workspace, and embeds both in the executable: the core in each Bridge package, and the bootstrap for injection. The bootstrap links the C runtime statically so it needs no runtime present in the target host.
 
 ## Tests
 

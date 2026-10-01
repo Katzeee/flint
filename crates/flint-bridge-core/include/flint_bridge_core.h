@@ -25,7 +25,9 @@ void flint_bridge_stop(const FlintBridgeCore *core);
 void flint_bridge_destroy(FlintBridgeCore *core);
 void flint_bridge_string_free(char *value);
 
-/* Config: {"host","address","port","name","runtime_version"}.
+/* Config: {"host","address","port","name","runtime_version"}, with an optional
+ * "claim_id" identifying the owning process (the process id when absent). A host
+ * process owns at most one Bridge: create returns null if one already exists.
  * Poll returns an execute event with request_id,
  * workflow_id, execution_id, code, and optional filename. Submit accepts
  * {"kind":"output","request_id","stdout","stderr"} or

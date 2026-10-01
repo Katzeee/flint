@@ -9,3 +9,14 @@ def create_strategy():
     import bpy
 
     return BlenderMainThreadExecutionStrategy(bpy.app.timers)
+
+
+def enter_main_thread(callback):
+    """Run `callback` once on Blender's main thread from any thread."""
+    import bpy
+
+    def once():
+        callback()
+        return None
+
+    bpy.app.timers.register(once, first_interval=0.0)

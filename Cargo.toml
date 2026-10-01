@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/flint-protocol", "crates/flint-config", "crates/flint-backend", "crates/flint-control-client", "crates/flint-hosts", "crates/flint-bridge-core", "apps/flint/src-tauri", "tools/protocol-codegen", "tools/xtask"]
+members = ["crates/flint-protocol", "crates/flint-config", "crates/flint-backend", "crates/flint-control-client", "crates/flint-hosts", "crates/flint-bridge-core", "crates/flint-bridge-bootstrap", "apps/flint/src-tauri", "tools/protocol-codegen", "tools/xtask"]
 default-members = ["apps/flint/src-tauri"]
 resolver = "2"
 

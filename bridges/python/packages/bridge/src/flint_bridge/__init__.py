@@ -34,6 +34,37 @@ def connect(host, address="127.0.0.1", port=6321, name=None, enabled=True):
         return bridge
 
 
+def attach(host, address="127.0.0.1", port=6321, name=None, enabled=True, timeout=20):
+    """Start or re-point this process's Bridge, marshalling onto its main thread.
+
+    Intended for a thread injected into a running host: it schedules the
+    connection on the host's main thread, reuses an existing Bridge when one is
+    present, and applies the given endpoint so the most recent explicit
+    configuration wins. Returns the instance ID once registration completes.
+    """
+    from .hosts import enter_main_thread
+    outcome = {}
+    finished = threading.Event()
+
+    def establish():
+        try:
+            outcome["bridge"] = configure(host, address, port, name, enabled)
+        except BaseException as error:  # reported to the injected thread
+            outcome["error"] = error
+        finally:
+            finished.set()
+
+    enter_main_thread(host, establish)
+    if not finished.wait(timeout):
+        raise TimeoutError("Host main thread did not accept the connection")
+    if "error" in outcome:
+        raise outcome["error"]
+    bridge = outcome["bridge"]
+    if enabled and not bridge.wait_until_connected(timeout):
+        raise RuntimeError("Bridge registration did not complete")
+    return bridge.instance_id
+
+
 def configure(host, address="127.0.0.1", port=6321, name=None, enabled=True):
     """Apply connection settings without rebuilding the host execution adapter."""
     lock = sys.__dict__.setdefault(_LOCK, threading.RLock())
