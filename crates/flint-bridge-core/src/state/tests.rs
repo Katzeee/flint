@@ -14,6 +14,13 @@ fn settings(name: &str, enabled: bool) -> BridgeSettings {
     }
 }
 
+fn lost(message: &str) -> Obstacle {
+    Obstacle {
+        kind: ObstacleKind::Lost,
+        message: message.into(),
+    }
+}
+
 fn initial() -> Arc<SettingsSnapshot> {
     Arc::new(SettingsSnapshot {
         revision: 0,
@@ -52,13 +59,11 @@ fn settings_change_rejects_a_registration_waiting_to_commit() {
         assert_eq!(
             state.connection,
             if replacement.enabled {
-                ConnectionStatus::Connecting
+                Connection::Connecting
             } else {
-                ConnectionStatus::Disabled
+                Connection::Disabled
             }
         );
-        assert!(state.instance_id().is_empty());
-        assert!(state.last_error.is_none());
         assert!(state
             .begin_execution(0, "obsolete-request".into(), HostExecuteRequest::default())
             .is_none());
@@ -89,12 +94,10 @@ fn old_session_cleanup_cannot_overwrite_new_settings_or_registration() {
         let cleanup = thread::spawn(move || {
             ready_tx.send(()).unwrap();
             resume_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-            ending.lock().unwrap().finish_session(
-                &old,
-                false,
-                false,
-                Some("obsolete error".into()),
-            );
+            ending
+                .lock()
+                .unwrap()
+                .finish_session(&old, Some(lost("obsolete")));
         });
         ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         let expected = {
@@ -144,11 +147,14 @@ fn current_session_failure_clears_connection_but_preserves_host_execution() {
     assert!(state
         .begin_execution(generation, "request".into(), HostExecuteRequest::default())
         .is_some());
-    state.finish_session(&snapshot, false, false, Some("connection lost".into()));
-    assert!(!state.connected());
-    assert!(state.instance_id().is_empty());
+    state.finish_session(&snapshot, Some(lost("connection lost")));
+    assert_eq!(
+        state.connection,
+        Connection::Retrying {
+            obstacle: lost("connection lost")
+        }
+    );
     assert!(state.busy());
-    assert_eq!(state.last_error.as_deref(), Some("connection lost"));
     let (outbound, mut received) = mpsc::unbounded_channel();
     assert!(state.report_execution(
         ExecutionReport::Result {

@@ -5,6 +5,34 @@ using System.Text;
 
 namespace Flint.Bridge
 {
+    /// <summary>Why no Bridge was created.</summary>
+    public enum BridgeCreationErrorKind
+    {
+        InvalidConfiguration,
+        /// <summary>Another Bridge owns this process.</summary>
+        Claimed,
+        System,
+        LibraryUnavailable,
+        AbiMismatch
+    }
+
+    /// <summary>No Bridge was created; <see cref="Kind"/> names why.</summary>
+    public sealed class BridgeCreationException : Exception
+    {
+        public BridgeCreationException(BridgeCreationErrorKind kind, string message) : base(message)
+        {
+            Kind = kind;
+        }
+
+        public BridgeCreationErrorKind Kind { get; }
+    }
+
+    /// <summary>The Bridge refused a settings change while host code is executing.</summary>
+    public sealed class BridgeBusyException : InvalidOperationException
+    {
+        public BridgeBusyException() : base("Bridge is executing host code") { }
+    }
+
     /// <summary>
     /// Loads the shared connection core. The host adapter polls execute events and
     /// reports output and results after dispatching code on its required thread.
@@ -24,7 +52,7 @@ namespace Flint.Bridge
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint AbiVersionFn();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate IntPtr CreateFn(IntPtr config, out IntPtr error);
+        private delegate IntPtr CreateFn(IntPtr config, out uint errorKind, out IntPtr errorMessage);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate IntPtr PollFn(IntPtr handle, uint timeoutMilliseconds);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -51,7 +79,7 @@ namespace Flint.Bridge
         private readonly StatusFn _busy;
         private readonly InstanceIdFn _instanceId;
         private readonly InstanceIdFn _statusJson;
-        private readonly StatusFn _reconnect;
+        private readonly HandleFn _reconnect;
         private readonly ApplySettingsFn _applySettings;
         private readonly HandleFn _stop;
         private readonly HandleFn _destroy;
@@ -65,12 +93,13 @@ namespace Flint.Bridge
             if (_module == IntPtr.Zero)
             {
                 int error = Marshal.GetLastWin32Error();
-                throw new Win32Exception(error, "Cannot load Bridge core: " + libraryPath + " (Win32 " + error + ")");
+                throw new BridgeCreationException(BridgeCreationErrorKind.LibraryUnavailable,
+                    "Cannot load Bridge core: " + libraryPath + " (" + new Win32Exception(error).Message + ")");
             }
             try
             {
                 if (Function<AbiVersionFn>("flint_bridge_abi_version")() != 3)
-                    throw new InvalidOperationException("Unsupported native Bridge ABI");
+                    throw new BridgeCreationException(BridgeCreationErrorKind.AbiMismatch, "Unsupported native Bridge ABI");
                 _create = Function<CreateFn>("flint_bridge_create");
                 _poll = Function<PollFn>("flint_bridge_poll");
                 _reportExecution = Function<ReportExecutionFn>("flint_bridge_report_execution");
@@ -78,18 +107,19 @@ namespace Flint.Bridge
                 _busy = Function<StatusFn>("flint_bridge_busy");
                 _instanceId = Function<InstanceIdFn>("flint_bridge_instance_id");
                 _statusJson = Function<InstanceIdFn>("flint_bridge_status_json");
-                _reconnect = Function<StatusFn>("flint_bridge_reconnect");
+                _reconnect = Function<HandleFn>("flint_bridge_reconnect");
                 _applySettings = Function<ApplySettingsFn>("flint_bridge_apply_settings");
                 _stop = Function<HandleFn>("flint_bridge_stop");
                 _destroy = Function<HandleFn>("flint_bridge_destroy");
                 _stringFree = Function<StringFreeFn>("flint_bridge_string_free");
                 IntPtr config = Utf8(configJson);
-                IntPtr creationError;
-                try { _handle = _create(config, out creationError); }
+                uint errorKind;
+                IntPtr errorMessage;
+                try { _handle = _create(config, out errorKind, out errorMessage); }
                 finally { Marshal.FreeHGlobal(config); }
-                string message = TakeString(creationError);
+                string message = TakeString(errorMessage);
                 if (_handle == IntPtr.Zero)
-                    throw new InvalidOperationException(message ?? "Cannot start native Bridge core");
+                    throw new BridgeCreationException(CreationErrorKind(errorKind), message ?? "Cannot start native Bridge core");
             }
             catch
             {
@@ -99,10 +129,22 @@ namespace Flint.Bridge
             }
         }
 
+        // Creation error codes from the native core.
+        private static BridgeCreationErrorKind CreationErrorKind(uint code)
+        {
+            switch (code)
+            {
+                case 1: return BridgeCreationErrorKind.InvalidConfiguration;
+                case 2: return BridgeCreationErrorKind.Claimed;
+                default: return BridgeCreationErrorKind.System;
+            }
+        }
+
         private T Function<T>(string name) where T : class
         {
             IntPtr address = GetProcAddress(_module, name);
-            if (address == IntPtr.Zero) throw new EntryPointNotFoundException(name);
+            if (address == IntPtr.Zero)
+                throw new BridgeCreationException(BridgeCreationErrorKind.AbiMismatch, "Bridge core is missing " + name);
             return (T)(object)Marshal.GetDelegateForFunctionPointer(address, typeof(T));
         }
 
@@ -151,10 +193,7 @@ namespace Flint.Bridge
             finally { Marshal.FreeHGlobal(report); }
         }
 
-        public void Reconnect()
-        {
-            if (!_reconnect(Handle)) throw new InvalidOperationException("Bridge is executing host code");
-        }
+        public void Reconnect() { _reconnect(Handle); }
         public void ApplySettings(string settingsJson)
         {
             if (settingsJson == null) throw new ArgumentNullException(nameof(settingsJson));
@@ -162,7 +201,7 @@ namespace Flint.Bridge
             try
             {
                 uint result = _applySettings(Handle, settings);
-                if (result == 1) throw new InvalidOperationException("Bridge is executing host code");
+                if (result == 1) throw new BridgeBusyException();
                 if (result == 2) throw new ArgumentException("Invalid Bridge connection settings", nameof(settingsJson));
                 if (result != 0) throw new InvalidOperationException("Unknown Bridge settings result");
             }

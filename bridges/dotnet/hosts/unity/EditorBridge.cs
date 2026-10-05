@@ -57,6 +57,7 @@ namespace Flint.Unity
         private static readonly object PendingLock = new object();
         private static readonly AsyncLocal<string> LogScope = new AsyncLocal<string>();
         private static NativeBridge bridge;
+        private static string libraryPath;
         private static Thread poller;
         private static bool stopping;
         private static bool compiling;
@@ -85,18 +86,23 @@ namespace Flint.Unity
                 runtime_version = Application.unityVersion +
                     (Type.GetType("Mono.Runtime") != null ? " Mono" : " .NET")
             };
-            var libraryPath = Path.GetFullPath(nativeLibrary);
-            if (!File.Exists(libraryPath))
-                throw new FileNotFoundException("Bridge core is missing", libraryPath);
+            // Kept so that applying settings can start a Bridge that failed to.
+            libraryPath = Path.GetFullPath(nativeLibrary);
             bridge = new NativeBridge(libraryPath, JsonUtility.ToJson(config));
             stopping = false;
             poller = new Thread(Poll) { IsBackground = true, Name = "flint-unity-poll" };
             poller.Start();
         }
 
+        /// <summary>Apply settings to the running Bridge, or start one from them.</summary>
         public static void ApplySettings(string address, int port, string name, bool enabled)
         {
-            if (bridge == null) throw new InvalidOperationException("Flint Bridge has not started");
+            if (bridge == null)
+            {
+                if (libraryPath == null) throw new InvalidOperationException("Flint Bridge has not started");
+                Connect(libraryPath, address, port, name, enabled);
+                return;
+            }
             bridge.ApplySettings(JsonUtility.ToJson(new ConnectionSettings
             {
                 address = address, port = port, name = name, enabled = enabled

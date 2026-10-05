@@ -2,7 +2,10 @@ use crate::state::State;
 use flint_protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use serde::{Deserialize, Serialize};
-use std::sync::{mpsc, Arc, Mutex};
+use std::{
+    convert::Infallible,
+    sync::{mpsc, Arc, Mutex},
+};
 use tokio::{net::TcpStream, sync::mpsc as async_mpsc};
 
 type Wire = flint_protocol::framing::Wire<TcpStream>;
@@ -157,7 +160,7 @@ pub(crate) async fn run_execution(
     state: Arc<Mutex<State>>,
     events: mpsc::Sender<ExecuteEvent>,
     outbound: &mut async_mpsc::UnboundedReceiver<Outbound>,
-) -> Result<(), String> {
+) -> Result<Infallible, String> {
     loop {
         tokio::select! {
             incoming = read_envelope(&mut wire) => {

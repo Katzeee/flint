@@ -7,29 +7,46 @@ use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ConnectionStatus {
+/// What the Bridge connection is doing now. A failure exists only inside the
+/// state it explains, so leaving that state is what clears it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub(crate) enum Connection {
     Disabled,
     Connecting,
-    Connected,
-    Reconnecting,
+    Connected { instance_id: String },
+    Retrying { obstacle: Obstacle },
+}
+
+/// Why the last connection session ended; the Bridge retries after a delay.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(crate) struct Obstacle {
+    pub(crate) kind: ObstacleKind,
+    pub(crate) message: String,
+}
+
+/// The session stage that failed, which tells the user where to look.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ObstacleKind {
+    /// No connection to the Bridge endpoint.
+    Unreachable,
+    /// Connected, but the backend did not complete registration.
+    Registration,
+    /// A registered session ended.
+    Lost,
 }
 
 #[derive(Serialize)]
 pub(crate) struct StatusSnapshot<'a> {
-    connection: ConnectionStatus,
-    last_error: &'a Option<String>,
+    connection: &'a Connection,
     busy: bool,
     settings: &'a BridgeSettings,
-    instance_id: &'a str,
 }
 
 pub(crate) struct State {
     settings_snapshot: Arc<SettingsSnapshot>,
-    connection: ConnectionStatus,
-    last_error: Option<String>,
-    instance_id: String,
+    connection: Connection,
     generation: u64,
     execution: ExecutionState,
 }
@@ -40,9 +57,7 @@ impl State {
     pub(crate) fn new(settings_snapshot: Arc<SettingsSnapshot>) -> Self {
         let mut state = Self {
             settings_snapshot,
-            connection: ConnectionStatus::Disabled,
-            last_error: None,
-            instance_id: String::new(),
+            connection: Connection::Disabled,
             generation: 0,
             execution: ExecutionState::default(),
         };
@@ -51,7 +66,7 @@ impl State {
     }
 
     pub(crate) fn connected(&self) -> bool {
-        self.connection == ConnectionStatus::Connected
+        matches!(self.connection, Connection::Connected { .. })
     }
 
     pub(crate) fn busy(&self) -> bool {
@@ -59,16 +74,17 @@ impl State {
     }
 
     pub(crate) fn instance_id(&self) -> &str {
-        &self.instance_id
+        match &self.connection {
+            Connection::Connected { instance_id } => instance_id,
+            _ => "",
+        }
     }
 
     pub(crate) fn status(&self) -> StatusSnapshot<'_> {
         StatusSnapshot {
-            connection: self.connection,
-            last_error: &self.last_error,
+            connection: &self.connection,
             busy: self.busy(),
             settings: &self.settings_snapshot.settings,
-            instance_id: &self.instance_id,
         }
     }
 
@@ -96,13 +112,11 @@ impl State {
     }
 
     pub(crate) fn reconnect(&mut self) {
-        self.instance_id.clear();
         self.connection = if self.settings_snapshot.settings.enabled {
-            ConnectionStatus::Connecting
+            Connection::Connecting
         } else {
-            ConnectionStatus::Disabled
+            Connection::Disabled
         };
-        self.last_error = None;
     }
 
     pub(crate) fn complete_registration(
@@ -114,28 +128,22 @@ impl State {
             return Err("bridge settings changed during registration".into());
         }
         self.generation += 1;
-        self.connection = ConnectionStatus::Connected;
-        self.last_error = None;
-        self.instance_id = instance_id;
+        self.connection = Connection::Connected { instance_id };
         Ok(self.generation)
     }
 
+    /// A session without an obstacle ended on request and starts over.
     pub(crate) fn finish_session(
         &mut self,
         settings_snapshot: &SettingsSnapshot,
-        requested: bool,
-        stopping: bool,
-        error: Option<String>,
+        obstacle: Option<Obstacle>,
     ) {
         if self.settings_snapshot.revision != settings_snapshot.revision {
             return;
         }
-        self.instance_id.clear();
-        if requested || stopping {
-            self.reconnect();
-        } else {
-            self.connection = ConnectionStatus::Reconnecting;
-            self.last_error = error;
+        match obstacle {
+            Some(obstacle) => self.connection = Connection::Retrying { obstacle },
+            None => self.reconnect(),
         }
         // Host code can outlive this connection; only its result clears busy.
     }

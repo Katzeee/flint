@@ -14,6 +14,37 @@ use std::{
 use tokio::sync::{mpsc as async_mpsc, watch, Notify};
 use tokio_util::sync::CancellationToken;
 
+/// Why no Bridge core was created. Each kind has a stable code in the C ABI.
+#[derive(Debug, PartialEq)]
+pub(crate) enum CreationError {
+    InvalidConfiguration(String),
+    Claimed(Option<ClaimOwner>),
+    System(String),
+}
+
+impl CreationError {
+    pub(crate) fn code(&self) -> u32 {
+        match self {
+            Self::InvalidConfiguration(_) => 1,
+            Self::Claimed(_) => 2,
+            Self::System(_) => 3,
+        }
+    }
+
+    pub(crate) fn message(&self) -> String {
+        match self {
+            Self::InvalidConfiguration(message) => {
+                format!("Invalid Bridge configuration: {message}")
+            }
+            Self::Claimed(Some(owner)) => {
+                format!("Another Bridge already owns this process: {owner}")
+            }
+            Self::Claimed(None) => "Another Bridge already owns this process".into(),
+            Self::System(message) => message.clone(),
+        }
+    }
+}
+
 pub struct BridgeCore {
     state: Arc<Mutex<State>>,
     events_rx: Mutex<mpsc::Receiver<ExecuteEvent>>,
@@ -26,20 +57,22 @@ pub struct BridgeCore {
 }
 
 impl BridgeCore {
-    pub(crate) fn new(options: BridgeOptions) -> Result<Self, String> {
+    pub(crate) fn new(options: BridgeOptions) -> Result<Self, CreationError> {
         Self::start(options, claim::acquire)
     }
 
     #[cfg(test)]
-    pub(crate) fn new_for_test(options: BridgeOptions, scope: &str) -> Result<Self, String> {
+    pub(crate) fn new_for_test(options: BridgeOptions, scope: &str) -> Result<Self, CreationError> {
         Self::start(options, |owner| claim::acquire_for_test(scope, owner))
     }
 
     fn start(
         options: BridgeOptions,
         acquire: impl FnOnce(&ClaimOwner) -> io::Result<ClaimOutcome>,
-    ) -> Result<Self, String> {
-        let (identity, settings) = options.into_parts()?;
+    ) -> Result<Self, CreationError> {
+        let (identity, settings) = options
+            .into_parts()
+            .map_err(CreationError::InvalidConfiguration)?;
         let owner = ClaimOwner {
             host: identity.host.clone(),
             runtime_version: identity.runtime_version.clone(),
@@ -48,13 +81,12 @@ impl BridgeCore {
         // Acquire before starting the thread so a second Bridge cannot register.
         let claim = match acquire(&owner) {
             Ok(ClaimOutcome::Acquired(claim)) => claim,
-            Ok(ClaimOutcome::Occupied(owner)) => {
-                return Err(match owner {
-                    Some(owner) => format!("another Bridge already owns this process: {owner}"),
-                    None => "another Bridge already owns this process".into(),
-                })
+            Ok(ClaimOutcome::Occupied(owner)) => return Err(CreationError::Claimed(owner)),
+            Err(error) => {
+                return Err(CreationError::System(format!(
+                    "Cannot claim the process: {error}"
+                )))
             }
-            Err(error) => return Err(format!("cannot claim the process: {error}")),
         };
         let settings = Arc::new(SettingsSnapshot {
             revision: 0,
@@ -86,7 +118,9 @@ impl BridgeCore {
                     thread_reconnect_notify,
                 ));
             })
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                CreationError::System(format!("Cannot start the Bridge thread: {error}"))
+            })?;
         Ok(Self {
             state,
             events_rx: Mutex::new(events_rx),
@@ -106,10 +140,9 @@ impl BridgeCore {
             .apply_settings(settings, &self.settings_tx)
     }
 
-    pub(crate) fn reconnect(&self) -> bool {
+    pub(crate) fn reconnect(&self) {
         self.state.lock().unwrap().reconnect();
         self.reconnect_notify.notify_one();
-        true
     }
 
     pub(crate) fn report_execution(&self, report: ExecutionReport) -> bool {

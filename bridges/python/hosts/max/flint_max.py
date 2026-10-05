@@ -41,7 +41,11 @@ def reconnect():
 
 
 def initialize():
-    flint_bridge.connect(host="max", **settings())
+    try:
+        flint_bridge.connect(host="max", **settings())
+    except flint_bridge.BridgeCreationError as error:
+        # The settings panel stays available so the user can start it with Apply.
+        print("Flint Bridge did not start: {}".format(error))
 
 
 def show_settings():

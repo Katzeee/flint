@@ -1,5 +1,19 @@
-"""The common Qt connection panel used by the Maya and 3ds Max packages."""
+"""The common Qt connection panel used by the Maya and 3ds Max packages.
+
+The status area shows the Bridge's own snapshot, including why its connection
+is retrying. A refused Apply or Reconnect is that action's result: it appears
+beside the buttons until the next action or edit, and polling never replaces it.
+"""
 from PySide2 import QtCore, QtWidgets
+
+
+def connection_label(snapshot):
+    return snapshot["connection"]["state"].replace("_", " ").title() if snapshot else "Stopped"
+
+
+def connection_obstacle(snapshot):
+    obstacle = snapshot["connection"].get("obstacle") if snapshot else None
+    return obstacle["message"] if obstacle else None
 
 
 class ConnectionPanel(QtWidgets.QDialog):
@@ -59,9 +73,16 @@ class ConnectionPanel(QtWidgets.QDialog):
             button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
             buttons.addWidget(button, 1)
         layout.addLayout(buttons)
+        self.action_result = QtWidgets.QLabel()
+        self.action_result.setWordWrap(True)
+        self.action_result.setStyleSheet("color: #d9534f;")
+        layout.addWidget(self.action_result)
 
         self.apply_button.clicked.connect(self.apply)
         self.retry_button.clicked.connect(self.retry)
+        for signal in (self.address.textEdited, self.port.valueChanged,
+                       self.name.textEdited, self.enabled.toggled):
+            signal.connect(self._clear_action_error)
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(1000)
@@ -69,17 +90,24 @@ class ConnectionPanel(QtWidgets.QDialog):
 
     def refresh(self):
         snapshot = self._snapshot()
-        state = snapshot["connection"].replace("_", " ").title() if snapshot else "Stopped"
         active = snapshot["settings"] if snapshot else None
-        self.status.setText(state)
+        self.status.setText(connection_label(snapshot))
         self.active.setText("{}:{} · {}".format(
             active["address"], active["port"], active["name"]) if active else "—")
-        error = self._action_error or (snapshot["last_error"] if snapshot else None)
-        self.warning_text.setText(error or "")
-        self.warning.setVisible(bool(error))
+        obstacle = connection_obstacle(snapshot)
+        self.warning_text.setText(obstacle or "")
+        self.warning.setVisible(bool(obstacle))
+        self.action_result.setText(self._action_error or "")
+        self.action_result.setVisible(bool(self._action_error))
         busy = bool(snapshot and snapshot["busy"])
-        self.apply_button.setEnabled(bool(snapshot and not busy))
+        # Without a Bridge, Apply starts one from these settings.
+        self.apply_button.setEnabled(not busy)
         self.retry_button.setEnabled(bool(snapshot and active["enabled"] and not busy))
+
+    def _clear_action_error(self, *_):
+        if self._action_error:
+            self._action_error = None
+            self.refresh()
 
     def apply(self):
         try:

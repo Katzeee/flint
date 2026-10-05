@@ -1,5 +1,7 @@
 using System.IO;
+using Flint.Bridge;
 using UnityEditor;
+using UnityEngine;
 
 namespace Flint.Unity
 {
@@ -19,7 +21,15 @@ namespace Flint.Unity
             var library = Path.Combine(package.resolvedPath, "Editor", "Plugins", "flint_bridge_core.dll");
 
             var settings = EditorConnectionSettings.Read();
-            EditorBridge.Connect(library, settings.address, settings.port, settings.name, settings.enabled);
+            try
+            {
+                EditorBridge.Connect(library, settings.address, settings.port, settings.name, settings.enabled);
+            }
+            catch (BridgeCreationException error)
+            {
+                // The settings page stays available so the user can start it with Apply.
+                Debug.LogWarning("Flint Bridge did not start: " + error.Message);
+            }
         }
     }
 }

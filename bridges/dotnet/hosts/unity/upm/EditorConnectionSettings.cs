@@ -56,10 +56,23 @@ namespace Flint.Unity
         private sealed class ConnectionProvider : SettingsProvider
         {
             [Serializable]
+            private sealed class Obstacle
+            {
+                public string kind;
+                public string message;
+            }
+
+            [Serializable]
+            private sealed class Connection
+            {
+                public string state;
+                public Obstacle obstacle;
+            }
+
+            [Serializable]
             private sealed class Snapshot
             {
-                public string connection;
-                public string last_error;
+                public Connection connection;
                 public bool busy;
                 public Values settings;
             }
@@ -85,26 +98,31 @@ namespace Flint.Unity
                 if (!string.IsNullOrEmpty(json)) snapshot = JsonUtility.FromJson<Snapshot>(json);
 
                 EditorGUILayout.LabelField("Connection", EditorStyles.boldLabel);
-                EditorGUILayout.LabelField("Status", snapshot == null ? "Stopped" :
-                    char.ToUpperInvariant(snapshot.connection[0]) + snapshot.connection.Substring(1).Replace('_', ' '));
+                var state = snapshot?.connection?.state;
+                EditorGUILayout.LabelField("Status", string.IsNullOrEmpty(state) ? "Stopped" :
+                    char.ToUpperInvariant(state[0]) + state.Substring(1).Replace('_', ' '));
                 EditorGUILayout.LabelField("Active settings", snapshot == null || snapshot.settings == null
                     ? "—" : snapshot.settings.address + ":" + snapshot.settings.port + " · " + snapshot.settings.name);
-                var error = !string.IsNullOrEmpty(actionError) ? actionError : snapshot?.last_error;
-                if (!string.IsNullOrEmpty(error))
-                    EditorGUILayout.HelpBox(error, MessageType.Warning);
+                // JsonUtility fills an absent obstacle with empty fields.
+                var obstacle = snapshot?.connection?.obstacle?.message;
+                if (!string.IsNullOrEmpty(obstacle))
+                    EditorGUILayout.HelpBox(obstacle, MessageType.Warning);
 
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Settings", EditorStyles.boldLabel);
+                EditorGUI.BeginChangeCheck();
                 draft.address = EditorGUILayout.TextField("Bridge address", draft.address);
                 draft.port = EditorGUILayout.IntField("Bridge port", draft.port);
                 draft.name = EditorGUILayout.TextField("Instance name", draft.name);
                 draft.enabled = EditorGUILayout.Toggle("Connect to Flint", draft.enabled);
+                if (EditorGUI.EndChangeCheck()) actionError = null;
 
                 EditorGUILayout.Space();
                 var buttons = GUILayoutUtility.GetRect(0, 26, GUILayout.ExpandWidth(true));
                 const float gap = 8;
                 var width = (buttons.width - gap) / 2;
-                using (new EditorGUI.DisabledScope(snapshot == null || snapshot.busy))
+                // Without a Bridge, Apply starts one from these settings.
+                using (new EditorGUI.DisabledScope(snapshot != null && snapshot.busy))
                 {
                     if (GUI.Button(new Rect(buttons.x, buttons.y, width, buttons.height), "Apply")) Apply();
                 }
@@ -113,6 +131,9 @@ namespace Flint.Unity
                 {
                     if (GUI.Button(new Rect(buttons.x + width + gap, buttons.y, width, buttons.height), "Reconnect")) Retry();
                 }
+                // A refused action's result, kept until the next action or edit.
+                if (!string.IsNullOrEmpty(actionError))
+                    EditorGUILayout.HelpBox(actionError, MessageType.Error);
             }
 
             private void Apply()

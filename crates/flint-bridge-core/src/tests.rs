@@ -49,8 +49,11 @@ impl Core {
         let settings = CString::new(settings.to_string()).unwrap();
         unsafe { flint_bridge_apply_settings(self.0, settings.as_ptr()) }
     }
-    fn reconnect(&self) -> bool {
+    fn reconnect(&self) {
         unsafe { flint_bridge_reconnect(self.0) }
+    }
+    fn obstacle(&self) -> Value {
+        self.status()["connection"]["obstacle"].clone()
     }
 }
 
@@ -258,9 +261,11 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
     assert_eq!(updated.bridge_id, original.bridge_id);
     assert_eq!(updated.instance_type, original.instance_type);
     let status = core.status();
-    assert_eq!(status["connection"], "connected");
+    assert_eq!(
+        status["connection"],
+        json!({"state": "connected", "instance_id": "instance-1"})
+    );
     assert_eq!(status["settings"]["name"], "新场景");
-    assert!(status["last_error"].is_null());
 }
 
 #[test]
@@ -300,7 +305,7 @@ fn disabling_and_reenabling_keeps_the_core_available() {
         ApplyResult::Applied as u32
     );
     wait_until(|| !core.connected());
-    assert_eq!(core.status()["connection"], "disabled");
+    assert_eq!(core.status()["connection"], json!({"state": "disabled"}));
     assert_eq!(core.instance_id(), "");
     assert_eq!(
         core.apply_settings(settings(second.port, "场景", true)),
@@ -311,17 +316,17 @@ fn disabling_and_reenabling_keeps_the_core_available() {
 }
 
 #[test]
-fn manual_reconnect_uses_the_applied_settings_without_reporting_an_error() {
+fn manual_reconnect_uses_the_applied_settings_without_reporting_an_obstacle() {
     let mut backend = Backend::start_sessions(2);
     let core = connected(&mut backend);
     let original = backend.registration();
-    assert!(core.reconnect());
+    core.reconnect();
     wait_until(|| core.connected());
     let updated = backend.registration();
     assert_eq!(updated.bridge_id, original.bridge_id);
     assert_eq!(updated.instance_name, original.instance_name);
-    assert_eq!(core.status()["connection"], "connected");
-    assert!(core.status()["last_error"].is_null());
+    assert_eq!(core.status()["connection"]["state"], "connected");
+    assert!(core.obstacle().is_null());
 }
 
 #[test]
@@ -331,7 +336,7 @@ fn reconnect_does_not_forward_previous_executions_to_the_new_channel() {
     backend.registration();
     backend.send(execute("old"));
     assert!(core.poll(Duration::from_secs(10)).is_some());
-    assert!(core.reconnect());
+    core.reconnect();
     wait_until(|| core.connected());
     backend.registration();
     assert!(core.busy());
@@ -356,8 +361,12 @@ fn reconnect_does_not_forward_previous_executions_to_the_new_channel() {
 #[test]
 fn unregistered_bridge_is_idle_and_rejects_reports() {
     let core = Core::new(unused_port());
-    wait_until(|| core.status()["last_error"].is_string());
-    assert_eq!(core.status()["connection"], "reconnecting");
+    wait_until(|| core.obstacle().is_object());
+    assert_eq!(core.status()["connection"]["state"], "retrying");
+    assert_eq!(core.obstacle()["kind"], "unreachable");
+    assert!(core.obstacle()["message"]
+        .as_str()
+        .is_some_and(|message| !message.is_empty()));
     assert!(!core.connected());
     assert!(!core.busy());
     assert_eq!(core.instance_id(), "");
@@ -365,6 +374,41 @@ fn unregistered_bridge_is_idle_and_rejects_reports() {
     assert!(!core.report_execution(r#"{"kind":"result","request_id":"unknown","succeeded":true}"#));
     assert!(!core.report_execution("not json"));
     assert!(unsafe { !flint_bridge_report_execution(core.0, ptr::null()) });
+}
+
+#[test]
+fn a_backend_that_closes_before_acknowledging_is_a_registration_obstacle() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let closing = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        drop(socket);
+    });
+    let core = Core::new(port);
+    wait_until(|| core.obstacle().is_object());
+    closing.join().unwrap();
+    assert_eq!(core.obstacle()["kind"], "registration");
+}
+
+#[test]
+fn a_registered_session_that_ends_is_lost_and_recovers_on_reconnect() {
+    let mut backend = Backend::start();
+    let core = connected(&mut backend);
+    backend.registration();
+    drop(backend);
+    wait_until(|| core.obstacle().is_object());
+    assert_eq!(core.obstacle()["kind"], "lost");
+    assert_eq!(core.instance_id(), "");
+    let mut replacement = Backend::start();
+    assert_eq!(
+        core.apply_settings(settings(replacement.port, "场景", true)),
+        ApplyResult::Applied as u32
+    );
+    wait_until(|| {
+        replacement.propagate_panic();
+        core.connected()
+    });
+    assert!(core.obstacle().is_null());
 }
 
 #[test]

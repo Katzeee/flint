@@ -34,15 +34,16 @@ def _draw_controls(layout, context):
     connection = layout.box()
     connection.label(text="Connection")
     _kv_row(connection, "Status", label_fraction).label(
-        text=snapshot["connection"].replace("_", " ").title() if snapshot else "Stopped")
+        text=snapshot["connection"]["state"].replace("_", " ").title() if snapshot else "Stopped")
     if snapshot:
         active = snapshot["settings"]
         _kv_row(connection, "Active settings", label_fraction).label(text="{}:{} · {}".format(
             active["address"], active["port"], active["name"]))
-        if snapshot["last_error"]:
+        obstacle = snapshot["connection"].get("obstacle")
+        if obstacle:
             warning = layout.box()
             warning.alert = True
-            warning.label(text=snapshot["last_error"], icon="ERROR")
+            warning.label(text=obstacle["message"], icon="ERROR")
     else:
         _kv_row(connection, "Active settings", label_fraction).label(text="—")
     settings = layout.box()
@@ -51,7 +52,8 @@ def _draw_controls(layout, context):
                          ("Instance name", "instance_name"), ("Connect to Flint", "enabled")):
         _kv_row(settings, label, label_fraction).prop(draft, field, text="")
     row = layout.row()
-    row.enabled = bool(snapshot and not snapshot["busy"])
+    # Without a Bridge, Apply starts one from these settings.
+    row.enabled = not (snapshot and snapshot["busy"])
     row.operator("flint_bridge.apply_settings", text="Apply")
     retry = row.row()
     retry.enabled = bool(snapshot and snapshot["settings"]["enabled"])
@@ -141,10 +143,14 @@ def register():
     for field in ("address", "port", "instance_name", "enabled"):
         setattr(draft, field, getattr(preferences, field))
     try:
-        flint_bridge.connect(
-            host="blender", address=preferences.address, port=preferences.port,
-            name=preferences.instance_name, enabled=preferences.enabled,
-        )
+        try:
+            flint_bridge.connect(
+                host="blender", address=preferences.address, port=preferences.port,
+                name=preferences.instance_name, enabled=preferences.enabled,
+            )
+        except flint_bridge.BridgeCreationError as error:
+            # The panel stays available so the user can start it with Apply.
+            print("Flint Bridge did not start: {}".format(error))
         bpy.app.timers.register(_refresh_ui, first_interval=1.0, persistent=True)
     except BaseException:
         del bpy.types.WindowManager.flint_bridge_draft

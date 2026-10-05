@@ -7,20 +7,25 @@ fn options() -> String {
     .to_string()
 }
 
-unsafe fn creation_result(options: *const c_char) -> (*mut BridgeCore, Option<String>) {
+/// A failed creation as its kind code and message.
+type Failure = Option<(u32, String)>;
+
+unsafe fn creation_result(options: *const c_char) -> (*mut BridgeCore, Failure) {
+    let mut kind = u32::MAX;
     let mut error = ptr::null_mut();
-    let core = flint_bridge_create(options, &mut error);
-    let message = if error.is_null() {
+    let core = flint_bridge_create(options, &mut kind, &mut error);
+    let failure = if error.is_null() {
+        assert_eq!(kind, 0);
         None
     } else {
         let message = CStr::from_ptr(error).to_str().unwrap().to_owned();
         flint_bridge_string_free(error);
-        Some(message)
+        Some((kind, message))
     };
-    (core, message)
+    (core, failure)
 }
 
-fn create(options: &str) -> (*mut BridgeCore, Option<String>) {
+fn create(options: &str) -> (*mut BridgeCore, Failure) {
     let options = CString::new(options).unwrap();
     unsafe { creation_result(options.as_ptr()) }
 }
@@ -40,8 +45,9 @@ fn production_creation_enforces_the_process_claim_until_destruction() {
         }
         panic!("a second Bridge owns the same process");
     }
-    let error = error.expect("claim conflict has an error message");
-    assert!(error.contains("another Bridge already owns this process"));
+    let (kind, error) = error.expect("claim conflict has an error message");
+    assert_eq!(kind, 2);
+    assert!(error.contains("Another Bridge already owns this process"));
     assert!(error.contains("host=python"));
     assert!(error.contains("runtime_version=test"));
     assert!(error.contains(&format!("bridge_version={}", env!("CARGO_PKG_VERSION"))));
@@ -57,14 +63,19 @@ fn production_creation_enforces_the_process_claim_until_destruction() {
 fn create_rejects_invalid_configuration() {
     let (core, error) = unsafe { creation_result(ptr::null()) };
     assert!(core.is_null());
-    assert_eq!(error.as_deref(), Some("Bridge configuration is null"));
-    assert!(unsafe { flint_bridge_create(ptr::null(), ptr::null_mut()) }.is_null());
+    assert_eq!(
+        error,
+        Some((1, "Invalid Bridge configuration: it is null".into()))
+    );
+    assert!(
+        unsafe { flint_bridge_create(ptr::null(), ptr::null_mut(), ptr::null_mut()) }.is_null()
+    );
     let (core, error) = unsafe { creation_result([255u8, 0].as_ptr().cast()) };
     assert!(core.is_null());
-    assert!(error.unwrap().contains("not UTF-8"));
+    assert!(error.unwrap().1.contains("not UTF-8"));
     let (core, error) = create("{}");
     assert!(core.is_null());
-    assert!(error.unwrap().contains("missing field `host`"));
+    assert!(error.unwrap().1.contains("missing field `host`"));
     let valid = options();
     let mut unknown: Value = serde_json::from_str(&valid).unwrap();
     unknown["extra"] = true.into();
@@ -85,7 +96,7 @@ fn create_rejects_invalid_configuration() {
     ] {
         let (core, error) = create(&config);
         assert!(core.is_null(), "accepted {config}");
-        assert!(error.is_some_and(|message| !message.is_empty()));
+        assert!(error.is_some_and(|(kind, message)| kind == 1 && !message.is_empty()));
     }
 }
 

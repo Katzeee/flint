@@ -2,6 +2,7 @@
 //! destruction. Returned strings must be released through this library.
 
 use crate::{
+    core::CreationError,
     execution::ExecutionReport,
     settings::{ApplyResult, BridgeOptions, BridgeSettings},
     BridgeCore,
@@ -25,30 +26,39 @@ pub extern "C" fn flint_bridge_abi_version() -> u32 {
     3
 }
 
+/// Returns null on failure and sets `error_kind` to a nonzero
+/// [`CreationError`] code and `error_message` to its text. Either output may be null.
 #[no_mangle]
 pub unsafe extern "C" fn flint_bridge_create(
     config_json: *const c_char,
-    error_out: *mut *mut c_char,
+    error_kind: *mut u32,
+    error_message: *mut *mut c_char,
 ) -> *mut BridgeCore {
-    if !error_out.is_null() {
-        *error_out = ptr::null_mut();
+    if !error_kind.is_null() {
+        *error_kind = 0;
+    }
+    if !error_message.is_null() {
+        *error_message = ptr::null_mut();
     }
     let result = (|| {
         if config_json.is_null() {
-            return Err("Bridge configuration is null".into());
+            return Err(CreationError::InvalidConfiguration("it is null".into()));
         }
-        let text = CStr::from_ptr(config_json)
-            .to_str()
-            .map_err(|error| format!("Bridge configuration is not UTF-8: {error}"))?;
+        let text = CStr::from_ptr(config_json).to_str().map_err(|error| {
+            CreationError::InvalidConfiguration(format!("it is not UTF-8: {error}"))
+        })?;
         let options = serde_json::from_str::<BridgeOptions>(text)
-            .map_err(|error| format!("Invalid Bridge configuration: {error}"))?;
+            .map_err(|error| CreationError::InvalidConfiguration(error.to_string()))?;
         BridgeCore::new(options)
     })();
     match result {
         Ok(core) => Box::into_raw(Box::new(core)),
         Err(error) => {
-            if !error_out.is_null() {
-                *error_out = CString::new(error.replace('\0', "\\0"))
+            if !error_kind.is_null() {
+                *error_kind = error.code();
+            }
+            if !error_message.is_null() {
+                *error_message = CString::new(error.message().replace('\0', "\\0"))
                     .expect("error text has no NUL bytes")
                     .into_raw();
             }
@@ -110,8 +120,10 @@ pub unsafe extern "C" fn flint_bridge_instance_id(core: *const BridgeCore) -> *m
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn flint_bridge_reconnect(core: *const BridgeCore) -> bool {
-    core.as_ref().is_some_and(BridgeCore::reconnect)
+pub unsafe extern "C" fn flint_bridge_reconnect(core: *const BridgeCore) {
+    if let Some(core) = core.as_ref() {
+        core.reconnect();
+    }
 }
 
 #[no_mangle]

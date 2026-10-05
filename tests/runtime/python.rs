@@ -32,12 +32,13 @@ fn exported_zip_connects_and_executes_in_python() -> Result<()> {
     let diagnostic = app.execute(
         instance["instance_id"].as_str().unwrap(),
         &workflow,
-        r#"from flint_bridge.connection.native import NativeCore
+        r#"from flint_bridge import BridgeCreationError
+from flint_bridge.connection.native import NativeCore
 try:
     duplicate = NativeCore({"host": "contender", "address": "127.0.0.1", "port": 1,
                             "name": "duplicate", "runtime_version": "contender", "enabled": False})
-except RuntimeError as error:
-    print(str(error))
+except BridgeCreationError as error:
+    print(error.kind, str(error))
 else:
     duplicate.close()
     raise AssertionError("A second Bridge owns this process")
@@ -47,7 +48,7 @@ else:
     assert_eq!(diagnostic["status"], "succeeded");
     let details = app.details(&workflow, &diagnostic, 0)?;
     let message = details["stdout"].as_str().unwrap();
-    assert!(message.contains("another Bridge already owns this process"));
+    assert!(message.starts_with("claimed Another Bridge already owns this process"));
     assert!(message.contains("host=python"));
     assert!(message.contains("runtime_version="));
     assert!(message.contains(&format!("bridge_version={}", env!("CARGO_PKG_VERSION"))));

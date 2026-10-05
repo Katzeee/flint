@@ -66,8 +66,12 @@ def _install_menu():
 def initialize():
     global _loaded
     values = settings()
-    flint_bridge.connect(host="maya", address=values["address"], port=values["port"],
-                         name=values["name"], enabled=values["enabled"])
+    try:
+        flint_bridge.connect(host="maya", address=values["address"], port=values["port"],
+                             name=values["name"], enabled=values["enabled"])
+    except flint_bridge.BridgeCreationError as error:
+        # The settings panel stays available so the user can start it with Apply.
+        cmds.warning("Flint Bridge did not start: {}".format(error))
     _loaded = True
     maya.utils.executeDeferred(_install_menu)
 

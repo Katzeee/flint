@@ -24,8 +24,11 @@ impl BridgeOptions {
             name: self.name,
             enabled: self.enabled,
         };
-        if self.host.trim().is_empty() || !settings.valid() {
-            return Err("invalid bridge configuration".into());
+        if self.host.trim().is_empty() {
+            return Err("the host is empty".into());
+        }
+        if !settings.valid() {
+            return Err("the address and instance name must be set and the port nonzero".into());
         }
         Ok((
             Identity {

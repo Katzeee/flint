@@ -1,12 +1,13 @@
 use crate::{
     execution::{run_execution, ExecuteEvent, Outbound},
     settings::{BridgeSettings, Identity, SettingsSnapshot},
-    state::State,
+    state::{Obstacle, ObstacleKind, State},
 };
 use flint_protocol::timing::{HEARTBEAT_ACK_TIMEOUT, HEARTBEAT_INTERVAL};
 use flint_protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use std::{
+    convert::Infallible,
     sync::{mpsc, Arc, Mutex},
     time::Duration,
 };
@@ -44,7 +45,7 @@ async fn ack(wire: &mut Wire, request_id: &str) -> Result<InstanceAck, String> {
     }
 }
 
-async fn run_heartbeat(mut wire: Wire, instance_id: String) -> Result<(), String> {
+async fn run_heartbeat(mut wire: Wire, instance_id: String) -> Result<Infallible, String> {
     loop {
         let request_id = Uuid::new_v4().simple().to_string();
         wire.send(envelope(
@@ -62,6 +63,11 @@ async fn run_heartbeat(mut wire: Wire, instance_id: String) -> Result<(), String
     }
 }
 
+fn obstacle(kind: ObstacleKind) -> impl FnOnce(String) -> Obstacle {
+    move |message| Obstacle { kind, message }
+}
+
+/// Runs one connection session until it fails; only the caller ends it otherwise.
 async fn run_session(
     identity: &Identity,
     settings_snapshot: &SettingsSnapshot,
@@ -69,8 +75,35 @@ async fn run_session(
     state: Arc<Mutex<State>>,
     events: mpsc::Sender<ExecuteEvent>,
     outbound: &mut async_mpsc::UnboundedReceiver<Outbound>,
-) -> Result<(), String> {
-    let mut heartbeat_wire = connect(&settings_snapshot.settings).await?;
+) -> Result<Infallible, Obstacle> {
+    let mut heartbeat_wire = connect(&settings_snapshot.settings)
+        .await
+        .map_err(obstacle(ObstacleKind::Unreachable))?;
+    let (execution_wire, instance_id) =
+        register(identity, settings_snapshot, bridge_id, &mut heartbeat_wire)
+            .await
+            .map_err(obstacle(ObstacleKind::Registration))?;
+    let generation = state
+        .lock()
+        .unwrap()
+        .complete_registration(settings_snapshot, instance_id.clone())
+        .map_err(obstacle(ObstacleKind::Registration))?;
+    let heartbeat = run_heartbeat(heartbeat_wire, instance_id);
+    let execution = run_execution(execution_wire, generation, state.clone(), events, outbound);
+    let Err(message) = tokio::select! {
+        result = heartbeat => result,
+        result = execution => result,
+    };
+    Err(obstacle(ObstacleKind::Lost)(message))
+}
+
+/// Registers the instance on the heartbeat connection, then opens its execution channel.
+async fn register(
+    identity: &Identity,
+    settings_snapshot: &SettingsSnapshot,
+    bridge_id: &str,
+    heartbeat_wire: &mut Wire,
+) -> Result<(Wire, String), String> {
     let request_id = Uuid::new_v4().simple().to_string();
     heartbeat_wire
         .send(envelope(
@@ -87,8 +120,8 @@ async fn run_session(
         ))
         .await
         .map_err(|error| error.to_string())?;
-    let identity = ack(&mut heartbeat_wire, &request_id).await?;
-    if identity.instance_id.is_empty() || identity.session_token.is_empty() {
+    let registered = ack(heartbeat_wire, &request_id).await?;
+    if registered.instance_id.is_empty() || registered.session_token.is_empty() {
         return Err("incomplete instance registration".into());
     }
     let mut execution_wire = connect(&settings_snapshot.settings).await?;
@@ -97,24 +130,15 @@ async fn run_session(
         .send(envelope(
             request_id.clone(),
             Payload::RegisterExecutionChannel(RegisterExecutionChannel {
-                instance_id: identity.instance_id.clone(),
+                instance_id: registered.instance_id.clone(),
                 pid: std::process::id(),
-                session_token: identity.session_token,
+                session_token: registered.session_token,
             }),
         ))
         .await
         .map_err(|error| error.to_string())?;
     ack(&mut execution_wire, &request_id).await?;
-    let generation = state
-        .lock()
-        .unwrap()
-        .complete_registration(settings_snapshot, identity.instance_id.clone())?;
-    let heartbeat = run_heartbeat(heartbeat_wire, identity.instance_id);
-    let execution = run_execution(execution_wire, generation, state.clone(), events, outbound);
-    tokio::select! {
-        result = heartbeat => result,
-        result = execution => result,
-    }
+    Ok((execution_wire, registered.instance_id))
 }
 
 pub(crate) async fn run(
@@ -139,25 +163,24 @@ pub(crate) async fn run(
         }
         let mut changed = false;
         let mut requested = false;
-        let result = tokio::select! {
+        let obstacle = tokio::select! {
             biased;
             change = settings.changed() => {
                 changed = change.is_ok();
-                Err("bridge settings changed".into())
+                None
             },
-            result = run_session(&identity, &current, &bridge_id, state.clone(), events.clone(), &mut outbound) => result,
+            Err(obstacle) = run_session(&identity, &current, &bridge_id, state.clone(), events.clone(), &mut outbound) => Some(obstacle),
             _ = reconnect.notified() => {
                 requested = true;
-                Ok(())
+                None
             },
-            _ = stop.cancelled() => Ok(()),
+            _ = stop.cancelled() => None,
         };
-        state.lock().unwrap().finish_session(
-            &current,
-            requested,
-            stop.is_cancelled(),
-            result.as_ref().err().cloned(),
-        );
+        let failed = obstacle.is_some() && !stop.is_cancelled();
+        state
+            .lock()
+            .unwrap()
+            .finish_session(&current, obstacle.filter(|_| failed));
         if stop.is_cancelled() {
             break;
         }
@@ -165,11 +188,7 @@ pub(crate) async fn run(
             delay = 0;
             continue;
         }
-        delay = if result.is_ok() {
-            0
-        } else {
-            (delay * 2 + 1).min(10)
-        };
+        delay = if failed { (delay * 2 + 1).min(10) } else { 0 };
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(delay)) => {},
             _ = settings.changed() => {

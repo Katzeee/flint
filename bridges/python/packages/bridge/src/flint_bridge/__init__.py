@@ -2,6 +2,8 @@
 import sys
 import threading
 
+from .connection.errors import BridgeBusyError, BridgeCreationError
+
 __version__ = "0.1.0"
 _SERVICE = "_flint_bridge_service"
 _LOCK = "_flint_bridge_lifecycle_lock"

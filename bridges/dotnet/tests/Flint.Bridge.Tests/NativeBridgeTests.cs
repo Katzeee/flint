@@ -1,5 +1,4 @@
 using System;
-using System.ComponentModel;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -47,14 +46,16 @@ namespace Flint.Bridge.Tests
         public void MissingLibraryReportsItsPath()
         {
             var missing = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "flint_bridge_core.dll");
-            var error = Assert.Throws<Win32Exception>(() => new NativeBridge(missing, Config()));
+            var error = Assert.Throws<BridgeCreationException>(() => new NativeBridge(missing, Config()));
+            Assert.Equal(BridgeCreationErrorKind.LibraryUnavailable, error.Kind);
             Assert.Contains(missing, error.Message);
         }
 
         [Fact]
         public void RejectedConfigurationThrows()
         {
-            var error = Assert.Throws<InvalidOperationException>(() => new NativeBridge(Core, "{}"));
+            var error = Assert.Throws<BridgeCreationException>(() => new NativeBridge(Core, "{}"));
+            Assert.Equal(BridgeCreationErrorKind.InvalidConfiguration, error.Kind);
             Assert.Contains("missing field `host`", error.Message);
         }
 
@@ -63,8 +64,9 @@ namespace Flint.Bridge.Tests
         {
             using (var bridge = new NativeBridge(Core, Config()))
             {
-                var error = Assert.Throws<InvalidOperationException>(() => new NativeBridge(Core, Config("second")));
-                Assert.Contains("another Bridge already owns this process", error.Message);
+                var error = Assert.Throws<BridgeCreationException>(() => new NativeBridge(Core, Config("second")));
+                Assert.Equal(BridgeCreationErrorKind.Claimed, error.Kind);
+                Assert.Contains("Another Bridge already owns this process", error.Message);
                 Assert.Contains("host=csharp", error.Message);
                 Assert.Contains("runtime_version=test", error.Message);
                 Assert.Contains("bridge_version=", error.Message);
@@ -88,7 +90,7 @@ namespace Flint.Bridge.Tests
                 Assert.Null(bridge.Poll(0));
                 bridge.ApplySettings("{\"address\":\"127.0.0.1\",\"port\":6321,\"name\":\"新场景\",\"enabled\":false}");
                 Assert.False(bridge.Connected);
-                Assert.Contains("\"connection\":\"disabled\"", bridge.StatusJson);
+                Assert.Contains("\"connection\":{\"state\":\"disabled\"}", bridge.StatusJson);
                 Assert.Contains("新场景", bridge.StatusJson);
                 Assert.Throws<ArgumentException>(() => bridge.ApplySettings("{}"));
             }
