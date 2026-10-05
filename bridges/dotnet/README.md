@@ -4,11 +4,11 @@ The supported .NET host is Unity Editor on Windows x64 with Mono. Unity must loa
 
 ## C# integration
 
-`flint bridge export csharp` writes `flint-csharp.zip` with `NativeBridge.cs` and the native core DLL in one directory. Use these files when integrating the Bridge with another C# host. The host still supplies its own execution-thread dispatch and code runner.
+`flint bridge export csharp` writes `flint-csharp.zip` with `NativeBridge.cs` and the native core DLL in one directory. Use these files when integrating the Bridge with another C# host. The host still supplies its own execution-thread dispatch and code runner. Creating a `NativeBridge` throws `BridgeCreationException`, whose `Kind` names the reason, when no Bridge can start; `ApplySettings` throws `BridgeBusyException` while host code executes and `ArgumentException` for invalid settings, leaving the running Bridge unchanged.
 
 ## Unity
 
-Run `flint bridge export unity`, then install the resulting `flint-unity.tgz` in Unity's Package Manager with **Add package from tarball**. Start flint with `flint start`; the installed package connects from the Editor to the default local Bridge port, `6321`. Open **Window > Flint Bridge > Connection Settings** to inspect the connection, change its address, port, instance name, and enabled state, or reconnect. **Apply** changes the live connection and saves the values in Unity's per-user Editor preferences. Confirm registration with `flint instances --json`.
+Run `flint bridge export unity`, then install the resulting `flint-unity.tgz` in Unity's Package Manager with **Add package from tarball**. Start flint with `flint start`; the installed package connects from the Editor to the default local Bridge port, `6321`. Open **Window > Flint Bridge > Connection Settings** to inspect the connection, change its address, port, instance name, and enabled state, or reconnect. **Apply** changes the live connection and saves the values in Unity's per-user Editor preferences. If the Bridge could not start, for example because another Bridge already owns the Editor process, the reason appears in the Console and **Apply** starts it. Confirm registration with `flint instances --json`.
 
 ## Connection and execution
 

@@ -28,12 +28,18 @@ _Avoid_: Host application, instance.
 The shared native component of a Bridge that owns its connection, registration, heartbeat, framing, and reconnection behavior. It does not execute host code, and it holds a process-wide claim so a host process runs at most one Bridge.
 
 **Attach**:
-Starting a Bridge from outside its host process by injecting the Bridge into the running process, rather than the host loading the Bridge itself. Both paths connect the same Bridge to the backend; attach lets flint connect a host without the user running flint's code inside it.
+Starting a Bridge from outside its host process by injecting the Bridge into the running process, rather than the host loading the Bridge itself. Both paths connect the same Bridge to the backend; attach lets flint connect a host without the user running flint's code inside it. Attaching to a process whose Bridge it can reach applies the new settings to that Bridge, and a failure is reported back to the requester.
 _Avoid_: Inject for the whole operation; injection is only the entry step.
 
 **Process claim**:
-The host process's exclusive right to run one Bridge, held by its Bridge core through an operating-system lock keyed by the process. It prevents a second Bridge, whatever runtime or Bridge version attempts it, and releases when the process exits.
+The host process's exclusive right to run one Bridge, held by its Bridge core through an operating-system lock keyed by the process. It prevents a second Bridge, whatever runtime or Bridge version attempts it, and releases when that Bridge is destroyed or the process exits.
 
+**Connection obstacle**:
+Why a Bridge is retrying its connection: the Bridge endpoint is unreachable, the backend did not complete registration, or a registered session was lost. It belongs to the Bridge's connection state and ends with that state, so a successful or reset connection carries none.
+_Avoid_: Last error, for an obstacle or for any failure in general.
+
+**Rejected operation**:
+A request to a Bridge, or to start one, that was refused without changing any state, such as settings refused while host code executes or a Bridge that could not be created. Its reason returns to whoever made the request and never appears as a connection obstacle.
 
 **Host adapter**:
 The host-side code that dispatches a Bridge execution request through the host runtime on the thread required by that application.
