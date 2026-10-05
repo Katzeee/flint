@@ -4,24 +4,30 @@ use std::ffi::{CStr, CString};
 use std::mem::{size_of, transmute};
 use std::os::raw::{c_char, c_void};
 use std::ptr::{null, null_mut};
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 use windows_sys::Win32::Foundation::{CloseHandle, HMODULE};
-use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+use windows_sys::Win32::System::LibraryLoader::{
+    FreeLibraryAndExitThread, GetModuleHandleW, GetProcAddress,
+};
 use windows_sys::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameW};
 use windows_sys::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows_sys::Win32::System::Threading::{CreateThread, GetCurrentProcess, GetCurrentProcessId};
 
 use crate::AttachConfig;
 
+static MODULE: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+
 /// Loader entry point. Do the minimum here — spawn a worker and return — so no
 /// real work runs while the process holds the loader lock.
 #[no_mangle]
 pub extern "system" fn DllMain(
-    _module: HMODULE,
+    module: HMODULE,
     reason: u32,
     _reserved: *mut core::ffi::c_void,
 ) -> i32 {
     if reason == DLL_PROCESS_ATTACH {
+        MODULE.store(module, Ordering::Release);
         unsafe {
             let thread = CreateThread(null(), 0, Some(worker), null(), 0, null_mut());
             if !thread.is_null() {
@@ -32,9 +38,11 @@ pub extern "system" fn DllMain(
     1
 }
 
+/// Unloads the bootstrap when done: a library that stays loaded gets no new
+/// `DLL_PROCESS_ATTACH` from a later injection, so a repeated attach would do nothing.
 unsafe extern "system" fn worker(_parameter: *mut core::ffi::c_void) -> u32 {
     crate::run(GetCurrentProcessId());
-    0
+    FreeLibraryAndExitThread(MODULE.load(Ordering::Acquire), 0)
 }
 
 /// Start the Bridge inside a CPython host by running a short bootstrap on the
@@ -189,7 +197,25 @@ pub fn attach_dotnet(config: &AttachConfig) -> Result<(), String> {
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         };
-        attach_mono(mono, config)
+        let result = attach_mono(mono, config);
+        // The worker exits next, so leave the runtime it joined.
+        detach_mono_thread(mono);
+        result
+    }
+}
+
+unsafe fn detach_mono_thread(mono: HMODULE) {
+    let (Ok(current), Ok(detach)) = (
+        export(mono, b"mono_thread_current\0"),
+        export(mono, b"mono_thread_detach\0"),
+    ) else {
+        return;
+    };
+    let current: unsafe extern "C" fn() -> *mut c_void = transmute(current);
+    let detach: unsafe extern "C" fn(*mut c_void) = transmute(detach);
+    let thread = current();
+    if !thread.is_null() {
+        detach(thread);
     }
 }
 

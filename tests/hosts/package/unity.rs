@@ -1,4 +1,4 @@
-use super::dcc::host_executable;
+use crate::hosts::host_executable;
 use crate::support::*;
 use anyhow::Result;
 use serde_json::{json, Value};

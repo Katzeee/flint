@@ -1,0 +1,118 @@
+use crate::hosts::host_executable;
+use crate::support::*;
+use anyhow::Result;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    time::Duration,
+};
+
+/// Attach into a fresh Unity Editor, reload its scripts, and attach again. The
+/// reload unloads the domain holding the attached Bridge, so it must release its
+/// registration and process claim, and a later injection must start a new Bridge.
+#[cfg(windows)]
+#[test]
+#[ignore = "real host: set FLINT_UNITY_EXE and run `cargo xtask test hosts`"]
+fn attached_bridge_survives_a_script_reload_by_reattaching() -> Result<()> {
+    let executable = host_executable("FLINT_UNITY_EXE")?;
+    let app = App::evidence("attach-unity");
+    app.call("start", &[], 0)?;
+
+    let unity_path =
+        |path: &Path| PathBuf::from(path.to_string_lossy().trim_start_matches(r"\\?\"));
+    let project = app.directory.join("unity-project");
+    for folder in ["Assets/Editor", "ProjectSettings", "Packages"] {
+        fs::create_dir_all(project.join(folder))?;
+    }
+    fs::write(
+        project.join("Packages/manifest.json"),
+        r#"{"dependencies":{}}"#,
+    )?;
+    // Records each domain load and reloads scripts when the test asks.
+    let loads = app.directory.join("loads.txt");
+    let trigger = app.directory.join("reload");
+    fs::write(
+        project.join("Assets/Editor/FlintReload.cs"),
+        format!(
+            r#"using System.IO;
+using UnityEditor;
+
+[InitializeOnLoad]
+public static class FlintReload
+{{
+    const string Loads = @"{}";
+    const string Trigger = @"{}";
+
+    static FlintReload()
+    {{
+        File.AppendAllText(Loads, "loaded\n");
+        EditorApplication.update += Poll;
+    }}
+
+    static void Poll()
+    {{
+        if (!File.Exists(Trigger)) return;
+        File.Delete(Trigger);
+        EditorUtility.RequestScriptReload();
+    }}
+}}
+"#,
+            unity_path(&loads).display(),
+            unity_path(&trigger).display()
+        ),
+    )?;
+    let load_count = || -> usize {
+        fs::read_to_string(&loads)
+            .map(|text| text.lines().count())
+            .unwrap_or(0)
+    };
+
+    let log = app.directory.join("unity.log");
+    let mut command = Command::new(executable);
+    command
+        .args(["-batchmode", "-nographics", "-projectPath"])
+        .arg(unity_path(&project))
+        .arg("-logFile")
+        .arg(unity_path(&log))
+        .current_dir(unity_path(&project))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    hidden(&mut command);
+    let mut host = OwnedProcess(command.spawn()?);
+    let pid = host.0.id();
+    wait_until(Duration::from_secs(300), || {
+        anyhow::ensure!(
+            host.0.try_wait()?.is_none(),
+            "Unity exited; inspect {}",
+            log.display()
+        );
+        Ok(load_count() >= 1)
+    })?;
+
+    let attach = || -> Result<String> {
+        let attached = app.call(
+            "attach",
+            &["--pid", &pid.to_string(), "--host-kind", "unity"],
+            0,
+        )?;
+        anyhow::ensure!(attached["attached"] == true, "attach failed: {attached}");
+        Ok(attached["instance_id"].as_str().unwrap().to_string())
+    };
+    let first = attach()?;
+
+    fs::write(&trigger, "")?;
+    wait_until(Duration::from_secs(120), || Ok(load_count() >= 2))?;
+    // The unloaded domain must take its Bridge with it.
+    wait_until(Duration::from_secs(30), || {
+        let instances = app.call("instances", &["--type", "unity"], 0)?;
+        Ok(instances["instances"].as_array().unwrap().is_empty())
+    })?;
+
+    // The released claim and a fresh bootstrap load let a new Bridge start.
+    let second = attach()?;
+    anyhow::ensure!(second != first, "re-attach reused the unloaded Bridge");
+    assert!(host.0.try_wait()?.is_none());
+    Ok(())
+}

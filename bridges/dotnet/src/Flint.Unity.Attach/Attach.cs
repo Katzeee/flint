@@ -18,7 +18,7 @@ namespace Flint.Unity
     public static class Attach
     {
         private static readonly object Gate = new object();
-        // Holds the started Bridge for the process lifetime.
+        // Holds the started Bridge until this domain unloads.
         private static NativeBridge _bridge;
 
         /// <summary>
@@ -42,6 +42,19 @@ namespace Flint.Unity
                     ",\"name\":" + JsonString(name) +
                     ",\"runtime_version\":" + JsonString(RuntimeVersion()) + "}";
                 _bridge = new NativeBridge(corePath, config);
+                // A script reload unloads this domain but not the native core;
+                // without this the core keeps its registration and process claim.
+                AppDomain.CurrentDomain.DomainUnload += Release;
+            }
+        }
+
+        private static void Release(object sender, EventArgs arguments)
+        {
+            lock (Gate)
+            {
+                if (_bridge == null) return;
+                _bridge.Dispose();
+                _bridge = null;
             }
         }
 

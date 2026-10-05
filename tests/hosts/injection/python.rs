@@ -116,10 +116,18 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
         "unexpected output: {detail}"
     );
 
-    // Re-attaching the same process reuses the instance and adds no second one.
+    // Re-attaching with the same configuration reuses the instance and adds no
+    // second one.
     let again = app.call(
         "attach",
-        &["--pid", &pid.to_string(), "--host-kind", "python"],
+        &[
+            "--pid",
+            &pid.to_string(),
+            "--host-kind",
+            "python",
+            "--name",
+            "Injected",
+        ],
         0,
     )?;
     anyhow::ensure!(
