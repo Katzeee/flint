@@ -113,14 +113,6 @@ fn seconds(value: &str) -> std::result::Result<f64, String> {
 }
 #[derive(Args, Clone)]
 struct Options {
-    #[arg(long, default_value = "127.0.0.1")]
-    host: String,
-    #[arg(long, default_value_t=6322, value_parser=clap::value_parser!(u16).range(1..))]
-    port: u16,
-    #[arg(long, default_value = "127.0.0.1")]
-    registry_host: String,
-    #[arg(long, default_value_t=6321, value_parser=clap::value_parser!(u16).range(1..))]
-    registry_port: u16,
     #[arg(long, default_value="30", value_parser=seconds)]
     timeout: f64,
     #[arg(long)]
@@ -131,10 +123,6 @@ struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            host: "127.0.0.1".into(),
-            port: 6322,
-            registry_host: "127.0.0.1".into(),
-            registry_port: 6321,
             timeout: 30.0,
             json: false,
             no_tray: false,
@@ -142,15 +130,10 @@ impl Default for Options {
     }
 }
 impl Options {
-    fn config(&self) -> Config {
-        Config {
-            host: self.host.clone(),
-            port: self.port,
-            registry_host: self.registry_host.clone(),
-            registry_port: self.registry_port,
-            timeout: self.timeout,
-            ..Default::default()
-        }
+    fn config(&self) -> Result<Config> {
+        let mut config = Config::load()?;
+        config.timeout = self.timeout;
+        Ok(config)
     }
 }
 #[derive(Args)]
@@ -269,7 +252,7 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
         _ => unreachable!(),
     }
     .clone();
-    let config = options.config();
+    let config = options.config()?;
     // Read input before starting any background process.
     let execute = if let Command::Exec(ref e) = command {
         let (code, filename) = if let Some(path) = &e.file {

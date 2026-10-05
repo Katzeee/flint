@@ -61,7 +61,7 @@ def on_host_thread(_=None):
         if cfg.get("bridge_zip"):
             sys.path.insert(0, cfg["bridge_zip"])
             import flint_bridge
-            bridge = flint_bridge.connect(cfg["host"], port=cfg["registry_port"], name="Attach spike")
+            bridge = flint_bridge.connect(cfg["host"], port=cfg["bridge_port"], name="Attach spike")
             if not bridge.wait_until_connected(15):
                 raise RuntimeError("Bridge registration did not complete")
             result["instance_id"] = bridge.instance_id
@@ -148,7 +148,7 @@ def _bootstrap(path):
     return bootstrap
 
 
-def run_probe(args, bridge_zip=None, registry_port=None, on_connected=None):
+def run_probe(args, bridge_zip=None, bridge_port=None, on_connected=None):
     if sys.platform != "win32":
         raise RuntimeError("This probe uses the Windows pydevd native injector")
     executable = args.exe.resolve(strict=True)
@@ -164,8 +164,8 @@ def run_probe(args, bridge_zip=None, registry_port=None, on_connected=None):
         raise ValueError("startup-wait must be between 0 and 300 seconds")
     if bridge_zip is not None and args.host == "blender":
         raise ValueError("The current flint Bridge has no Blender host adapter")
-    if (bridge_zip is None) != (registry_port is None):
-        raise ValueError("Bridge ZIP and registry port must be supplied together")
+    if (bridge_zip is None) != (bridge_port is None):
+        raise ValueError("Bridge ZIP and Bridge port must be supplied together")
 
     output = args.out or Path(tempfile.gettempdir()) / ("flint-attach-%s-%s" % (args.host, uuid4().hex[:8]))
     output.mkdir(parents=True, exist_ok=bridge_zip is not None)
@@ -176,7 +176,7 @@ def run_probe(args, bridge_zip=None, registry_port=None, on_connected=None):
     config = {"host": args.host, "native": str(output / "native.json"), "main": str(output / "main.json"),
               "blender_dispatch": args.blender_dispatch}
     if bridge_zip is not None:
-        config.update(bridge_zip=str(bridge_zip), registry_port=registry_port)
+        config.update(bridge_zip=str(bridge_zip), bridge_port=bridge_port)
     payload.write_text("import json\nCONFIG_JSON = %r\n" % json.dumps(config) + PAYLOAD, encoding="utf-8")
     sys.path.insert(0, str(injector))
     from add_code_to_python_process import run_python_code_windows

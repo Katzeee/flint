@@ -6,7 +6,7 @@ import flint_bridge
 _SECTION = "Flint Bridge"
 _DEFAULTS = {"address": "127.0.0.1", "port": 6321,
              "name": "3ds Max", "enabled": True}
-_KEYS = {"address": "RegistryAddress", "port": "RegistryPort",
+_KEYS = {"address": "BridgeAddress", "port": "BridgePort",
          "name": "InstanceName", "enabled": "Enabled"}
 _dialog = None
 

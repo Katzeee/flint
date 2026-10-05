@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 flint-protocol.workspace = true
 fs2.workspace = true
 tokio = { workspace = true, features = ["rt", "net", "sync", "time", "io-util", "macros"] }
-tokio-util = { workspace = true, features = ["codec", "rt"] }
+tokio-util = { workspace = true, features = ["rt"] }
 futures-util = { workspace = true, features = ["sink"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

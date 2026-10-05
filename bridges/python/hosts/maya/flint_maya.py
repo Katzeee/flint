@@ -4,8 +4,8 @@ import maya.utils
 import flint_bridge
 
 _KEYS = {
-    "address": ("flint_registry_address", "127.0.0.1"),
-    "port": ("flint_registry_port", 6321),
+    "address": ("flint_bridge_address", "127.0.0.1"),
+    "port": ("flint_bridge_port", 6321),
     "name": ("flint_instance_name", "Maya"),
     "enabled": ("flint_connection_enabled", 1),
 }

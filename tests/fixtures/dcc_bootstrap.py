@@ -34,7 +34,7 @@ try:
         raise RuntimeError("The host must bootstrap on its UI thread")
     if CONFIG["host"] == "maya":
         import maya.cmds as cmds
-        cmds.optionVar(intValue=("flint_registry_port", CONFIG["port"]))
+        cmds.optionVar(intValue=("flint_bridge_port", CONFIG["port"]))
         cmds.loadPlugin("flint_plugin.py", quiet=True)
         report["plugin_loaded"] = cmds.pluginInfo("flint_plugin.py", query=True, loaded=True)
         import flint_maya

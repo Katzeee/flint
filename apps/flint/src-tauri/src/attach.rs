@@ -42,7 +42,7 @@ fn stage(name: &str, bytes: &[u8]) -> Result<PathBuf> {
     Ok(target)
 }
 
-/// Inject the Bridge into host process `pid`, connecting to `config`'s registry.
+/// Inject the Bridge into host process `pid`, connecting to `config`'s Bridge endpoint.
 pub fn inject(config: &Config, pid: u32, host: &str, name: Option<String>) -> Result<()> {
     ensure!(
         !BOOTSTRAP.is_empty(),
@@ -68,8 +68,8 @@ pub fn inject(config: &Config, pid: u32, host: &str, name: Option<String>) -> Re
         bootstrap,
         payload,
         core,
-        address: config.registry_host.clone(),
-        port: config.registry_port,
+        address: config.address.clone(),
+        port: config.bridge_port,
         name: name.unwrap_or_else(|| host.to_string()),
     };
     flint_hosts::attach(pid, &request)

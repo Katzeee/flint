@@ -58,11 +58,16 @@ pub fn fixture(name: &str) -> PathBuf {
     root().join("tests/fixtures").join(name)
 }
 pub fn free_port() -> u16 {
-    TcpListener::bind(("127.0.0.1", 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    loop {
+        let port = TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        if port != 6321 && port != 6322 {
+            return port;
+        }
+    }
 }
 
 pub struct Output {
@@ -145,8 +150,8 @@ pub fn wait_until(timeout: Duration, mut condition: impl FnMut() -> Result<bool>
 
 pub struct App {
     pub directory: PathBuf,
-    pub port: u16,
-    pub registry_port: u16,
+    pub control_port: u16,
+    pub bridge_port: u16,
     pub binary: PathBuf,
     _temporary: Option<TempDir>,
 }
@@ -169,37 +174,32 @@ impl App {
         Self::at(path)
     }
     fn at(directory: PathBuf) -> Self {
-        let port = free_port();
-        let mut registry_port = free_port();
-        while port == registry_port {
-            registry_port = free_port();
+        let control_port = free_port();
+        let mut bridge_port = free_port();
+        while control_port == bridge_port {
+            bridge_port = free_port();
         }
         Self {
             directory,
-            port,
-            registry_port,
+            control_port,
+            bridge_port,
             binary: binary(),
             _temporary: None,
         }
     }
     pub fn command(&self, name: &str) -> Command {
         let mut command = Command::new(&self.binary);
+        assert!(
+            cfg!(feature = "test-runtime"),
+            "Product tests require the isolated build"
+        );
+        assert!(self.directory.is_absolute() && self.directory.is_dir());
         command
             .current_dir(&self.directory)
-            .env("FLINT_STATE_DIR", self.directory.join("state"))
-            .args([
-                name,
-                "--host",
-                "127.0.0.1",
-                "--port",
-                &self.port.to_string(),
-                "--registry-host",
-                "127.0.0.1",
-                "--registry-port",
-                &self.registry_port.to_string(),
-                "--json",
-                "--no-tray",
-            ]);
+            .env("FLINT_TEST_ROOT", &self.directory)
+            .env("FLINT_TEST_CONTROL_PORT", self.control_port.to_string())
+            .env("FLINT_TEST_BRIDGE_PORT", self.bridge_port.to_string())
+            .args([name, "--json", "--no-tray"]);
         command
     }
     pub fn call(&self, name: &str, args: &[&str], expected: i32) -> Result<Value> {
@@ -225,8 +225,17 @@ impl App {
             result.stderr
         );
         anyhow::ensure!(result.stderr.is_empty(), "{name}: {}", result.stderr);
-        Ok(serde_json::from_str(&result.stdout)
-            .with_context(|| format!("Invalid JSON: {}", result.stdout))?)
+        let response: Value = serde_json::from_str(&result.stdout)
+            .with_context(|| format!("Invalid JSON: {}", result.stdout))?;
+        if response.get("ready").is_some() {
+            anyhow::ensure!(
+                response["bridge_address"] == "127.0.0.1"
+                    && response["bridge_port"] == self.bridge_port
+                    && self.directory.join("runtime/running.lock").is_file(),
+                "Lifecycle command reached an unexpected backend"
+            );
+        }
+        Ok(response)
     }
     pub fn export(&self) -> Result<PathBuf> {
         let bundle = self.directory.join("flint-python.zip");
@@ -354,7 +363,7 @@ impl Drop for App {
             if Instant::now() >= deadline {
                 let message = format!(
                     "Could not cleanly stop isolated backend on port {}",
-                    self.port
+                    self.control_port
                 );
                 if !thread::panicking() {
                     panic!("{message}");
@@ -379,7 +388,7 @@ impl PythonHost {
         let config_path = app.directory.join("host-config.json");
         fs::write(
             &config_path,
-            serde_json::to_vec(&json!({"bundle":bundle,"port":app.registry_port,
+            serde_json::to_vec(&json!({"bundle":bundle,"port":app.bridge_port,
             "directory":app.directory}))?,
         )?;
         let stdout = fs::File::create(app.directory.join("host.stdout"))?;

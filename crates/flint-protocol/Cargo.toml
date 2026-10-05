@@ -8,7 +8,8 @@ publish.workspace = true
 bytes.workspace = true
 prost.workspace = true
 tokio-util = { workspace = true, features = ["codec"] }
+tokio = { workspace = true, features = ["io-util", "time"] }
+futures-util = { workspace = true, features = ["sink"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }
-futures-util = { workspace = true, features = ["sink"] }

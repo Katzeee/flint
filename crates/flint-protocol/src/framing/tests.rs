@@ -1,8 +1,8 @@
 use crate::{envelope::Payload, Envelope, EnvelopeCodec, ExecuteRequest, MAX_FRAME_BYTES};
 use bytes::BytesMut;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::SinkExt;
 use prost::Message;
-use tokio_util::codec::{Decoder, Encoder, Framed};
+use tokio_util::codec::{Decoder, Encoder};
 
 fn sample() -> Envelope {
     Envelope {
@@ -117,14 +117,19 @@ async fn tcp_connection_carries_multiple_correlated_messages() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (socket, _) = listener.accept().await.unwrap();
-        let mut connection = Framed::new(socket, EnvelopeCodec::default());
-        while let Some(message) = connection.next().await {
-            connection.send(message.unwrap()).await.unwrap();
+        let (mut connection, first) =
+            crate::first_message(socket, std::time::Duration::from_secs(5))
+                .await
+                .unwrap();
+        connection.send(first).await.unwrap();
+        for _ in 1..3 {
+            let message = crate::read_envelope(&mut connection).await.unwrap();
+            connection.send(message).await.unwrap();
         }
     });
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         let socket = tokio::net::TcpStream::connect(address).await.unwrap();
-        let mut connection = Framed::new(socket, EnvelopeCodec::default());
+        let mut connection = crate::framed(socket);
         for i in 0..3 {
             let mut message = sample();
             message.request_id = i.to_string();
@@ -132,10 +137,20 @@ async fn tcp_connection_carries_multiple_correlated_messages() {
         }
         for i in 0..3 {
             assert_eq!(
-                connection.next().await.unwrap().unwrap().request_id,
+                crate::read_envelope(&mut connection)
+                    .await
+                    .unwrap()
+                    .request_id,
                 i.to_string()
             );
         }
+        assert_eq!(
+            crate::read_envelope(&mut connection)
+                .await
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::UnexpectedEof
+        );
         drop(connection);
         server.await.unwrap();
     })

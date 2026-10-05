@@ -1,11 +1,52 @@
-use crate::Envelope;
+use crate::{envelope::Payload, Envelope};
 use bytes::BytesMut;
+use futures_util::StreamExt;
 use prost::Message;
-use std::io;
-use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
+use std::{io, time::Duration};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::{Decoder, Encoder, Framed, LengthDelimitedCodec};
 
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const MAX_FRAME_BYTES: usize = 100 * 1024 * 1024;
+
+pub type Wire<T> = Framed<T, EnvelopeCodec>;
+
+pub fn framed<T>(stream: T) -> Wire<T> {
+    Framed::new(stream, EnvelopeCodec::default())
+}
+
+/// Opens a framed stream and reads its first message within the caller's deadline.
+/// Keep the returned wire to preserve any subsequent messages already buffered.
+pub async fn first_message<T: AsyncRead + AsyncWrite + Unpin>(
+    stream: T,
+    timeout: Duration,
+) -> io::Result<(Wire<T>, Envelope)> {
+    let mut wire = framed(stream);
+    let first = tokio::time::timeout(timeout, read_envelope(&mut wire))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "First message timed out"))??;
+    Ok((wire, first))
+}
+
+pub fn envelope(request_id: String, payload: Payload) -> Envelope {
+    Envelope {
+        protocol_version: PROTOCOL_VERSION,
+        request_id,
+        payload: Some(payload),
+    }
+}
+
+/// Reads one required message. The caller owns deadlines and cancellation.
+pub async fn read_envelope<T: AsyncRead + AsyncWrite + Unpin>(
+    wire: &mut Wire<T>,
+) -> io::Result<Envelope> {
+    wire.next().await.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "Connection closed before a message arrived",
+        )
+    })?
+}
 
 pub fn validate(envelope: &Envelope) -> io::Result<()> {
     if envelope.protocol_version != PROTOCOL_VERSION {

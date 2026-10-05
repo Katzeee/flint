@@ -28,12 +28,12 @@ def run_spike(args):
     output = args.out or Path(tempfile.gettempdir()) / ("flint-bridge-spike-%s-%s" % (args.host, uuid4().hex[:8]))
     output.mkdir(parents=True, exist_ok=False)
     args.out = output
-    port, registry_port = free_port(), free_port()
-    while port == registry_port:
-        registry_port = free_port()
-    environment = dict(os.environ, FLINT_STATE_DIR=str(output / "state"))
-    options = ["--host", "127.0.0.1", "--port", str(port), "--registry-host", "127.0.0.1",
-               "--registry-port", str(registry_port), "--no-tray", "--json"]
+    port, bridge_port = free_port(), free_port()
+    while port == bridge_port:
+        bridge_port = free_port()
+    environment = dict(os.environ, FLINT_TEST_ROOT=str(output.resolve()),
+                       FLINT_TEST_CONTROL_PORT=str(port), FLINT_TEST_BRIDGE_PORT=str(bridge_port))
+    options = ["--no-tray", "--json"]
 
     def command(name, *arguments, expected=0):
         result = subprocess.run([str(flint), name] + options + list(arguments), env=environment,
@@ -83,7 +83,7 @@ def run_spike(args):
             if detail["status"] != "succeeded" or "ATTACH_OK %d" % pid not in detail["stdout"]:
                 raise AssertionError("Injected Bridge could not execute on the host thread: " + str(detail))
 
-        run_probe(args, bridge_zip=bridge_zip, registry_port=registry_port, on_connected=connected)
+        run_probe(args, bridge_zip=bridge_zip, bridge_port=bridge_port, on_connected=connected)
     finally:
         command("stop")
 
@@ -91,5 +91,5 @@ def run_spike(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     add_host_arguments(parser)
-    parser.add_argument("--flint-exe", required=True, type=Path, help="A built flint.exe")
+    parser.add_argument("--flint-exe", required=True, type=Path, help="A flint.exe built with the test-runtime feature")
     run_spike(parser.parse_args())

@@ -60,7 +60,7 @@ fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
     command
         .arg(project.join("bin/Debug/net10.0/FlintRuntimeHost.dll"))
         .arg(&native)
-        .arg(app.registry_port.to_string())
+        .arg(app.bridge_port.to_string())
         .arg(&ready)
         .arg(&stop)
         .current_dir(&app.directory)

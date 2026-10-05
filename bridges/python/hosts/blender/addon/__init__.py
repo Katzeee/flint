@@ -12,8 +12,8 @@ bl_info = {
 
 
 class FlintBridgeDraft(bpy.types.PropertyGroup):
-    address: StringProperty(name="Registry address", default="127.0.0.1")
-    port: IntProperty(name="Registry port", default=6321, min=1, max=65535)
+    address: StringProperty(name="Bridge address", default="127.0.0.1")
+    port: IntProperty(name="Bridge port", default=6321, min=1, max=65535)
     instance_name: StringProperty(name="Instance name", default="Blender")
     enabled: BoolProperty(name="Connect to Flint", default=True)
 
@@ -47,7 +47,7 @@ def _draw_controls(layout, context):
         _kv_row(connection, "Active settings", label_fraction).label(text="—")
     settings = layout.box()
     settings.label(text="Settings")
-    for label, field in (("Registry address", "address"), ("Registry port", "port"),
+    for label, field in (("Bridge address", "address"), ("Bridge port", "port"),
                          ("Instance name", "instance_name"), ("Connect to Flint", "enabled")):
         _kv_row(settings, label, label_fraction).prop(draft, field, text="")
     row = layout.row()

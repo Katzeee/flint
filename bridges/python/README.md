@@ -34,7 +34,7 @@ Code submitted through flint executes on Maya's UI thread.
 
 ## 3ds Max
 
-Export `flint-max.zip` with `flint bridge export max`. Extract `Flint.bundle` into an ApplicationPlugins search directory, such as `%APPDATA%/Autodesk/ApplicationPlugins`. With **Load Startup Scripts** enabled in 3ds Max's MAXScript preferences, the bundle's post-startup script connects to registry port `6321` when 3ds Max starts. Use **Flint > Flint Bridge** inside 3ds Max to edit the connection, inspect its status, or reconnect. Clicking **Apply** saves the settings in `FlintBridge.ini` under 3ds Max's user data directory.
+Export `flint-max.zip` with `flint bridge export max`. Extract `Flint.bundle` into an ApplicationPlugins search directory, such as `%APPDATA%/Autodesk/ApplicationPlugins`. With **Load Startup Scripts** enabled in 3ds Max's MAXScript preferences, the bundle's post-startup script connects to Bridge port `6321` when 3ds Max starts. Use **Flint > Flint Bridge** inside 3ds Max to edit the connection, inspect its status, or reconnect. Clicking **Apply** saves the settings in `FlintBridge.ini` under 3ds Max's user data directory.
 
 Alternatively, run the shared setup and this connection call in 3ds Max's Python execution environment on the application's main thread:
 

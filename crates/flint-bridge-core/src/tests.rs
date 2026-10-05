@@ -1,4 +1,5 @@
 use super::*;
+use futures_util::StreamExt;
 use serde_json::{json, Value};
 use std::time::Instant;
 
@@ -112,7 +113,7 @@ fn execute(request_id: &str) -> Envelope {
 }
 
 /// Accepts one bridge, acknowledges its heartbeats, and relays the execution channel.
-struct Registry {
+struct Backend {
     port: u16,
     registered: mpsc::Receiver<RegisterInstance>,
     requests: async_mpsc::UnboundedSender<Envelope>,
@@ -120,7 +121,7 @@ struct Registry {
     thread: Option<thread::JoinHandle<()>>,
 }
 
-impl Registry {
+impl Backend {
     fn start() -> Self {
         Self::start_sessions(1)
     }
@@ -141,7 +142,7 @@ impl Registry {
                 let listener = tokio::net::TcpListener::from_std(listener).unwrap();
                 for _ in 0..sessions {
                     let (socket, _) = listener.accept().await.unwrap();
-                    let mut heartbeat = Framed::new(socket, EnvelopeCodec::default());
+                    let mut heartbeat = framed(socket);
                     let register = heartbeat.next().await.unwrap().unwrap();
                     let Some(Payload::RegisterInstance(info)) = register.payload else {
                         panic!("expected instance registration");
@@ -156,7 +157,7 @@ impl Registry {
                         }
                     });
                     let (socket, _) = listener.accept().await.unwrap();
-                    let mut execution = Framed::new(socket, EnvelopeCodec::default());
+                    let mut execution = framed(socket);
                     let register = execution.next().await.unwrap().unwrap();
                     let Some(Payload::RegisterExecutionChannel(channel)) = &register.payload else {
                         panic!("expected execution channel registration");
@@ -205,7 +206,7 @@ impl Registry {
                 Ok(envelope) => return envelope,
                 Err(_) => {
                     self.propagate_panic();
-                    assert!(Instant::now() < deadline, "registry received nothing");
+                    assert!(Instant::now() < deadline, "backend received nothing");
                 }
             }
         }
@@ -223,10 +224,10 @@ impl Registry {
     }
 }
 
-fn connected(registry: &mut Registry) -> Core {
-    let core = Core::new(registry.port);
+fn connected(backend: &mut Backend) -> Core {
+    let core = Core::new(backend.port);
     wait_until(|| {
-        registry.propagate_panic();
+        backend.propagate_panic();
         core.connected()
     });
     core
@@ -299,11 +300,11 @@ fn null_handles_are_ignored() {
 
 #[test]
 fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
-    let mut first = Registry::start();
+    let mut first = Backend::start();
     let core = connected(&mut first);
     let original = first.registration();
     assert_eq!(original.instance_name, "场景");
-    let second = Registry::start();
+    let second = Backend::start();
     assert_eq!(
         core.apply_settings(settings(second.port, "新场景", true)),
         ApplyResult::Applied as u32
@@ -321,12 +322,12 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
 
 #[test]
 fn applying_settings_refuses_to_interrupt_an_active_execution() {
-    let mut first = Registry::start();
+    let mut first = Backend::start();
     let core = connected(&mut first);
     first.registration();
     first.send(execute("request-1"));
     assert!(core.poll(Duration::from_secs(10)).is_some());
-    let second = Registry::start();
+    let second = Backend::start();
     assert_eq!(
         core.apply_settings(settings(second.port, "changed", true)),
         ApplyResult::Busy as u32
@@ -347,10 +348,10 @@ fn applying_settings_refuses_to_interrupt_an_active_execution() {
 
 #[test]
 fn disabling_and_reenabling_keeps_the_core_available() {
-    let mut first = Registry::start();
+    let mut first = Backend::start();
     let core = connected(&mut first);
     first.registration();
-    let second = Registry::start();
+    let second = Backend::start();
     assert_eq!(
         core.apply_settings(settings(second.port, "场景", false)),
         ApplyResult::Applied as u32
@@ -368,12 +369,12 @@ fn disabling_and_reenabling_keeps_the_core_available() {
 
 #[test]
 fn manual_reconnect_uses_the_applied_settings_without_reporting_an_error() {
-    let mut registry = Registry::start_sessions(2);
-    let core = connected(&mut registry);
-    let original = registry.registration();
+    let mut backend = Backend::start_sessions(2);
+    let core = connected(&mut backend);
+    let original = backend.registration();
     assert!(core.reconnect());
     wait_until(|| core.connected());
-    let updated = registry.registration();
+    let updated = backend.registration();
     assert_eq!(updated.bridge_id, original.bridge_id);
     assert_eq!(updated.instance_name, original.instance_name);
     assert_eq!(core.status()["connection"], "connected");
@@ -396,10 +397,10 @@ fn unregistered_bridge_is_idle_and_rejects_commands() {
 
 #[test]
 fn execution_is_delivered_and_its_output_and_result_are_reported() {
-    let mut registry = Registry::start();
-    let core = connected(&mut registry);
+    let mut backend = Backend::start();
+    let core = connected(&mut backend);
     assert_eq!(core.instance_id(), "instance-1");
-    registry.send(execute("request-1"));
+    backend.send(execute("request-1"));
     let event = core.poll(Duration::from_secs(10)).unwrap();
     assert_eq!(
         event,
@@ -420,14 +421,14 @@ fn execution_is_delivered_and_its_output_and_result_are_reported() {
     assert!(core.submit(r#"{"kind":"result","request_id":"request-1","succeeded":true}"#));
     assert!(!core.busy());
 
-    let output = registry.receive();
+    let output = backend.receive();
     assert_eq!(output.request_id, "request-1");
     let Some(Payload::ExecutionOutputUpdate(update)) = output.payload else {
         panic!("expected output update, got {output:?}");
     };
     assert_eq!(update.sequence, 1);
     assert_eq!(update.stdout_delta, "你好\n");
-    let result = registry.receive();
+    let result = backend.receive();
     let Some(Payload::ExecutionResult(result)) = result.payload else {
         panic!("expected execution result, got {result:?}");
     };
@@ -438,12 +439,12 @@ fn execution_is_delivered_and_its_output_and_result_are_reported() {
 
 #[test]
 fn overlapping_execution_is_answered_as_instance_busy() {
-    let mut registry = Registry::start();
-    let core = connected(&mut registry);
-    registry.send(execute("request-1"));
+    let mut backend = Backend::start();
+    let core = connected(&mut backend);
+    backend.send(execute("request-1"));
     assert!(core.poll(Duration::from_secs(10)).is_some());
-    registry.send(execute("request-2"));
-    let rejected = registry.receive();
+    backend.send(execute("request-2"));
+    let rejected = backend.receive();
     assert_eq!(rejected.request_id, "request-2");
     let Some(Payload::ExecutionResult(result)) = rejected.payload else {
         panic!("expected execution result, got {rejected:?}");

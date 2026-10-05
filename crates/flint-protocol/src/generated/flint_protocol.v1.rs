@@ -86,7 +86,6 @@ pub enum ErrorCode {
     InstanceOffline = 7,
     BackendBusy = 8,
     BackendStopping = 9,
-    BackendChanged = 10,
     AlreadyRegistered = 11,
     NotRegistered = 12,
     UnexpectedMessageType = 13,
@@ -111,7 +110,6 @@ impl ErrorCode {
             Self::InstanceOffline => "ERROR_CODE_INSTANCE_OFFLINE",
             Self::BackendBusy => "ERROR_CODE_BACKEND_BUSY",
             Self::BackendStopping => "ERROR_CODE_BACKEND_STOPPING",
-            Self::BackendChanged => "ERROR_CODE_BACKEND_CHANGED",
             Self::AlreadyRegistered => "ERROR_CODE_ALREADY_REGISTERED",
             Self::NotRegistered => "ERROR_CODE_NOT_REGISTERED",
             Self::UnexpectedMessageType => "ERROR_CODE_UNEXPECTED_MESSAGE_TYPE",
@@ -133,7 +131,6 @@ impl ErrorCode {
             "ERROR_CODE_INSTANCE_OFFLINE" => Some(Self::InstanceOffline),
             "ERROR_CODE_BACKEND_BUSY" => Some(Self::BackendBusy),
             "ERROR_CODE_BACKEND_STOPPING" => Some(Self::BackendStopping),
-            "ERROR_CODE_BACKEND_CHANGED" => Some(Self::BackendChanged),
             "ERROR_CODE_ALREADY_REGISTERED" => Some(Self::AlreadyRegistered),
             "ERROR_CODE_NOT_REGISTERED" => Some(Self::NotRegistered),
             "ERROR_CODE_UNEXPECTED_MESSAGE_TYPE" => Some(Self::UnexpectedMessageType),
@@ -152,18 +149,13 @@ pub struct PingResponse {
     pub ready: bool,
     #[prost(uint32, tag = "2")]
     pub pid: u32,
-    #[prost(string, tag = "3")]
-    pub backend_id: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
-    pub registry_host: ::prost::alloc::string::String,
+    pub bridge_address: ::prost::alloc::string::String,
     #[prost(uint32, tag = "5")]
-    pub registry_port: u32,
+    pub bridge_port: u32,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StopBackendRequest {
-    #[prost(string, tag = "1")]
-    pub backend_id: ::prost::alloc::string::String,
-}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct StopBackendRequest {}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StopBackendResponse {
     #[prost(bool, tag = "1")]

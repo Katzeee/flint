@@ -119,8 +119,8 @@ fn desktop_info(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
     let config = state.config();
     serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "control_endpoint": format!("{}:{}", config.host, config.port),
-        "registry_endpoint": format!("{}:{}", config.registry_host, config.registry_port),
+        "control_endpoint": format!("{}:{}", config.address, config.control_port),
+        "bridge_endpoint": format!("{}:{}", config.address, config.bridge_port),
         "state_dir": config.state_dir,
         "attach_supported": cfg!(windows),
     })

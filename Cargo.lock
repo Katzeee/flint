@@ -1053,7 +1053,6 @@ dependencies = [
  "anyhow",
  "dirs",
  "fs2",
- "serde",
 ]
 
 [[package]]
@@ -1067,7 +1066,6 @@ dependencies = [
  "futures-util",
  "serde_json",
  "tokio",
- "tokio-util",
  "uuid",
 ]
 

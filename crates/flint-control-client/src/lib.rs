@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use flint_config::Config;
 use flint_protocol::{envelope::Payload, *};
 use fs2::FileExt;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::SinkExt;
 use std::{
     fs::{File, OpenOptions},
     io,
@@ -10,7 +10,6 @@ use std::{
     time::Duration,
 };
 use tokio::{net::TcpStream, time::Instant};
-use tokio_util::codec::Framed;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -35,21 +34,13 @@ pub async fn request(config: &Config, payload: Payload) -> Result<Payload> {
 }
 async fn request_until(config: &Config, payload: Payload, deadline: Instant) -> Result<Payload> {
     tokio::time::timeout_at(deadline, async {
-        let socket = TcpStream::connect((config.host.as_str(), config.port)).await?;
-        let mut wire = Framed::new(socket, EnvelopeCodec::default());
+        let socket = TcpStream::connect((config.address.as_str(), config.control_port)).await?;
+        let mut wire = framed(socket);
         let id = Uuid::new_v4().simple().to_string();
-        wire.send(Envelope {
-            protocol_version: PROTOCOL_VERSION,
-            request_id: id.clone(),
-            payload: Some(payload),
-        })
-        .await?;
-        let response = wire.next().await.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Backend closed before replying",
-            )
-        })??;
+        wire.send(envelope(id.clone(), payload)).await?;
+        let response = read_envelope(&mut wire)
+            .await
+            .context("Backend closed before replying")?;
         anyhow::ensure!(
             response.request_id == id,
             "Response request identity mismatch"
@@ -122,28 +113,12 @@ impl Lifecycle {
         }
         let mut child = None;
         if initial.is_none() && self.lease_available()? {
-            anyhow::ensure!(
-                ["localhost", "127.0.0.1", "::1"].contains(&self.config.host.as_str()),
-                "Automatic startup requires a local endpoint"
-            );
             let mut command = Command::new(std::env::current_exe()?);
-            command.args([
-                "serve",
-                "--host",
-                &self.config.host,
-                "--port",
-                &self.config.port.to_string(),
-                "--registry-host",
-                &self.config.registry_host,
-                "--registry-port",
-                &self.config.registry_port.to_string(),
-            ]);
+            command.arg("serve");
             if self.no_tray {
                 command.arg("--no-tray");
             }
-            command
-                .env("FLINT_STATE_DIR", &self.config.state_dir)
-                .stdin(Stdio::null());
+            command.stdin(Stdio::null());
             let log = OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -202,9 +177,7 @@ impl Lifecycle {
         };
         let response = request_until(
             &self.config,
-            Payload::StopBackendRequest(StopBackendRequest {
-                backend_id: status.backend_id.clone(),
-            }),
+            Payload::StopBackendRequest(StopBackendRequest {}),
             deadline,
         )
         .await?;
@@ -218,9 +191,6 @@ impl Lifecycle {
         loop {
             match self.probe(deadline).await {
                 Ok(None) if self.lease_available()? => {
-                    return Ok(serde_json::json!({"stopped": true, "pid": status.pid}))
-                }
-                Ok(Some(p)) if p.backend_id != status.backend_id => {
                     return Ok(serde_json::json!({"stopped": true, "pid": status.pid}))
                 }
                 Err(e)
@@ -253,7 +223,7 @@ fn lock_contended(error: &io::Error) -> bool {
 }
 
 pub fn status_json(p: PingResponse) -> serde_json::Value {
-    serde_json::json!({"ready": p.ready, "pid": p.pid, "backend_id": p.backend_id, "registry_host": p.registry_host, "registry_port": p.registry_port})
+    serde_json::json!({"ready": p.ready, "pid": p.pid, "bridge_address": p.bridge_address, "bridge_port": p.bridge_port})
 }
 pub fn instance_json(i: InstanceInfo) -> serde_json::Value {
     serde_json::json!({"instance_id": i.instance_id, "instance_name": i.instance_name, "instance_type": i.instance_type,

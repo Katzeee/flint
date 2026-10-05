@@ -49,7 +49,7 @@ public static class FlintTestBootstrap
     }}
 }}
 "#,
-            app.registry_port
+            app.bridge_port
         ),
     )?;
     let package_path = package

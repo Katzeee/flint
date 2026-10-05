@@ -8,7 +8,7 @@ publish.workspace = true
 flint-config.workspace = true
 flint-protocol.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "net", "sync", "time"] }
-tokio-util = { workspace = true, features = ["codec", "rt"] }
+tokio-util = { workspace = true, features = ["rt"] }
 futures-util = { workspace = true, features = ["sink"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

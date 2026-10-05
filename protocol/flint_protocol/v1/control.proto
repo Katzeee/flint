@@ -6,11 +6,10 @@ message PingRequest {}
 message PingResponse {
   bool ready = 1;
   uint32 pid = 2;
-  string backend_id = 3;
-  string registry_host = 4;
-  uint32 registry_port = 5;
+  string bridge_address = 4;
+  uint32 bridge_port = 5;
 }
-message StopBackendRequest { string backend_id = 1; }
+message StopBackendRequest {}
 message StopBackendResponse { bool stopping = 1; }
 message ShowWindowRequest {}
 message ShowWindowResponse { bool accepted = 1; }

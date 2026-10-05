@@ -8,6 +8,7 @@ build = "build.rs"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+test-runtime = ["flint-config/test-runtime"]
 
 [dependencies]
 flint-backend.workspace = true
@@ -33,3 +34,4 @@ wait-timeout.workspace = true
 [[test]]
 name = "product"
 path = "../../../tests/main.rs"
+required-features = ["test-runtime"]

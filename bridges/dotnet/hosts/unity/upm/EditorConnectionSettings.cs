@@ -8,8 +8,8 @@ namespace Flint.Unity
     /// <summary>Per-user connection preferences and their Editor UI.</summary>
     internal static class EditorConnectionSettings
     {
-        internal const string AddressKey = "Flint.Bridge.RegistryAddress";
-        internal const string PortKey = "Flint.Bridge.RegistryPort";
+        internal const string AddressKey = "Flint.Bridge.BridgeAddress";
+        internal const string PortKey = "Flint.Bridge.BridgePort";
         internal const string NameKey = "Flint.Bridge.InstanceName";
         internal const string EnabledKey = "Flint.Bridge.Enabled";
 
@@ -95,8 +95,8 @@ namespace Flint.Unity
 
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Settings", EditorStyles.boldLabel);
-                draft.address = EditorGUILayout.TextField("Registry address", draft.address);
-                draft.port = EditorGUILayout.IntField("Registry port", draft.port);
+                draft.address = EditorGUILayout.TextField("Bridge address", draft.address);
+                draft.port = EditorGUILayout.IntField("Bridge port", draft.port);
                 draft.name = EditorGUILayout.TextField("Instance name", draft.name);
                 draft.enabled = EditorGUILayout.Toggle("Connect to Flint", draft.enabled);
 

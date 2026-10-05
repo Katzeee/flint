@@ -6,11 +6,10 @@ use std::{process::Command, time::Duration};
 #[test]
 fn local_host_commands_work_without_starting_a_backend() -> Result<()> {
     let directory = tempfile::tempdir()?;
-    let state = directory.path().join("state");
     let output = checked(
         Command::new(binary())
             .args(["hosts", "--json"])
-            .env("FLINT_STATE_DIR", &state),
+            .env("FLINT_TEST_ROOT", directory.path()),
         Duration::from_secs(10),
     )?;
     let discovery: Value = serde_json::from_str(&output.stdout)?;
@@ -19,7 +18,7 @@ fn local_host_commands_work_without_starting_a_backend() -> Result<()> {
         let output = run(
             Command::new(binary())
                 .args(["hosts", operation, "--pid", "0", "--json"])
-                .env("FLINT_STATE_DIR", &state),
+                .env("FLINT_TEST_ROOT", directory.path()),
             Duration::from_secs(10),
             None,
         )?;
@@ -31,7 +30,8 @@ fn local_host_commands_work_without_starting_a_backend() -> Result<()> {
             "No supported local host process with PID 0"
         );
     }
-    assert!(!state.exists());
+    assert!(!directory.path().join("workflows").exists());
+    assert!(!directory.path().join("runtime").exists());
     Ok(())
 }
 
@@ -54,12 +54,11 @@ fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
     hidden(&mut command);
     let host = OwnedProcess(command.spawn()?);
     let pid = host.0.id().to_string();
-    let state = directory.path().join("state");
     for preview in [false, true] {
         let mut command = Command::new(binary());
         command
             .args(["hosts", "info", "--pid", &pid, "--json"])
-            .env("FLINT_STATE_DIR", &state);
+            .env("FLINT_TEST_ROOT", directory.path());
         if preview {
             command.arg("--preview");
         }
@@ -80,6 +79,7 @@ fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
             assert!(info.get("preview").is_none());
         }
     }
-    assert!(!state.exists());
+    assert!(!directory.path().join("workflows").exists());
+    assert!(!directory.path().join("runtime").exists());
     Ok(())
 }

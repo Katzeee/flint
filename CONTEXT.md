@@ -39,7 +39,7 @@ The host process's exclusive right to run one Bridge, held by its Bridge core th
 The host-side code that dispatches a Bridge execution request through the host runtime on the thread required by that application.
 
 **Backend**:
-The Flint service that accepts control commands and Bridge connections, coordinates executions, and owns workflow records.
+The single local service for the current user that accepts control commands and Bridge connections, coordinates executions, and owns workflow records. CLI sessions reuse this service independently of their working directory.
 _Avoid_: Server or core when referring to this service as a whole.
 
 **Connected instance**:
@@ -53,9 +53,9 @@ _Avoid_: Client without qualification.
 **Control endpoint**:
 The backend address and port used by control clients to send commands.
 
-**Registry endpoint**:
+**Bridge endpoint**:
 The backend address and port used by Bridges for registration, heartbeat, and execution traffic.
-_Avoid_: Registration-only endpoint.
+_Avoid_: Registry endpoint or host endpoint for this connection boundary.
 
 **Workflow**:
 A durable group of related executions with its own identifier, name, and description. Its records remain after a backend restart.

@@ -1,8 +1,8 @@
 export type BackendStatus = Readonly<{
   ready: boolean;
   pid: number;
-  registry_host: string;
-  registry_port: number;
+  bridge_address: string;
+  bridge_port: number;
 }>;
 
 export type ConnectedInstance = Readonly<{
@@ -57,7 +57,7 @@ export type Workflow = Readonly<{
 export type DesktopInfo = Readonly<{
   version: string;
   control_endpoint: string;
-  registry_endpoint: string;
+  bridge_endpoint: string;
   state_dir: string;
   attach_supported: boolean;
 }>;

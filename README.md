@@ -17,11 +17,11 @@ flint restart --json
 flint stop --json
 ```
 
-Commands that need the backend start it automatically. Multiple terminals share that backend. Stop and restart refuse while execution responses are pending and leave host applications running. Submitted code is not automatically replayed after a communication failure.
+Commands that need the backend start it automatically. All terminals and agent sessions for the same user share one local backend. Stop and restart refuse while execution responses are pending and leave host applications running. Submitted code is not automatically replayed after a communication failure.
 
-Use `flint --help` or `flint <command> --help` for options. Endpoint and timeout options follow the command. A remote backend must already be running; automatic startup is local.
+Use `flint --help` or `flint <command> --help` for options. Commands find the local backend automatically; no endpoint selection is required.
 
-Workflow records and logs are stored in flint's local application-data directory. FLINT_STATE_DIR selects another directory; use the same value for commands controlling the same backend. Completed records survive a backend restart.
+Workflow records, runtime locks, and logs live in flint's local application-data directory. Completed records survive a backend restart.
 
 ## Connect an application
 

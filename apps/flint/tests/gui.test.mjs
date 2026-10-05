@@ -7,7 +7,6 @@ import { _electron } from "playwright-core";
 import { preview } from "vite";
 
 const appRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const chromeMode = process.env.FLINT_GUI_CHROME ?? "custom";
 
 test("desktop navigation preserves connection identity, asynchronous selection and service actions", async () => {
   // Serve the window's own content security policy, so the view loads under the rules Tauri applies.
@@ -34,14 +33,14 @@ test("desktop navigation preserves connection identity, asynchronous selection a
         window.__cspViolations.push(`${event.effectiveDirective} ${event.blockedURI}`),
       );
     });
-    await page.addInitScript((chromeMode) => {
+    await page.addInitScript(() => {
       window.__invokeCalls = [];
       window.__mockSnapshot = {
         backend: {
           ready: true,
           pid: 4312,
-          registry_host: "127.0.0.1",
-          registry_port: 6321,
+          bridge_address: "127.0.0.1",
+          bridge_port: 6321,
         },
         instances: [],
       };
@@ -84,7 +83,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
         core: {
           invoke: async (command, args) => {
             window.__invokeCalls.push({ command, args });
-            if (command === "activate_title_bar") return chromeMode;
+            if (command === "activate_title_bar") return "custom";
             if (command === "snapshot")
               return structuredClone(window.__mockSnapshot);
             if (command === "candidates")
@@ -158,7 +157,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
                 version: "0.1.0",
                 state_dir: "C:/FlintData",
                 control_endpoint: "127.0.0.1:6322",
-                registry_endpoint: "127.0.0.1:6321",
+                bridge_endpoint: "127.0.0.1:6321",
               };
             if (command === "stop_backend") {
               if (!window.__allowStop)
@@ -169,7 +168,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
           },
         },
       };
-    }, chromeMode);
+    });
     const url = `http://127.0.0.1:${address.port}/`;
     await page.goto(url);
     await page
@@ -220,11 +219,6 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       await page.getByRole("link", { name: "Maya", exact: true }).count(),
       0,
     );
-    if (process.env.FLINT_GUI_SCREENSHOT)
-      await page.screenshot({
-        fullPage: true,
-        path: process.env.FLINT_GUI_SCREENSHOT,
-      });
     // The thumbnail belongs to the card's navigation target, not just its text link.
     const card = page.getByRole("article").filter({
       has: page.getByRole("link", { name: "Character_Rig.ma", exact: true }),

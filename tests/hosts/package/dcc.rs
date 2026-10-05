@@ -86,7 +86,7 @@ pub(super) fn verify_host(
     let bootstrap = app.directory.join("bootstrap.py");
     let screenshot = app.directory.join("settings.png");
     let config = json!({"host":kind,"bundle":bundle,"ready":ready,
-        "port":app.registry_port,"screenshot":screenshot});
+        "port":app.bridge_port,"screenshot":screenshot});
     let script = format!(
         "import json\nCONFIG = json.loads({})\n{}",
         serde_json::to_string(&config.to_string())?,
@@ -125,7 +125,7 @@ pub(super) fn verify_host(
         )?;
         fs::write(
             appdata.join("FlintBridge.ini"),
-            format!("[Flint Bridge]\nRegistryPort={}\n", app.registry_port),
+            format!("[Flint Bridge]\nBridgePort={}\n", app.bridge_port),
         )?;
         command
             .env("ADSK_APPLICATION_PLUGINS", &installation)

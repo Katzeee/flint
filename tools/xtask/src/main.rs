@@ -74,7 +74,7 @@ fn build(root: &Path, args: &[String]) -> Result<()> {
 }
 
 fn rust(root: &Path) -> Result<()> {
-    execute(root, "cargo", &["test", "--workspace", "--locked"], &[])
+    cargo_test(root, &["test", "--workspace", "--locked"])
 }
 
 fn gui(root: &Path) -> Result<()> {
@@ -105,9 +105,8 @@ fn python(root: &Path) -> Result<()> {
         ],
         &[],
     )?;
-    execute(
+    cargo_test(
         root,
-        "cargo",
         &[
             "test",
             "--locked",
@@ -119,7 +118,6 @@ fn python(root: &Path) -> Result<()> {
             "runtime::python::",
             "--ignored",
         ],
-        &[],
     )
 }
 
@@ -143,9 +141,8 @@ fn csharp(root: &Path) -> Result<()> {
         ],
         &[("FLINT_BRIDGE_CORE", core.as_os_str())],
     )?;
-    execute(
+    cargo_test(
         root,
-        "cargo",
         &[
             "test",
             "--locked",
@@ -157,14 +154,12 @@ fn csharp(root: &Path) -> Result<()> {
             "runtime::csharp::",
             "--ignored",
         ],
-        &[],
     )
 }
 
 fn hosts(root: &Path) -> Result<()> {
-    execute(
+    cargo_test(
         root,
-        "cargo",
         &[
             "test",
             "--locked",
@@ -177,7 +172,25 @@ fn hosts(root: &Path) -> Result<()> {
             "--ignored",
             "--test-threads=1",
         ],
-        &[],
+    )
+}
+
+fn cargo_test(root: &Path, args: &[&str]) -> Result<()> {
+    let mut args = args.to_vec();
+    let options = args
+        .iter()
+        .position(|arg| *arg == "--")
+        .unwrap_or(args.len());
+    args.splice(options..options, ["--features", "flint/test-runtime"]);
+    let target = target_dir(root).join("tests");
+    // Tauri's permission globbing requires ordinary Windows paths.
+    #[cfg(windows)]
+    let target = PathBuf::from(target.to_string_lossy().trim_start_matches(r"\\?\"));
+    execute(
+        root,
+        "cargo",
+        &args,
+        &[("CARGO_TARGET_DIR", target.as_os_str())],
     )
 }
 

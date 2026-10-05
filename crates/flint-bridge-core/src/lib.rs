@@ -6,7 +6,7 @@
 
 use flint_protocol::timing::{HEARTBEAT_ACK_TIMEOUT, HEARTBEAT_INTERVAL};
 use flint_protocol::{envelope::Payload, *};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::SinkExt;
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::{c_char, CStr, CString},
@@ -19,13 +19,13 @@ use tokio::{
     net::TcpStream,
     sync::{mpsc as async_mpsc, watch},
 };
-use tokio_util::{codec::Framed, sync::CancellationToken};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 mod claim;
 use claim::ClaimOutcome;
 
-type Wire = Framed<TcpStream, EnvelopeCodec>;
+type Wire = flint_protocol::framing::Wire<TcpStream>;
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -182,23 +182,6 @@ enum ApplyResult {
     Invalid = 2,
 }
 
-fn envelope(request_id: String, payload: Payload) -> Envelope {
-    Envelope {
-        protocol_version: PROTOCOL_VERSION,
-        request_id,
-        payload: Some(payload),
-    }
-}
-
-async fn read(wire: &mut Wire) -> Result<Envelope, String> {
-    match tokio::time::timeout(Duration::from_secs(10), wire.next()).await {
-        Ok(Some(Ok(message))) => Ok(message),
-        Ok(Some(Err(error))) => Err(error.to_string()),
-        Ok(None) => Err("connection closed".into()),
-        Err(_) => Err("response timed out".into()),
-    }
-}
-
 async fn connect(settings: &Settings) -> Result<Wire, String> {
     let stream = tokio::time::timeout(
         Duration::from_secs(10),
@@ -207,11 +190,14 @@ async fn connect(settings: &Settings) -> Result<Wire, String> {
     .await
     .map_err(|_| "connection timed out".to_string())?
     .map_err(|error| error.to_string())?;
-    Ok(Framed::new(stream, EnvelopeCodec::default()))
+    Ok(framed(stream))
 }
 
 async fn ack(wire: &mut Wire, request_id: &str) -> Result<InstanceAck, String> {
-    let response = read(wire).await?;
+    let response = tokio::time::timeout(Duration::from_secs(10), read_envelope(wire))
+        .await
+        .map_err(|_| "response timed out".to_string())?
+        .map_err(|error| error.to_string())?;
     if response.request_id != request_id {
         return Err("handshake request ID mismatch".into());
     }
@@ -248,9 +234,8 @@ async fn execution(
 ) -> Result<(), String> {
     loop {
         tokio::select! {
-            incoming = wire.next() => {
-                let message = incoming.ok_or("execution channel closed")?
-                    .map_err(|error| error.to_string())?;
+            incoming = read_envelope(&mut wire) => {
+                let message = incoming.map_err(|error| error.to_string())?;
                 let Some(Payload::HostExecuteRequest(request)) = message.payload else {
                     return Err("unexpected execution message".into());
                 };

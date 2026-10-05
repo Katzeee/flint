@@ -90,7 +90,7 @@ export function Settings({
             <List.Item trailing={info.data ? <Code>{info.data.control_endpoint}</Code> : pending}>
               Control endpoint
             </List.Item>
-            <List.Item trailing={info.data ? <Code>{info.data.registry_endpoint}</Code> : pending}>
+            <List.Item trailing={info.data ? <Code>{info.data.bridge_endpoint}</Code> : pending}>
               Bridge endpoint
             </List.Item>
             <List.Item trailing={info.data?.state_dir ?? pending}>
