@@ -42,7 +42,7 @@ namespace Flint.Unity
         }
 
         [Serializable]
-        private sealed class Command
+        private sealed class ExecutionReport
         {
             public string kind;
             public string request_id;
@@ -221,7 +221,7 @@ namespace Flint.Unity
                 LogScope.Value = request.request_id;
                 var assembly = System.Reflection.Assembly.Load(File.ReadAllBytes(path));
                 assembly.GetType(className, true).GetMethod("Run").Invoke(null, null);
-                Submit(new Command { kind = "output", request_id = request.request_id,
+                ReportExecution(new ExecutionReport { kind = "output", request_id = request.request_id,
                     stdout = stdout.ToString(), stderr = stderr.ToString() });
                 Finish(request, true, null, null);
             }
@@ -229,7 +229,7 @@ namespace Flint.Unity
             {
                 var actual = exception is TargetInvocationException && exception.InnerException != null
                     ? exception.InnerException : exception;
-                Submit(new Command { kind = "output", request_id = request.request_id,
+                ReportExecution(new ExecutionReport { kind = "output", request_id = request.request_id,
                     stdout = stdout.ToString(), stderr = stderr.ToString() });
                 Finish(request, false, actual.ToString(), "execution_error");
             }
@@ -242,13 +242,13 @@ namespace Flint.Unity
 
         private static void Finish(ExecuteEvent request, bool succeeded, string traceback, string error)
         {
-            Submit(new Command { kind = "result", request_id = request.request_id,
+            ReportExecution(new ExecutionReport { kind = "result", request_id = request.request_id,
                 succeeded = succeeded, traceback = traceback, error = error });
         }
 
-        private static void Submit(Command command)
+        private static void ReportExecution(ExecutionReport report)
         {
-            if (bridge != null) bridge.Submit(JsonUtility.ToJson(command));
+            if (bridge != null) bridge.ReportExecution(JsonUtility.ToJson(report));
         }
     }
 }

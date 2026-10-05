@@ -1,0 +1,163 @@
+//! C callers own handle lifetime and must finish polling and host workers before
+//! destruction. Returned strings must be released through this library.
+
+use crate::{
+    execution::ExecutionReport,
+    settings::{ApplyResult, BridgeOptions, BridgeSettings},
+    BridgeCore,
+};
+use std::{
+    ffi::{c_char, CStr, CString},
+    ptr,
+    time::Duration,
+};
+
+unsafe fn input(value: *const c_char) -> Option<String> {
+    if value.is_null() {
+        None
+    } else {
+        CStr::from_ptr(value).to_str().ok().map(str::to_owned)
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn flint_bridge_abi_version() -> u32 {
+    3
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_create(
+    config_json: *const c_char,
+    error_out: *mut *mut c_char,
+) -> *mut BridgeCore {
+    if !error_out.is_null() {
+        *error_out = ptr::null_mut();
+    }
+    let result = (|| {
+        if config_json.is_null() {
+            return Err("Bridge configuration is null".into());
+        }
+        let text = CStr::from_ptr(config_json)
+            .to_str()
+            .map_err(|error| format!("Bridge configuration is not UTF-8: {error}"))?;
+        let options = serde_json::from_str::<BridgeOptions>(text)
+            .map_err(|error| format!("Invalid Bridge configuration: {error}"))?;
+        BridgeCore::new(options)
+    })();
+    match result {
+        Ok(core) => Box::into_raw(Box::new(core)),
+        Err(error) => {
+            if !error_out.is_null() {
+                *error_out = CString::new(error.replace('\0', "\\0"))
+                    .expect("error text has no NUL bytes")
+                    .into_raw();
+            }
+            ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_poll(
+    core: *const BridgeCore,
+    timeout_ms: u32,
+) -> *mut c_char {
+    let Some(core) = core.as_ref() else {
+        return ptr::null_mut();
+    };
+    match core
+        .poll(Duration::from_millis(timeout_ms as u64))
+        .and_then(|event| serde_json::to_string(&event).ok())
+        .and_then(|event| CString::new(event).ok())
+    {
+        Some(event) => event.into_raw(),
+        None => ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_report_execution(
+    core: *const BridgeCore,
+    report_json: *const c_char,
+) -> bool {
+    let Some(core) = core.as_ref() else {
+        return false;
+    };
+    let Some(report) =
+        input(report_json).and_then(|text| serde_json::from_str::<ExecutionReport>(&text).ok())
+    else {
+        return false;
+    };
+    core.report_execution(report)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_connected(core: *const BridgeCore) -> bool {
+    core.as_ref().is_some_and(BridgeCore::connected)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_busy(core: *const BridgeCore) -> bool {
+    core.as_ref().is_some_and(BridgeCore::busy)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_instance_id(core: *const BridgeCore) -> *mut c_char {
+    let Some(core) = core.as_ref() else {
+        return ptr::null_mut();
+    };
+    CString::new(core.instance_id()).unwrap().into_raw()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_reconnect(core: *const BridgeCore) -> bool {
+    core.as_ref().is_some_and(BridgeCore::reconnect)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_status_json(core: *const BridgeCore) -> *mut c_char {
+    let Some(core) = core.as_ref() else {
+        return ptr::null_mut();
+    };
+    CString::new(core.status_json()).unwrap().into_raw()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_apply_settings(
+    core: *const BridgeCore,
+    settings_json: *const c_char,
+) -> u32 {
+    let Some(core) = core.as_ref() else {
+        return ApplyResult::Invalid as u32;
+    };
+    let Some(settings) =
+        input(settings_json).and_then(|text| serde_json::from_str::<BridgeSettings>(&text).ok())
+    else {
+        return ApplyResult::Invalid as u32;
+    };
+    core.apply_settings(settings) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_stop(core: *const BridgeCore) {
+    if let Some(core) = core.as_ref() {
+        core.stop();
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_destroy(core: *mut BridgeCore) {
+    if !core.is_null() {
+        drop(Box::from_raw(core));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn flint_bridge_string_free(value: *mut c_char) {
+    if !value.is_null() {
+        drop(CString::from_raw(value));
+    }
+}
+
+#[cfg(test)]
+mod tests;

@@ -11,7 +11,7 @@ class ExecutionTask:
     """Own one request's worker and ordered output/result queue.
 
     The worker invokes the host strategy. The Bridge thread drains this queue
-    and remains the sole submitter of execution events to the native core.
+    and remains the sole reporter of execution events to the native core.
     """
 
     def __init__(self, runner, event):
@@ -26,14 +26,14 @@ class ExecutionTask:
     def join(self, timeout):
         self._thread.join(timeout)
 
-    def drain(self, submit):
-        """Submit queued output before its terminal result; return when complete."""
+    def drain(self, report_execution):
+        """Report queued output before its terminal result; return when complete."""
         stdout, stderr = [], []
         size = 0
 
         def flush():
             if stdout or stderr:
-                submit({
+                report_execution({
                     "kind": "output", "request_id": self._request_id,
                     "stdout": "".join(stdout), "stderr": "".join(stderr),
                 })
@@ -48,7 +48,7 @@ class ExecutionTask:
                 return False
             if channel == "result":
                 flush()
-                submit(value)
+                report_execution(value)
                 return True
             if channel == "stdout":
                 stdout.append(value)

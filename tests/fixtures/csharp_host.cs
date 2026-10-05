@@ -41,14 +41,14 @@ internal static class Program
                 var code = request.RootElement.GetProperty("code").GetString();
                 if (code == "ping")
                 {
-                    if (!bridge.Submit(JsonSerializer.Serialize(new
+                    if (!bridge.ReportExecution(JsonSerializer.Serialize(new
                     {
                         kind = "output",
                         request_id = id,
                         stdout = "CSHARP_ZIP_OK\n",
                         stderr = ""
                     }))) throw new InvalidOperationException("Output was rejected");
-                    if (!bridge.Submit(JsonSerializer.Serialize(new
+                    if (!bridge.ReportExecution(JsonSerializer.Serialize(new
                     {
                         kind = "result",
                         request_id = id,
@@ -57,7 +57,7 @@ internal static class Program
                 }
                 else
                 {
-                    if (!bridge.Submit(JsonSerializer.Serialize(new
+                    if (!bridge.ReportExecution(JsonSerializer.Serialize(new
                     {
                         kind = "result",
                         request_id = id,

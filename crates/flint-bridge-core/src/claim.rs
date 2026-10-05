@@ -1,43 +1,51 @@
-//! One Bridge per host process.
-//!
-//! A host process owns at most one Bridge, however many times a runtime loads
-//! this library, and however many library versions coexist in the process. The
-//! claim is an operating-system advisory lock keyed by a process-wide scope, so
-//! it is visible across independent library copies and across language runtimes,
-//! and it releases automatically when the process exits. `fs2` provides the lock
-//! on every platform this library targets, so the invariant needs no per-OS code.
+//! The OS lock enforces one Bridge across independently loaded library copies
+//! and language runtimes in the same process. A Rust static cannot do that.
 
 use fs2::FileExt;
-use std::{fs, io, path::PathBuf};
+use serde::{Deserialize, Serialize};
+use std::{fmt, fs, io, path::PathBuf};
 
-/// Bumped when the recorded owner descriptor changes shape. It is the only
-/// contract shared between library versions that may meet in one process.
-const LAYOUT_VERSION: u32 = 1;
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ClaimOwner {
+    pub(crate) host: String,
+    pub(crate) runtime_version: String,
+    pub(crate) bridge_version: String,
+}
 
-/// The result of attempting to become a process's single Bridge owner.
-pub enum ClaimOutcome {
-    /// This caller now owns the process's Bridge until the guard is dropped.
+impl fmt::Display for ClaimOwner {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "host={}, runtime_version={}, bridge_version={}",
+            self.host, self.runtime_version, self.bridge_version
+        )
+    }
+}
+
+pub(crate) enum ClaimOutcome {
     Acquired(ProcessClaim),
-    /// Another live owner holds the process's Bridge; its descriptor when readable.
-    Occupied(Option<String>),
+    Occupied(Option<ClaimOwner>),
 }
 
 /// Holds the process's Bridge claim. Dropping it releases the lock.
-pub struct ProcessClaim {
+pub(crate) struct ProcessClaim {
     lock: fs::File,
 }
 
 fn directory() -> PathBuf {
-    // A single process shares one temporary directory across its runtimes, which
-    // is the same base the host binding uses to extract this library.
     std::env::temp_dir().join("flint-bridge").join("claims")
 }
 
-/// Claim the Bridge for `scope`, recording `owner` for a later caller to read.
-///
-/// `scope` identifies the process; production callers pass the process id, and a
-/// single test process passes a distinct scope per simulated host.
-pub fn acquire(scope: &str, owner: &str) -> io::Result<ClaimOutcome> {
+pub(crate) fn acquire(owner: &ClaimOwner) -> io::Result<ClaimOutcome> {
+    acquire_scope(&std::process::id().to_string(), owner)
+}
+
+#[cfg(test)]
+pub(crate) fn acquire_for_test(scope: &str, owner: &ClaimOwner) -> io::Result<ClaimOutcome> {
+    acquire_scope(scope, owner)
+}
+
+fn acquire_scope(scope: &str, owner: &ClaimOwner) -> io::Result<ClaimOutcome> {
     let directory = directory();
     fs::create_dir_all(&directory)?;
     let lock_path = directory.join(format!("{scope}.lock"));
@@ -50,14 +58,21 @@ pub fn acquire(scope: &str, owner: &str) -> io::Result<ClaimOutcome> {
         .open(&lock_path)?;
     match lock.try_lock_exclusive() {
         Ok(()) => {
-            let record = format!("{{\"layout_version\":{LAYOUT_VERSION},\"owner\":{owner}}}");
             // The descriptor is a diagnostic aid; failing to record it must not
             // forfeit an otherwise valid claim.
-            let _ = fs::write(&owner_path, record);
+            if let Ok(record) = serde_json::to_vec(owner) {
+                let _ = fs::write(&owner_path, record);
+            }
             Ok(ClaimOutcome::Acquired(ProcessClaim { lock }))
         }
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-            Ok(ClaimOutcome::Occupied(fs::read_to_string(&owner_path).ok()))
+        Err(error)
+            if error.kind() == io::ErrorKind::WouldBlock
+                || error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
+        {
+            let owner = fs::read(&owner_path)
+                .ok()
+                .and_then(|record| serde_json::from_slice(&record).ok());
+            Ok(ClaimOutcome::Occupied(owner))
         }
         Err(error) => Err(error),
     }
@@ -68,3 +83,6 @@ impl Drop for ProcessClaim {
         let _ = FileExt::unlock(&self.lock);
     }
 }
+
+#[cfg(test)]
+mod tests;

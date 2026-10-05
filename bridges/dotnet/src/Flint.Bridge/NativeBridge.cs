@@ -7,7 +7,7 @@ namespace Flint.Bridge
 {
     /// <summary>
     /// Loads the shared connection core. The host adapter polls execute events and
-    /// submits output and results after dispatching code on its required thread.
+    /// reports output and results after dispatching code on its required thread.
     /// </summary>
     public sealed class NativeBridge : IDisposable
     {
@@ -24,12 +24,12 @@ namespace Flint.Bridge
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint AbiVersionFn();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate IntPtr CreateFn(IntPtr config);
+        private delegate IntPtr CreateFn(IntPtr config, out IntPtr error);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate IntPtr PollFn(IntPtr handle, uint timeoutMilliseconds);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         [return: MarshalAs(UnmanagedType.I1)]
-        private delegate bool SubmitFn(IntPtr handle, IntPtr command);
+        private delegate bool ReportExecutionFn(IntPtr handle, IntPtr report);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         [return: MarshalAs(UnmanagedType.I1)]
         private delegate bool StatusFn(IntPtr handle);
@@ -46,7 +46,7 @@ namespace Flint.Bridge
         private IntPtr _handle;
         private readonly CreateFn _create;
         private readonly PollFn _poll;
-        private readonly SubmitFn _submit;
+        private readonly ReportExecutionFn _reportExecution;
         private readonly StatusFn _connected;
         private readonly StatusFn _busy;
         private readonly InstanceIdFn _instanceId;
@@ -73,7 +73,7 @@ namespace Flint.Bridge
                     throw new InvalidOperationException("Unsupported native Bridge ABI");
                 _create = Function<CreateFn>("flint_bridge_create");
                 _poll = Function<PollFn>("flint_bridge_poll");
-                _submit = Function<SubmitFn>("flint_bridge_submit");
+                _reportExecution = Function<ReportExecutionFn>("flint_bridge_report_execution");
                 _connected = Function<StatusFn>("flint_bridge_connected");
                 _busy = Function<StatusFn>("flint_bridge_busy");
                 _instanceId = Function<InstanceIdFn>("flint_bridge_instance_id");
@@ -84,9 +84,12 @@ namespace Flint.Bridge
                 _destroy = Function<HandleFn>("flint_bridge_destroy");
                 _stringFree = Function<StringFreeFn>("flint_bridge_string_free");
                 IntPtr config = Utf8(configJson);
-                try { _handle = _create(config); }
+                IntPtr creationError;
+                try { _handle = _create(config, out creationError); }
                 finally { Marshal.FreeHGlobal(config); }
-                if (_handle == IntPtr.Zero) throw new ArgumentException("Invalid Bridge configuration", nameof(configJson));
+                string message = TakeString(creationError);
+                if (_handle == IntPtr.Zero)
+                    throw new InvalidOperationException(message ?? "Cannot start native Bridge core");
             }
             catch
             {
@@ -140,12 +143,12 @@ namespace Flint.Bridge
         public string StatusJson { get { return TakeString(_statusJson(Handle)); } }
         public string Poll(uint timeoutMilliseconds) { return TakeString(_poll(Handle, timeoutMilliseconds)); }
 
-        public bool Submit(string commandJson)
+        public bool ReportExecution(string reportJson)
         {
-            if (commandJson == null) throw new ArgumentNullException(nameof(commandJson));
-            IntPtr command = Utf8(commandJson);
-            try { return _submit(Handle, command); }
-            finally { Marshal.FreeHGlobal(command); }
+            if (reportJson == null) throw new ArgumentNullException(nameof(reportJson));
+            IntPtr report = Utf8(reportJson);
+            try { return _reportExecution(Handle, report); }
+            finally { Marshal.FreeHGlobal(report); }
         }
 
         public void Reconnect()

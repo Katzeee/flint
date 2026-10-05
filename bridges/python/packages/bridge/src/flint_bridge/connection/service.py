@@ -7,7 +7,7 @@ from .native import NativeCore
 
 
 class Bridge:
-    """Poll the native core and submit each task's events from one Bridge thread."""
+    """Poll the native core and report each task's events from one Bridge thread."""
 
     def __init__(self, runner, host, address, port, name, enabled=True):
         self.runner, self.host, self.address, self.port, self.name = runner, host, address, port, name
@@ -86,14 +86,14 @@ class Bridge:
                         active.start()
                     else:
                         raise RuntimeError("Native core delivered overlapping executions")
-            if active is not None and active.drain(self._core.submit):
+            if active is not None and active.drain(self._core.report_execution):
                 active = None
         pending = self._core.poll(0)
         if pending is not None:
             self._reject_unstarted(pending)
 
     def _reject_unstarted(self, event):
-        self._core.submit({
+        self._core.report_execution({
             "kind": "result", "request_id": event["request_id"],
             "succeeded": False, "traceback": None,
             "error": "Bridge stopped before host execution",

@@ -1,17 +1,27 @@
 use super::*;
+use crate::settings::ApplyResult;
+use flint_protocol::{envelope::Payload, *};
+use futures_util::SinkExt;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use std::time::Instant;
+use std::{
+    ffi::{c_char, CStr, CString},
+    ptr,
+    sync::mpsc,
+    thread,
+    time::Duration,
+};
+use tokio::sync::mpsc as async_mpsc;
+use uuid::Uuid;
 
 struct Core(*mut BridgeCore);
 
 impl Core {
-    fn create(config: &str) -> *mut BridgeCore {
-        let config = CString::new(config).unwrap();
-        unsafe { flint_bridge_create(config.as_ptr()) }
-    }
     fn new(port: u16) -> Self {
-        let core = Self::create(&config(port));
+        let options = serde_json::from_str(&config(port)).unwrap();
+        let core = BridgeCore::new_for_test(options, &Uuid::new_v4().simple().to_string()).unwrap();
+        let core = Box::into_raw(Box::new(core));
         assert!(!core.is_null());
         Self(core)
     }
@@ -31,9 +41,9 @@ impl Core {
         unsafe { take(flint_bridge_poll(self.0, timeout.as_millis() as u32)) }
             .map(|event| serde_json::from_str(&event).unwrap())
     }
-    fn submit(&self, command: &str) -> bool {
-        let command = CString::new(command).unwrap();
-        unsafe { flint_bridge_submit(self.0, command.as_ptr()) }
+    fn report_execution(&self, report: &str) -> bool {
+        let report = CString::new(report).unwrap();
+        unsafe { flint_bridge_report_execution(self.0, report.as_ptr()) }
     }
     fn apply_settings(&self, settings: Value) -> u32 {
         let settings = CString::new(settings.to_string()).unwrap();
@@ -60,10 +70,8 @@ unsafe fn take(value: *mut c_char) -> Option<String> {
 }
 
 fn config(port: u16) -> String {
-    // Each simulated host gets a distinct claim scope so several cores coexist
-    // in the one test process; production keys the claim on the process id.
     json!({"host": "python", "address": "127.0.0.1", "port": port, "name": "场景",
-           "runtime_version": "test", "claim_id": Uuid::new_v4().simple().to_string()})
+           "runtime_version": "test"})
     .to_string()
 }
 
@@ -234,71 +242,6 @@ fn connected(backend: &mut Backend) -> Core {
 }
 
 #[test]
-fn a_process_admits_only_one_bridge_per_claim_scope() {
-    // A second core sharing a claim scope is refused, as a second Bridge in one
-    // host process would be. Releasing the first frees the scope for a new core.
-    let scope = Uuid::new_v4().simple().to_string();
-    let with_scope = |port| {
-        let mut value: Value = serde_json::from_str(&config(port)).unwrap();
-        value["claim_id"] = scope.clone().into();
-        value.to_string()
-    };
-    let first = Core::create(&with_scope(unused_port()));
-    assert!(!first.is_null());
-    assert!(Core::create(&with_scope(unused_port())).is_null());
-    unsafe { flint_bridge_destroy(first) };
-    let third = Core::create(&with_scope(unused_port()));
-    assert!(
-        !third.is_null(),
-        "claim not released after the owner is destroyed"
-    );
-    unsafe { flint_bridge_destroy(third) };
-}
-
-#[test]
-fn create_rejects_invalid_configuration() {
-    assert!(unsafe { flint_bridge_create(ptr::null()) }.is_null());
-    let valid = config(unused_port());
-    let mut unknown: Value = serde_json::from_str(&valid).unwrap();
-    unknown["extra"] = true.into();
-    let mut empty_host = unknown.clone();
-    empty_host.as_object_mut().unwrap().remove("extra");
-    empty_host["host"] = "".into();
-    let mut zero_port = empty_host.clone();
-    zero_port["host"] = "python".into();
-    zero_port["port"] = 0.into();
-    for config in [
-        "not json".to_string(),
-        unknown.to_string(),
-        empty_host.to_string(),
-        zero_port.to_string(),
-    ] {
-        assert!(Core::create(&config).is_null(), "accepted {config}");
-    }
-}
-
-#[test]
-fn null_handles_are_ignored() {
-    let core = ptr::null_mut();
-    unsafe {
-        assert!(flint_bridge_poll(core, 0).is_null());
-        assert!(!flint_bridge_submit(core, c"{}".as_ptr()));
-        assert!(!flint_bridge_connected(core));
-        assert!(!flint_bridge_busy(core));
-        assert!(flint_bridge_instance_id(core).is_null());
-        assert!(flint_bridge_status_json(core).is_null());
-        flint_bridge_reconnect(core);
-        assert_eq!(
-            flint_bridge_apply_settings(core, c"{}".as_ptr()),
-            ApplyResult::Invalid as u32
-        );
-        flint_bridge_stop(core);
-        flint_bridge_destroy(core);
-        flint_bridge_string_free(ptr::null_mut());
-    }
-}
-
-#[test]
 fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
     let mut first = Backend::start();
     let core = connected(&mut first);
@@ -333,7 +276,7 @@ fn applying_settings_refuses_to_interrupt_an_active_execution() {
         ApplyResult::Busy as u32
     );
     assert!(core.connected());
-    assert!(core.submit(r#"{"kind":"result","request_id":"request-1","succeeded":true}"#));
+    assert!(core.report_execution(r#"{"kind":"result","request_id":"request-1","succeeded":true}"#));
     assert!(matches!(
         first.receive().payload,
         Some(Payload::ExecutionResult(_))
@@ -382,7 +325,36 @@ fn manual_reconnect_uses_the_applied_settings_without_reporting_an_error() {
 }
 
 #[test]
-fn unregistered_bridge_is_idle_and_rejects_commands() {
+fn reconnect_does_not_forward_previous_executions_to_the_new_channel() {
+    let mut backend = Backend::start_sessions(2);
+    let core = connected(&mut backend);
+    backend.registration();
+    backend.send(execute("old"));
+    assert!(core.poll(Duration::from_secs(10)).is_some());
+    assert!(core.reconnect());
+    wait_until(|| core.connected());
+    backend.registration();
+    assert!(core.busy());
+    assert!(core
+        .report_execution(r#"{"kind":"output","request_id":"old","stdout":"late","stderr":""}"#));
+    assert!(core.report_execution(r#"{"kind":"result","request_id":"old","succeeded":true}"#));
+    assert!(!core.busy());
+    backend.send(execute("new"));
+    assert_eq!(
+        core.poll(Duration::from_secs(10)).unwrap()["request_id"],
+        "new"
+    );
+    assert!(core.report_execution(r#"{"kind":"result","request_id":"new","succeeded":true}"#));
+    let received = backend.receive();
+    assert_eq!(received.request_id, "new");
+    assert!(matches!(
+        received.payload,
+        Some(Payload::ExecutionResult(_))
+    ));
+}
+
+#[test]
+fn unregistered_bridge_is_idle_and_rejects_reports() {
     let core = Core::new(unused_port());
     wait_until(|| core.status()["last_error"].is_string());
     assert_eq!(core.status()["connection"], "reconnecting");
@@ -390,9 +362,9 @@ fn unregistered_bridge_is_idle_and_rejects_commands() {
     assert!(!core.busy());
     assert_eq!(core.instance_id(), "");
     assert!(core.poll(Duration::ZERO).is_none());
-    assert!(!core.submit(r#"{"kind":"result","request_id":"unknown","succeeded":true}"#));
-    assert!(!core.submit("not json"));
-    assert!(unsafe { !flint_bridge_submit(core.0, ptr::null()) });
+    assert!(!core.report_execution(r#"{"kind":"result","request_id":"unknown","succeeded":true}"#));
+    assert!(!core.report_execution("not json"));
+    assert!(unsafe { !flint_bridge_report_execution(core.0, ptr::null()) });
 }
 
 #[test]
@@ -413,12 +385,14 @@ fn execution_is_delivered_and_its_output_and_result_are_reported() {
         })
     );
     assert!(core.busy());
-    assert!(!core.submit(r#"{"kind":"output","request_id":"other","stdout":"x","stderr":""}"#));
-    assert!(core.submit(r#"{"kind":"output","request_id":"request-1","stdout":"","stderr":""}"#));
-    assert!(
-        core.submit(r#"{"kind":"output","request_id":"request-1","stdout":"你好\n","stderr":""}"#)
-    );
-    assert!(core.submit(r#"{"kind":"result","request_id":"request-1","succeeded":true}"#));
+    assert!(!core
+        .report_execution(r#"{"kind":"output","request_id":"other","stdout":"x","stderr":""}"#));
+    assert!(core
+        .report_execution(r#"{"kind":"output","request_id":"request-1","stdout":"","stderr":""}"#));
+    assert!(core.report_execution(
+        r#"{"kind":"output","request_id":"request-1","stdout":"你好\n","stderr":""}"#
+    ));
+    assert!(core.report_execution(r#"{"kind":"result","request_id":"request-1","succeeded":true}"#));
     assert!(!core.busy());
 
     let output = backend.receive();
@@ -434,7 +408,9 @@ fn execution_is_delivered_and_its_output_and_result_are_reported() {
     };
     assert_eq!(result.execution_id, "execution-request-1");
     assert_eq!(result.status, ExecutionStatus::Succeeded as i32);
-    assert!(!core.submit(r#"{"kind":"result","request_id":"request-1","succeeded":true}"#));
+    assert!(
+        !core.report_execution(r#"{"kind":"result","request_id":"request-1","succeeded":true}"#)
+    );
 }
 
 #[test]

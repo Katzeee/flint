@@ -46,12 +46,12 @@ def _load():
     library.flint_bridge_abi_version.restype = ctypes.c_uint32
     if library.flint_bridge_abi_version() != 3:
         raise RuntimeError("Unsupported native Bridge ABI")
-    library.flint_bridge_create.argtypes = [ctypes.c_char_p]
+    library.flint_bridge_create.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
     library.flint_bridge_create.restype = ctypes.c_void_p
     library.flint_bridge_poll.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     library.flint_bridge_poll.restype = ctypes.c_void_p
-    library.flint_bridge_submit.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-    library.flint_bridge_submit.restype = ctypes.c_bool
+    library.flint_bridge_report_execution.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    library.flint_bridge_report_execution.restype = ctypes.c_bool
     library.flint_bridge_connected.argtypes = [ctypes.c_void_p]
     library.flint_bridge_connected.restype = ctypes.c_bool
     library.flint_bridge_busy.argtypes = [ctypes.c_void_p]
@@ -74,9 +74,11 @@ class NativeCore:
     def __init__(self, config):
         self._library = _load()
         encoded = json.dumps(config, ensure_ascii=False).encode("utf-8")
-        self._handle = self._library.flint_bridge_create(encoded)
+        error = ctypes.c_void_p()
+        self._handle = self._library.flint_bridge_create(encoded, ctypes.byref(error))
+        message = self._string(error.value)
         if not self._handle:
-            raise RuntimeError("Cannot start native Bridge core")
+            raise RuntimeError(message or "Cannot start native Bridge core")
 
     def _string(self, pointer):
         if not pointer:
@@ -90,9 +92,9 @@ class NativeCore:
         event = self._string(self._library.flint_bridge_poll(self._handle, timeout_ms))
         return json.loads(event) if event is not None else None
 
-    def submit(self, command):
-        encoded = json.dumps(command, ensure_ascii=False).encode("utf-8")
-        return self._library.flint_bridge_submit(self._handle, encoded)
+    def report_execution(self, report):
+        encoded = json.dumps(report, ensure_ascii=False).encode("utf-8")
+        return self._library.flint_bridge_report_execution(self._handle, encoded)
 
     @property
     def connected(self):

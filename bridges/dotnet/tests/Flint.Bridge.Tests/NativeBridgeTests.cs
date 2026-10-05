@@ -40,7 +40,7 @@ namespace Flint.Bridge.Tests
             Assert.Throws<ArgumentNullException>(() => new NativeBridge(null, "{}"));
             Assert.Throws<ArgumentNullException>(() => new NativeBridge(Core, null));
             using (var bridge = new NativeBridge(Core, Config()))
-                Assert.Throws<ArgumentNullException>(() => bridge.Submit(null));
+                Assert.Throws<ArgumentNullException>(() => bridge.ReportExecution(null));
         }
 
         [Fact]
@@ -54,7 +54,21 @@ namespace Flint.Bridge.Tests
         [Fact]
         public void RejectedConfigurationThrows()
         {
-            Assert.Throws<ArgumentException>(() => new NativeBridge(Core, "{}"));
+            var error = Assert.Throws<InvalidOperationException>(() => new NativeBridge(Core, "{}"));
+            Assert.Contains("missing field `host`", error.Message);
+        }
+
+        [Fact]
+        public void DuplicateBridgeReportsTheExistingOwner()
+        {
+            using (var bridge = new NativeBridge(Core, Config()))
+            {
+                var error = Assert.Throws<InvalidOperationException>(() => new NativeBridge(Core, Config("second")));
+                Assert.Contains("another Bridge already owns this process", error.Message);
+                Assert.Contains("host=csharp", error.Message);
+                Assert.Contains("runtime_version=test", error.Message);
+                Assert.Contains("bridge_version=", error.Message);
+            }
         }
 
         [Fact]
