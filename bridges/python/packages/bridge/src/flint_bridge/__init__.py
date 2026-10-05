@@ -63,7 +63,9 @@ def attach(host, address="127.0.0.1", port=6321, name=None, enabled=True, timeou
         raise outcome["error"]
     bridge = outcome["bridge"]
     if enabled and not bridge.wait_until_connected(timeout):
-        raise RuntimeError("Bridge registration did not complete")
+        obstacle = bridge.status["connection"].get("obstacle")
+        raise RuntimeError("Bridge registration did not complete" + (
+            ": " + obstacle["message"] if obstacle else ""))
     return bridge.instance_id
 
 

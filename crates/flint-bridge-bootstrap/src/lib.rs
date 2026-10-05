@@ -8,12 +8,13 @@
 //! Bridge core loads the ordinary way and takes the process claim, so an already
 //! connected host is never given a second Bridge.
 //!
-//! Only the CPython runtime is implemented. The Mono path for Unity is reserved.
+//! The injector learns of success from the backend. A failure, here or in the
+//! host runtime, is written to `<pid>.error` beside the config for it to report.
 
 #[cfg(windows)]
 mod platform;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -46,14 +47,13 @@ fn config_path(pid: u32) -> PathBuf {
     attach_directory().join(format!("{pid}.json"))
 }
 
-fn status_path(pid: u32) -> PathBuf {
-    attach_directory().join(format!("{pid}.status"))
+fn error_path(pid: u32) -> PathBuf {
+    attach_directory().join(format!("{pid}.error"))
 }
 
 /// Read the config the injector left for this process and start the Bridge.
 ///
-/// Runs on the worker thread, outside the loader lock. Records a status file for
-/// diagnostics; the injector confirms success through the backend, not this file.
+/// Runs on the worker thread, outside the loader lock.
 fn run(pid: u32) {
     let path = config_path(pid);
     let Ok(text) = std::fs::read_to_string(&path) else {
@@ -61,24 +61,26 @@ fn run(pid: u32) {
     };
     let _ = std::fs::remove_file(&path);
     let result = match serde_json::from_str::<AttachConfig>(&text) {
-        Ok(config) => start(&config),
+        Ok(config) => start(&config, &error_path(pid)),
         Err(error) => Err(format!("invalid attach config: {error}")),
     };
-    let status = match &result {
-        Ok(()) => "ok".to_string(),
-        Err(error) => format!("error: {error}"),
-    };
-    let _ = std::fs::write(status_path(pid), status);
+    if let Err(error) = result {
+        let _ = std::fs::write(error_path(pid), error);
+    }
 }
 
-fn start(config: &AttachConfig) -> Result<(), String> {
+/// `error_path` is where a runtime that finishes asynchronously reports failure.
+fn start(config: &AttachConfig, error_path: &Path) -> Result<(), String> {
     match config.runtime.as_str() {
         #[cfg(windows)]
-        "cpython" => platform::attach_cpython(config),
+        "cpython" => platform::attach_cpython(config, error_path),
         #[cfg(windows)]
         "dotnet" => platform::attach_dotnet(config),
         #[cfg(not(windows))]
-        "cpython" | "dotnet" => Err("attach is only implemented on Windows".into()),
+        "cpython" | "dotnet" => {
+            let _ = error_path;
+            Err("attach is only implemented on Windows".into())
+        }
         "mono" => Err("unknown attach runtime: mono (use dotnet)".into()),
         other => Err(format!("unknown attach runtime: {other}")),
     }
@@ -88,25 +90,32 @@ fn start(config: &AttachConfig) -> Result<(), String> {
 ///
 /// The daemon thread is essential: `flint_bridge.attach` marshals onto the host
 /// main thread and waits, so it must not run on the injected thread while that
-/// thread holds the GIL, or the main thread could never make progress. JSON
-/// string encoding yields valid Python string literals for every field.
-fn python_bootstrap(config: &AttachConfig) -> String {
+/// thread holds the GIL, or the main thread could never make progress. Its
+/// failure is written to `error_path`. JSON string encoding yields valid Python
+/// string literals for every field.
+fn python_bootstrap(config: &AttachConfig, error_path: &Path) -> String {
     let zip = serde_json::to_string(&config.payload).unwrap();
     let host = serde_json::to_string(&config.host).unwrap();
     let address = serde_json::to_string(&config.address).unwrap();
     let name = serde_json::to_string(&config.name).unwrap();
+    let error_path = serde_json::to_string(&error_path.to_string_lossy()).unwrap();
     format!(
         "import sys, threading\n\
          if {zip} not in sys.path:\n    sys.path.insert(0, {zip})\n\
          def _flint_attach():\n    \
-         import flint_bridge\n    \
-         flint_bridge.attach(host={host}, address={address}, port={port}, name={name})\n\
+         try:\n        \
+         import flint_bridge\n        \
+         flint_bridge.attach(host={host}, address={address}, port={port}, name={name})\n    \
+         except BaseException as error:\n        \
+         with open({error_path}, 'w', encoding='utf-8') as report:\n            \
+         report.write(str(error) or type(error).__name__)\n\
          threading.Thread(target=_flint_attach, name='flint-attach', daemon=True).start()\n",
         zip = zip,
         host = host,
         address = address,
         name = name,
         port = config.port,
+        error_path = error_path,
     )
 }
 

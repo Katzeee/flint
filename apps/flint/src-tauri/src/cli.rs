@@ -311,9 +311,13 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
                                     "Process {} is not a recognized host; pass --host-kind", args.pid))?
                                 .host.to_string(),
                         };
-                        crate::attach::inject(&config, args.pid, &host, args.name.clone())?;
+                        let name = args.name.clone().unwrap_or_else(|| host.clone());
+                        crate::attach::inject(&config, args.pid, &host, &name)?;
                         // The injected Bridge connects asynchronously; wait for the
-                        // backend to register an instance for this process.
+                        // backend to register an instance for this process under the
+                        // requested name, or for the injected side to report why it
+                        // could not. Matching the name skips the instance a re-pointed
+                        // Bridge is replacing.
                         let deadline = tokio::time::Instant::now()
                             + std::time::Duration::from_secs_f64(options.timeout);
                         loop {
@@ -322,11 +326,16 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
                             let listed = payload_json(response)?;
                             let found = listed["instances"].as_array().and_then(|instances|
                                 instances.iter().find(|instance|
-                                    instance["pid"].as_u64() == Some(args.pid as u64)));
+                                    instance["pid"].as_u64() == Some(args.pid as u64)
+                                        && instance["instance_name"] == name.as_str()));
                             if let Some(instance) = found {
                                 break serde_json::json!({"attached": true, "pid": args.pid, "host": host,
                                     "instance_id": instance["instance_id"],
                                     "execution_ready": instance["execution_ready"]});
+                            }
+                            if let Some(message) = flint_hosts::attach_error(args.pid) {
+                                break serde_json::json!({"status": "failed", "attached": false,
+                                    "pid": args.pid, "host": host, "message": message});
                             }
                             if tokio::time::Instant::now() >= deadline {
                                 break serde_json::json!({"status": "failed", "attached": false,

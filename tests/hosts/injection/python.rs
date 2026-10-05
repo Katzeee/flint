@@ -3,9 +3,55 @@ use anyhow::Result;
 use serde_json::Value;
 use std::{
     fs,
+    path::PathBuf,
     process::{Command, Stdio},
     time::Duration,
 };
+
+/// The real interpreter executable: a venv launcher (as uv builds) is a
+/// trampoline that spawns the interpreter as a child, so injecting into the
+/// launcher finds no runtime. Real hosts embed the interpreter in-process.
+fn base_interpreter() -> Result<PathBuf> {
+    let output = Command::new(python())
+        .args([
+            "-I",
+            "-c",
+            "import sys; print(getattr(sys, '_base_executable', sys.executable))",
+        ])
+        .output()?;
+    anyhow::ensure!(
+        output.status.success(),
+        "cannot resolve the base interpreter"
+    );
+    Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
+}
+
+/// Start a target interpreter that runs `setup`, then signals readiness and
+/// sleeps. Its stderr is captured so a failed injection can be diagnosed.
+fn start_target(app: &App, setup: &str) -> Result<OwnedProcess> {
+    let ready = app.directory.join("target-ready");
+    let script =
+        format!("import sys, time\n{setup}\nopen(sys.argv[1], 'w').close()\ntime.sleep(120)\n");
+    let mut command = Command::new(base_interpreter()?);
+    command
+        .args(["-I", "-c", &script])
+        .arg(&ready)
+        .current_dir(&app.directory)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(fs::File::create(app.directory.join("target.stderr"))?);
+    hidden(&mut command);
+    let mut target = OwnedProcess(command.spawn()?);
+    wait_until(Duration::from_secs(15), || {
+        anyhow::ensure!(
+            target.0.try_wait()?.is_none(),
+            "target exited: {}",
+            fs::read_to_string(app.directory.join("target.stderr"))?
+        );
+        Ok(ready.is_file())
+    })?;
+    Ok(target)
+}
 
 /// Attach into a plain CPython process with flint's own injector — no host
 /// application and no third-party injector — then execute through it and confirm
@@ -17,45 +63,8 @@ use std::{
 fn attaches_a_plain_python_process_and_executes() -> Result<()> {
     let app = App::evidence("attach-python");
     app.call("start", &[], 0)?;
-
-    // Resolve the real interpreter executable: a venv launcher (as uv builds)
-    // is a trampoline that spawns the interpreter as a child, so injecting into
-    // the launcher finds no runtime. Real hosts embed the interpreter in-process.
-    let interpreter = {
-        let output = Command::new(python())
-            .args([
-                "-I",
-                "-c",
-                "import sys; print(getattr(sys, '_base_executable', sys.executable))",
-            ])
-            .output()?;
-        anyhow::ensure!(
-            output.status.success(),
-            "cannot resolve the base interpreter"
-        );
-        std::path::PathBuf::from(String::from_utf8(output.stdout)?.trim())
-    };
-
-    // A sleeper that signals readiness once its interpreter is initialized. Its
-    // output is captured so a failed injection can be diagnosed.
-    let ready = app.directory.join("target-ready");
-    let target_err = app.directory.join("target.stderr");
-    let mut command = Command::new(&interpreter);
-    command
-        .args([
-            "-I",
-            "-c",
-            "import sys,time; open(sys.argv[1],'w').close(); time.sleep(120)",
-        ])
-        .arg(&ready)
-        .current_dir(&app.directory)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(fs::File::create(&target_err)?);
-    hidden(&mut command);
-    let target = OwnedProcess(command.spawn()?);
+    let target = start_target(&app, "")?;
     let pid = target.0.id();
-    wait_until(Duration::from_secs(15), || Ok(ready.is_file()))?;
 
     let attached = app
         .call(
@@ -71,15 +80,9 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
             0,
         )
         .map_err(|error| {
-            let status = fs::read_to_string(
-                std::env::temp_dir()
-                    .join("flint-bridge")
-                    .join("attach")
-                    .join(format!("{pid}.status")),
-            )
-            .unwrap_or_else(|_| "<no bootstrap status>".into());
-            let stderr = fs::read_to_string(&target_err).unwrap_or_default();
-            anyhow::anyhow!("{error}\nbootstrap status: {status}\ntarget stderr: {stderr}")
+            let stderr =
+                fs::read_to_string(app.directory.join("target.stderr")).unwrap_or_default();
+            anyhow::anyhow!("{error}\ntarget stderr: {stderr}")
         })?;
     anyhow::ensure!(attached["attached"] == true, "attach failed: {attached}");
     anyhow::ensure!(
@@ -138,6 +141,48 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
     anyhow::ensure!(
         instances["instances"].as_array().unwrap().len() == 1,
         "expected one instance: {instances}"
+    );
+    Ok(())
+}
+
+/// A process whose claim is held outside the attach path cannot receive a
+/// Bridge, and attach reports the injected side's reason instead of timing out.
+#[cfg(windows)]
+#[test]
+#[ignore = "real injection: run `cargo xtask test hosts` on Windows"]
+fn attach_reports_why_the_injected_bridge_could_not_start() -> Result<()> {
+    let app = App::evidence("attach-python-claimed");
+    app.call("start", &[], 0)?;
+    let bundle = serde_json::to_string(&app.export()?.to_string_lossy())?;
+    // A core created directly, not through the interpreter's Bridge, holds the
+    // claim where the injected `flint_bridge.attach` cannot reuse it.
+    let target = start_target(
+        &app,
+        &format!(
+            "sys.path.insert(0, {bundle})\n\
+             from flint_bridge.connection.native import NativeCore\n\
+             core = NativeCore({{'host': 'python', 'address': '127.0.0.1', 'port': 1,\n\
+                                 'name': 'holder', 'runtime_version': 'holder', 'enabled': False}})"
+        ),
+    )?;
+    let failed = app.call(
+        "attach",
+        &[
+            "--pid",
+            &target.0.id().to_string(),
+            "--host-kind",
+            "python",
+            "--timeout",
+            "60",
+        ],
+        1,
+    )?;
+    anyhow::ensure!(failed["attached"] == false, "attach succeeded: {failed}");
+    let message = failed["message"].as_str().unwrap_or_default();
+    anyhow::ensure!(
+        message.contains("Another Bridge already owns this process")
+            && message.contains("runtime_version=holder"),
+        "unexpected attach failure: {failed}"
     );
     Ok(())
 }

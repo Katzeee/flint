@@ -4,7 +4,7 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 mod attach;
 mod window;
-pub use attach::{attach, AttachRequest, Runtime};
+pub use attach::{attach, attach_error, AttachRequest, Runtime};
 pub use window::{focus_application, host_info, HostInfo, WindowInfo, WindowPreview};
 
 #[cfg(test)]

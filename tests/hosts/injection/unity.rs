@@ -11,10 +11,11 @@ use std::{
 /// Attach into a fresh Unity Editor, reload its scripts, and attach again. The
 /// reload unloads the domain holding the attached Bridge, so it must release its
 /// registration and process claim, and a later injection must start a new Bridge.
+/// An attach whose settings that Bridge refuses reports why.
 #[cfg(windows)]
 #[test]
 #[ignore = "real host: set FLINT_UNITY_EXE and run `cargo xtask test hosts`"]
-fn attached_bridge_survives_a_script_reload_by_reattaching() -> Result<()> {
+fn attach_survives_a_script_reload_and_reports_refused_settings() -> Result<()> {
     let executable = host_executable("FLINT_UNITY_EXE")?;
     let app = App::evidence("attach-unity");
     app.call("start", &[], 0)?;
@@ -113,6 +114,32 @@ public static class FlintReload
     // The released claim and a fresh bootstrap load let a new Bridge start.
     let second = attach()?;
     anyhow::ensure!(second != first, "re-attach reused the unloaded Bridge");
+
+    // Settings the running Bridge refuses come back as the attach's failure and
+    // leave that Bridge connected.
+    let refused = app.call(
+        "attach",
+        &[
+            "--pid",
+            &pid.to_string(),
+            "--host-kind",
+            "unity",
+            "--name",
+            "",
+        ],
+        1,
+    )?;
+    anyhow::ensure!(
+        refused["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("Invalid Bridge connection settings")),
+        "unexpected attach result: {refused}"
+    );
+    let instances = app.call("instances", &["--type", "unity"], 0)?;
+    anyhow::ensure!(
+        instances["instances"][0]["instance_id"] == second.as_str(),
+        "the refused attach changed the Bridge: {instances}"
+    );
     assert!(host.0.try_wait()?.is_none());
     Ok(())
 }

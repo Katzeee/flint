@@ -3,7 +3,8 @@
 //! This is the injector that runs in flint's own process. It loads the small
 //! bootstrap library into the target and leaves a config file the bootstrap
 //! reads to start the Bridge. It performs pure operating-system injection and
-//! knows nothing about the backend; the caller confirms the Bridge registered.
+//! knows nothing about the backend; the caller confirms the Bridge registered,
+//! or reads [`attach_error`] for why the injected side could not start it.
 
 use std::path::PathBuf;
 
@@ -55,6 +56,17 @@ fn config_path(pid: u32) -> PathBuf {
     attach_directory().join(format!("{pid}.json"))
 }
 
+fn error_path(pid: u32) -> PathBuf {
+    attach_directory().join(format!("{pid}.error"))
+}
+
+/// Why the most recent attach to `pid` could not start or re-point its Bridge,
+/// once the injected side has reported it. Absent while it is still working or
+/// after it succeeded.
+pub fn attach_error(pid: u32) -> Option<String> {
+    std::fs::read_to_string(error_path(pid)).ok()
+}
+
 /// Write the per-process config the bootstrap reads after it is injected.
 fn write_config(pid: u32, request: &AttachRequest) -> Result<()> {
     let directory = attach_directory();
@@ -92,6 +104,11 @@ pub fn attach(pid: u32, request: &AttachRequest) -> Result<()> {
         "Bridge bootstrap is missing: {}",
         request.bootstrap.display()
     );
+    // A previous attempt's outcome must not be mistaken for this one's.
+    match std::fs::remove_file(error_path(pid)) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+        _ => {}
+    }
     write_config(pid, request)?;
     match platform::inject(pid, &request.bootstrap) {
         Ok(()) => Ok(()),

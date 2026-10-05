@@ -43,7 +43,7 @@ fn stage(name: &str, bytes: &[u8]) -> Result<PathBuf> {
 }
 
 /// Inject the Bridge into host process `pid`, connecting to `config`'s Bridge endpoint.
-pub fn inject(config: &Config, pid: u32, host: &str, name: Option<String>) -> Result<()> {
+pub fn inject(config: &Config, pid: u32, host: &str, name: &str) -> Result<()> {
     ensure!(
         !BOOTSTRAP.is_empty(),
         "This build has no attach bootstrap; attach is only available on Windows"
@@ -70,7 +70,7 @@ pub fn inject(config: &Config, pid: u32, host: &str, name: Option<String>) -> Re
         core,
         address: config.address.clone(),
         port: config.bridge_port,
-        name: name.unwrap_or_else(|| host.to_string()),
+        name: name.to_string(),
     };
     flint_hosts::attach(pid, &request)
 }

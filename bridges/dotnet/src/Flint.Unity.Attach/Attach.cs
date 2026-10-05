@@ -22,29 +22,41 @@ namespace Flint.Unity
         private static NativeBridge _bridge;
 
         /// <summary>
-        /// Start the Bridge from the injected runtime thread. The argument is
+        /// Start the Bridge from the injected runtime thread, or apply these
+        /// settings to the one a previous attach started. The argument is
         /// newline-delimited: address, port, instance name, native core path.
+        /// Returns null on success, or why the Bridge could not start, which the
+        /// bootstrap reports to the injector.
         /// </summary>
-        public static void Initialize(string configuration)
+        public static string Initialize(string configuration)
         {
-            lock (Gate)
+            try
             {
-                if (_bridge != null) return; // one Bridge per process
-                var parts = (configuration ?? string.Empty).Split('\n');
-                if (parts.Length < 4)
-                    throw new ArgumentException("Incomplete attach configuration");
-                var address = parts[0];
-                var port = int.Parse(parts[1], CultureInfo.InvariantCulture);
-                var name = parts[2];
-                var corePath = parts[3];
-                var config = "{\"host\":\"unity\",\"address\":" + JsonString(address) +
-                    ",\"port\":" + port.ToString(CultureInfo.InvariantCulture) +
-                    ",\"name\":" + JsonString(name) +
-                    ",\"runtime_version\":" + JsonString(RuntimeVersion()) + "}";
-                _bridge = new NativeBridge(corePath, config);
-                // A script reload unloads this domain but not the native core;
-                // without this the core keeps its registration and process claim.
-                AppDomain.CurrentDomain.DomainUnload += Release;
+                lock (Gate)
+                {
+                    var parts = (configuration ?? string.Empty).Split('\n');
+                    if (parts.Length < 4)
+                        throw new ArgumentException("Incomplete attach configuration");
+                    var settings = "\"address\":" + JsonString(parts[0]) +
+                        ",\"port\":" + int.Parse(parts[1], CultureInfo.InvariantCulture)
+                            .ToString(CultureInfo.InvariantCulture) +
+                        ",\"name\":" + JsonString(parts[2]);
+                    if (_bridge != null)
+                    {
+                        _bridge.ApplySettings("{" + settings + ",\"enabled\":true}");
+                        return null;
+                    }
+                    _bridge = new NativeBridge(parts[3], "{\"host\":\"unity\"," + settings +
+                        ",\"runtime_version\":" + JsonString(RuntimeVersion()) + "}");
+                    // A script reload unloads this domain but not the native core;
+                    // without this the core keeps its registration and process claim.
+                    AppDomain.CurrentDomain.DomainUnload += Release;
+                    return null;
+                }
+            }
+            catch (Exception error)
+            {
+                return error.Message;
             }
         }
 

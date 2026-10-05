@@ -47,7 +47,8 @@ unsafe extern "system" fn worker(_parameter: *mut core::ffi::c_void) -> u32 {
 
 /// Start the Bridge inside a CPython host by running a short bootstrap on the
 /// interpreter, which loads the Bridge package and calls `flint_bridge.attach`.
-pub fn attach_cpython(config: &AttachConfig) -> Result<(), String> {
+/// That call finishes on its own thread and reports failure to `error_path`.
+pub fn attach_cpython(config: &AttachConfig, error_path: &std::path::Path) -> Result<(), String> {
     unsafe {
         // Injecting this library just changed the module list, so an immediate
         // enumeration can miss the interpreter; retry until it is found and
@@ -77,7 +78,7 @@ pub fn attach_cpython(config: &AttachConfig) -> Result<(), String> {
         let run_string: unsafe extern "C" fn(*const c_char) -> i32 =
             transmute(export(python, b"PyRun_SimpleString\0")?);
 
-        let source = CString::new(crate::python_bootstrap(config))
+        let source = CString::new(crate::python_bootstrap(config, error_path))
             .map_err(|_| "attach bootstrap contains a NUL byte".to_string())?;
         // The bootstrap only schedules a daemon thread, so it returns promptly
         // and does not hold the GIL while the connection is established.
@@ -255,6 +256,9 @@ unsafe fn attach_mono(mono: HMODULE, config: &AttachConfig) -> Result<(), String
         transmute(export(mono, b"mono_class_get_method_from_name\0")?);
     let string_new: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void =
         transmute(export(mono, b"mono_string_new\0")?);
+    let string_to_utf8: unsafe extern "C" fn(*mut c_void) -> *mut c_char =
+        transmute(export(mono, b"mono_string_to_utf8\0")?);
+    let mono_free: unsafe extern "C" fn(*mut c_void) = transmute(export(mono, b"mono_free\0")?);
     let runtime_invoke: unsafe extern "C" fn(
         *mut c_void,
         *mut c_void,
@@ -315,9 +319,16 @@ unsafe fn attach_mono(mono: HMODULE, config: &AttachConfig) -> Result<(), String
     let managed = string_new(domain, argument.as_ptr());
     let mut arguments: [*mut c_void; 1] = [managed];
     let mut exception: *mut c_void = null_mut();
-    runtime_invoke(method, null_mut(), arguments.as_mut_ptr(), &mut exception);
+    let failure = runtime_invoke(method, null_mut(), arguments.as_mut_ptr(), &mut exception);
     if !exception.is_null() {
         return Err("the managed attach entry threw an exception".into());
+    }
+    // The entry returns null on success, or why it could not start the Bridge.
+    if !failure.is_null() {
+        let utf8 = string_to_utf8(failure);
+        let message = CStr::from_ptr(utf8).to_string_lossy().into_owned();
+        mono_free(utf8.cast());
+        return Err(message);
     }
     Ok(())
 }

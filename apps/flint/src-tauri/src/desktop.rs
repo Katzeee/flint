@@ -65,11 +65,16 @@ async fn attach(
                 .host
                 .to_string(),
         };
-        crate::attach::inject(&config, pid, &host, None).map_err(|error| error.to_string())?;
-        // The injected Bridge connects to this in-process backend; wait for it.
+        crate::attach::inject(&config, pid, &host, &host).map_err(|error| error.to_string())?;
+        // The injected Bridge connects to this in-process backend; wait for it,
+        // or for the injected side to report why it could not.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
-            if let Some(instance) = backend.instances().into_iter().find(|item| item.pid == pid) {
+            if let Some(instance) = backend
+                .instances()
+                .into_iter()
+                .find(|item| item.pid == pid && item.instance_name == host)
+            {
                 return Ok(serde_json::json!({
                     "attached": true,
                     "pid": pid,
@@ -77,6 +82,9 @@ async fn attach(
                     "instance_id": instance.instance_id,
                     "execution_ready": instance.execution_ready,
                 }));
+            }
+            if let Some(message) = flint_hosts::attach_error(pid) {
+                return Err(message);
             }
             if std::time::Instant::now() >= deadline {
                 return Err("The injected Bridge did not register before the timeout".to_string());
