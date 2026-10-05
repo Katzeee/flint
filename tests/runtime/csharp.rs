@@ -1,28 +1,30 @@
+use super::conformance::{self, Driver};
 use crate::support::*;
 use anyhow::Result;
 use serde_json::Value;
 use std::{
     fs,
+    path::PathBuf,
     process::{Command, Stdio},
     time::Duration,
 };
 
-#[test]
-#[ignore = "requires .NET 10; run `cargo xtask test csharp`"]
-fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
-    let app = App::new();
-    app.call("start", &[], 0)?;
-    let archive = app.export_csharp()?;
+/// Build `program` against the exported C# binding; returns the program's
+/// assembly and the exported native core.
+fn build_against_export(app: &App, program: &str) -> Result<(PathBuf, PathBuf)> {
     let bundle = app.directory.join("bundle");
-    fs::create_dir_all(&bundle)?;
-    checked(
-        Command::new("tar")
-            .arg("-xf")
-            .arg(&archive)
-            .arg("-C")
-            .arg(&bundle),
-        Duration::from_secs(15),
-    )?;
+    if !bundle.is_dir() {
+        let archive = app.export_csharp()?;
+        fs::create_dir_all(&bundle)?;
+        checked(
+            Command::new("tar")
+                .arg("-xf")
+                .arg(&archive)
+                .arg("-C")
+                .arg(&bundle),
+            Duration::from_secs(15),
+        )?;
+    }
     let binding = bundle.join("NativeBridge.cs");
     let native = bundle.join("flint_bridge_core.dll");
     anyhow::ensure!(
@@ -45,7 +47,7 @@ fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
 </Project>
 "#,
     )?;
-    fs::copy(fixture("csharp_host.cs"), project.join("Program.cs"))?;
+    fs::copy(fixture(program), project.join("Program.cs"))?;
     checked(
         Command::new("dotnet")
             .arg("build")
@@ -53,12 +55,24 @@ fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
             .args(["--nologo", "--verbosity", "quiet"]),
         Duration::from_secs(90),
     )?;
+    Ok((
+        project.join("bin/Debug/net10.0/FlintRuntimeHost.dll"),
+        native,
+    ))
+}
+
+#[test]
+#[ignore = "requires .NET 10; run `cargo xtask test csharp`"]
+fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
+    let app = App::new();
+    app.call("start", &[], 0)?;
+    let (assembly, native) = build_against_export(&app, "csharp_host.cs")?;
 
     let ready = app.directory.join("csharp-ready.json");
     let stop = app.directory.join("csharp-stop");
     let mut command = Command::new("dotnet");
     command
-        .arg(project.join("bin/Debug/net10.0/FlintRuntimeHost.dll"))
+        .arg(&assembly)
         .arg(&native)
         .arg(app.bridge_port.to_string())
         .arg(&ready)
@@ -102,4 +116,18 @@ fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
     assert_eq!(detail["stdout"], "CSHARP_ZIP_OK\n");
     fs::write(stop, b"stop")?;
     Ok(())
+}
+
+#[test]
+#[ignore = "requires .NET 10; run `cargo xtask test csharp`"]
+fn exported_zip_conforms_to_the_runtime_scenarios() -> Result<()> {
+    let app = App::new();
+    app.call("start", &[], 0)?;
+    let (assembly, native) = build_against_export(&app, "conformance_driver.cs")?;
+    let mut command = Command::new("dotnet");
+    command
+        .arg(assembly)
+        .arg(native)
+        .current_dir(&app.directory);
+    conformance::verify(&app, "csharp", Driver::start(command)?)
 }
