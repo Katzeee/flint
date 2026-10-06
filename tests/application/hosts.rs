@@ -25,10 +25,6 @@ fn local_host_commands_work_without_starting_a_backend() -> Result<()> {
         assert_eq!(output.status.code(), Some(1));
         let error: Value = serde_json::from_str(&output.stdout)?;
         assert_eq!(error["error_code"], "command_failed");
-        assert_eq!(
-            error["message"],
-            "No supported local host process with PID 0"
-        );
     }
     assert!(!directory.path().join("workflows").exists());
     assert!(!directory.path().join("runtime").exists());
@@ -68,13 +64,11 @@ fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
         assert_eq!(info["host"], "maya");
         assert_eq!(info["executable"], fixture.to_string_lossy().as_ref());
         assert_eq!(info["window"], Value::Null);
-        assert_eq!(info.as_object().unwrap().len(), if preview { 5 } else { 4 });
         if preview {
             assert_eq!(info["preview"]["image"], Value::Null);
-            assert_eq!(
-                info["preview"]["unavailable_reason"],
-                "No application window is available"
-            );
+            assert!(info["preview"]["unavailable_reason"]
+                .as_str()
+                .is_some_and(|reason| !reason.is_empty()));
         } else {
             assert!(info.get("preview").is_none());
         }

@@ -14,18 +14,22 @@ typedef struct FlintBridgeCore FlintBridgeCore;
  * flint_bridge_string_free. A null poll result means no event is available.
  * The caller must stop polling and finish host workers before destroy. */
 uint32_t flint_bridge_abi_version(void);
-/* error_out may be null. Otherwise it receives null on success or allocated
- * UTF-8 error text on failure; release that text with flint_bridge_string_free. */
-FlintBridgeCore *flint_bridge_create(const char *config_json, char **error_out);
+/* Creation errors: 1 invalid configuration, 2 process claimed, 3 system failure.
+ * Either output may be null. Free error_message with flint_bridge_string_free. */
+FlintBridgeCore *flint_bridge_create(const char *config_json, uint32_t *error_kind, char **error_message);
 char *flint_bridge_poll(const FlintBridgeCore *core, uint32_t timeout_ms);
 /* True means the core accepts the report, not that the backend receives it. */
 bool flint_bridge_report_execution(const FlintBridgeCore *core, const char *report_json);
 bool flint_bridge_connected(const FlintBridgeCore *core);
 bool flint_bridge_busy(const FlintBridgeCore *core);
+/* Stop is terminal, but host code can remain busy and the claim is retained
+ * until destroy. Reports may still complete that execution after stop. */
+bool flint_bridge_stopped(const FlintBridgeCore *core);
 char *flint_bridge_instance_id(const FlintBridgeCore *core);
 bool flint_bridge_reconnect(const FlintBridgeCore *core);
 char *flint_bridge_status_json(const FlintBridgeCore *core);
-/* Returns 0 when applied, 1 while executing, or 2 for invalid settings. */
+/* Returns 0 when applied, 1 while executing, 2 for invalid settings, 3 after stop.
+ * Reconnect likewise returns false after stop. */
 uint32_t flint_bridge_apply_settings(const FlintBridgeCore *core, const char *settings_json);
 void flint_bridge_stop(const FlintBridgeCore *core);
 void flint_bridge_destroy(FlintBridgeCore *core);

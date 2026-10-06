@@ -40,18 +40,21 @@ import {
 import { messageOf, useResource } from "./resource.js";
 import { ErrorNotice, formatTime, Loading } from "./shared.js";
 import { loadWindowPreview } from "./window-preview.js";
+import { hostKinds, type HostKind } from "./generated/host.js";
 
-const hostNames: Readonly<Record<string, string>> = {
+const hostNames: Readonly<Record<HostKind, string>> = {
   maya: "Maya",
   max: "3ds Max",
   blender: "Blender",
   unity: "Unity",
-  python: "Python",
+  standalone_python: "Python",
+  standalone_csharp: "C#",
 };
 // eslint-disable-next-line cairn/no-raw-visual-values -- Preview tile width is a Flint layout choice.
 const cardColumns = "repeat(auto-fill, min(100%, 280px))";
 function hostName(host: string) {
-  return hostNames[host.toLowerCase()] ?? host;
+  const kind = hostKinds.find((kind) => kind === host);
+  return kind === undefined ? host : hostNames[kind];
 }
 
 function ApplicationCard({
@@ -197,13 +200,13 @@ function ApplicationDetail({
     }
   };
   const attach = async () => {
-    if (pid === undefined || host === undefined) return;
+    if (candidate === undefined) return;
     setActionError("");
     setAttaching(true);
     try {
       // The backend confirms registration; snapshot polling then reveals the
       // connected instance and this view re-renders for it.
-      await attachHost(pid, host);
+      await attachHost(candidate.pid, candidate.host);
     } catch (error) {
       setActionError(messageOf(error));
     } finally {

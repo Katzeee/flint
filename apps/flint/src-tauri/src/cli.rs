@@ -1,11 +1,13 @@
 use crate::bridge_export::BridgeExport;
 use anyhow::Result;
-use clap::{Args, Parser, Subcommand};
+use clap::{builder::TypedValueParser, Args, Parser, Subcommand};
 use flint_backend::Backend;
 use flint_config::Config;
+use flint_contracts::host::HostKind;
+use flint_contracts::protocol::{envelope::Payload, *};
 use flint_control_client::{payload_json, request, status_json, Lifecycle, RemoteError};
-use flint_protocol::{envelope::Payload, *};
 use std::{io::Read, path::PathBuf};
+use strum::IntoEnumIterator;
 
 #[derive(Parser)]
 #[command(name = "flint", version, about = "Application execution bridge")]
@@ -67,15 +69,21 @@ struct Attach {
     pid: u32,
     #[arg(
         long,
-        help = "Override the detected host kind: maya, max, blender, unity, or python"
+        value_parser = host_kind_parser(),
+        help = "Override the detected host kind"
     )]
-    host_kind: Option<String>,
+    host_kind: Option<HostKind>,
     #[arg(
         long,
         help = "Instance name for the injected Bridge; defaults to the host kind"
     )]
     name: Option<String>,
 }
+fn host_kind_parser() -> impl TypedValueParser<Value = HostKind> {
+    clap::builder::PossibleValuesParser::new(HostKind::iter().map(<&'static str>::from))
+        .map(|value| value.parse().expect("validated host kind"))
+}
+
 #[derive(Subcommand)]
 enum HostCommand {
     /// Inspect a local host process and its window without changing window state.
@@ -303,16 +311,17 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
                     Command::Stop(_) => lifecycle.stop().await?,
                     Command::Restart(_) => status_json(lifecycle.restart().await?),
                     Command::Attach(args) => {
-                        lifecycle.ensure().await?;
-                        let host = match &args.host_kind {
-                            Some(kind) => kind.clone(),
+                        let host = match args.host_kind {
+                            Some(kind) => kind,
                             None => flint_hosts::candidate(args.pid)
                                 .ok_or_else(|| anyhow::anyhow!(
                                     "Process {} is not a recognized host; pass --host-kind", args.pid))?
-                                .host.to_string(),
+                                .host,
                         };
-                        let name = args.name.clone().unwrap_or_else(|| host.clone());
-                        crate::attach::inject(&config, args.pid, &host, &name)?;
+                        crate::attach::validate_host(host)?;
+                        let name = args.name.clone().unwrap_or_else(|| host.to_string());
+                        lifecycle.ensure().await?;
+                        crate::attach::inject(&config, args.pid, host, &name)?;
                         // The injected Bridge connects asynchronously; wait for the
                         // backend to register an instance for this process under the
                         // requested name, or for the injected side to report why it

@@ -88,14 +88,14 @@ fn start(config: &AttachConfig, error_path: &Path) -> Result<(), String> {
 
 /// Build the Python source that starts the Bridge on a daemon thread.
 ///
-/// The daemon thread is essential: `flint_bridge.attach` marshals onto the host
+/// The daemon thread is essential: the host Bridge marshals onto the host
 /// main thread and waits, so it must not run on the injected thread while that
 /// thread holds the GIL, or the main thread could never make progress. Its
 /// failure is written to `error_path`. JSON string encoding yields valid Python
 /// string literals for every field.
 fn python_bootstrap(config: &AttachConfig, error_path: &Path) -> String {
     let zip = serde_json::to_string(&config.payload).unwrap();
-    let host = serde_json::to_string(&config.host).unwrap();
+    let module = serde_json::to_string(&format!("flint_bridge.{}", config.host)).unwrap();
     let address = serde_json::to_string(&config.address).unwrap();
     let name = serde_json::to_string(&config.name).unwrap();
     let error_path = serde_json::to_string(&error_path.to_string_lossy()).unwrap();
@@ -104,14 +104,15 @@ fn python_bootstrap(config: &AttachConfig, error_path: &Path) -> String {
          if {zip} not in sys.path:\n    sys.path.insert(0, {zip})\n\
          def _flint_attach():\n    \
          try:\n        \
-         import flint_bridge\n        \
-         flint_bridge.attach(host={host}, address={address}, port={port}, name={name})\n    \
+         from importlib import import_module\n        \
+         manager = import_module({module}).manager\n        \
+         manager.attach(address={address}, port={port}, name={name})\n    \
          except BaseException as error:\n        \
          with open({error_path}, 'w', encoding='utf-8') as report:\n            \
          report.write(str(error) or type(error).__name__)\n\
          threading.Thread(target=_flint_attach, name='flint-attach', daemon=True).start()\n",
         zip = zip,
-        host = host,
+        module = module,
         address = address,
         name = name,
         port = config.port,

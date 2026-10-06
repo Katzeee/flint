@@ -168,3 +168,45 @@ fn current_session_failure_clears_connection_but_preserves_host_execution() {
     assert!(!state.busy());
     assert_eq!(received.try_recv().unwrap().generation, generation);
 }
+
+#[test]
+fn stop_is_terminal_even_when_registration_or_session_cleanup_arrives_late() {
+    let snapshot = initial();
+    let mut state = State::new(snapshot.clone());
+    let (updates, _) = watch::channel(snapshot.clone());
+    let generation = state
+        .complete_registration(&snapshot, "current".into())
+        .unwrap();
+    state
+        .begin_execution(generation, "active".into(), HostExecuteRequest::default())
+        .unwrap();
+    state.stop();
+    assert!(state.busy());
+    assert!(!state.reconnect());
+    assert_eq!(
+        state.apply_settings(settings("changed", true), &updates),
+        ApplyResult::Stopped
+    );
+    assert!(state
+        .complete_registration(&snapshot, "late".into())
+        .is_err());
+    state.finish_session(&snapshot, Some(lost("late failure")));
+    state.finish_session(&snapshot, None);
+    assert!(state.stopped());
+    assert!(state.instance_id().is_empty());
+    assert!(state
+        .begin_execution(generation, "new".into(), HostExecuteRequest::default())
+        .is_none());
+    let (outbound, _) = mpsc::unbounded_channel();
+    state.report_execution(
+        ExecutionReport::Result {
+            request_id: "active".into(),
+            succeeded: true,
+            traceback: None,
+            error: None,
+        },
+        &outbound,
+    );
+    assert!(!state.busy());
+    assert!(state.stopped());
+}

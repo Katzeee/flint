@@ -140,9 +140,12 @@ impl BridgeCore {
             .apply_settings(settings, &self.settings_tx)
     }
 
-    pub(crate) fn reconnect(&self) {
-        self.state.lock().unwrap().reconnect();
+    pub(crate) fn reconnect(&self) -> bool {
+        if !self.state.lock().unwrap().reconnect() {
+            return false;
+        }
         self.reconnect_notify.notify_one();
+        true
     }
 
     pub(crate) fn report_execution(&self, report: ExecutionReport) -> bool {
@@ -164,6 +167,10 @@ impl BridgeCore {
         self.state.lock().unwrap().busy()
     }
 
+    pub(crate) fn stopped(&self) -> bool {
+        self.state.lock().unwrap().stopped()
+    }
+
     pub(crate) fn instance_id(&self) -> String {
         self.state.lock().unwrap().instance_id().to_owned()
     }
@@ -173,6 +180,7 @@ impl BridgeCore {
     }
 
     pub(crate) fn stop(&self) {
+        self.state.lock().unwrap().stop();
         self.shutdown.cancel();
         if let Some(thread) = self.thread.lock().unwrap().take() {
             let _ = thread.join();

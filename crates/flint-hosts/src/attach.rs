@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
+use flint_contracts::host::HostKind;
 use serde::Serialize;
 
 /// The host runtime the bootstrap drives once injected.
@@ -22,7 +23,7 @@ pub enum Runtime {
 
 /// Everything the injector needs to place a Bridge into one host process.
 pub struct AttachRequest {
-    pub host: String,
+    pub host: HostKind,
     pub runtime: Runtime,
     /// The bootstrap library flint injects into the host.
     pub bootstrap: PathBuf,
@@ -39,7 +40,7 @@ pub struct AttachRequest {
 #[derive(Serialize)]
 struct AttachConfig<'a> {
     runtime: Runtime,
-    host: &'a str,
+    host: HostKind,
     address: &'a str,
     port: u16,
     name: &'a str,
@@ -83,7 +84,7 @@ fn write_config(pid: u32, request: &AttachRequest) -> Result<()> {
     });
     let config = AttachConfig {
         runtime: request.runtime,
-        host: &request.host,
+        host: request.host,
         address: &request.address,
         port: request.port,
         name: &request.name,
@@ -271,7 +272,7 @@ mod tests {
 
     fn request(bootstrap: PathBuf) -> AttachRequest {
         AttachRequest {
-            host: "maya".into(),
+            host: HostKind::Maya,
             runtime: Runtime::Cpython,
             bootstrap,
             payload: PathBuf::from(r"C:\tools\flint-python.zip"),

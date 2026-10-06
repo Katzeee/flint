@@ -73,7 +73,7 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
                 "--pid",
                 &pid.to_string(),
                 "--host-kind",
-                "python",
+                "standalone_python",
                 "--name",
                 "Injected",
             ],
@@ -127,7 +127,7 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
             "--pid",
             &pid.to_string(),
             "--host-kind",
-            "python",
+            "standalone_python",
             "--name",
             "Injected",
         ],
@@ -137,7 +137,7 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
         again["instance_id"] == instance.as_str(),
         "re-attach changed instance: {again}"
     );
-    let instances = app.call("instances", &["--type", "python"], 0)?;
+    let instances = app.call("instances", &["--type", "standalone_python"], 0)?;
     anyhow::ensure!(
         instances["instances"].as_array().unwrap().len() == 1,
         "expected one instance: {instances}"
@@ -155,13 +155,13 @@ fn attach_reports_why_the_injected_bridge_could_not_start() -> Result<()> {
     app.call("start", &[], 0)?;
     let bundle = serde_json::to_string(&app.export()?.to_string_lossy())?;
     // A core created directly, not through the interpreter's Bridge, holds the
-    // claim where the injected `flint_bridge.attach` cannot reuse it.
+    // claim where the injected host Bridge cannot reuse it.
     let target = start_target(
         &app,
         &format!(
             "sys.path.insert(0, {bundle})\n\
-             from flint_bridge.connection.native import NativeCore\n\
-             core = NativeCore({{'host': 'python', 'address': '127.0.0.1', 'port': 1,\n\
+             from flint_bridge.connection.native_core import NativeCore\n\
+             core = NativeCore({{'host': 'standalone_python', 'address': '127.0.0.1', 'port': 1,\n\
                                  'name': 'holder', 'runtime_version': 'holder', 'enabled': False}})"
         ),
     )?;
@@ -171,7 +171,7 @@ fn attach_reports_why_the_injected_bridge_could_not_start() -> Result<()> {
             "--pid",
             &target.0.id().to_string(),
             "--host-kind",
-            "python",
+            "standalone_python",
             "--timeout",
             "60",
         ],

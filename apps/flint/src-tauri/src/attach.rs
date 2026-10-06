@@ -4,16 +4,17 @@
 
 use anyhow::{bail, ensure, Result};
 use flint_config::Config;
+use flint_contracts::host::HostKind;
 use flint_hosts::{AttachRequest, Runtime};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 // Produced by build.rs and embedded. The bootstrap is injected; CPython hosts
-// load the Python package, and managed hosts load the attach assembly plus the
+// load the Python package, and Unity loads its managed adapter plus the
 // native core. All are empty on non-Windows targets, where attach is disabled.
 const BOOTSTRAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/flint-bootstrap.dll"));
 const PYTHON_ZIP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/flint-python.zip"));
-const UNITY_ATTACH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/flint-unity-attach.dll"));
+const UNITY_BRIDGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/flint-unity.dll"));
 const CORE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/flint_bridge_core.dll"));
 
 /// Extract an embedded asset to a content-addressed temporary path, reusing an
@@ -42,28 +43,41 @@ fn stage(name: &str, bytes: &[u8]) -> Result<PathBuf> {
     Ok(target)
 }
 
+/// Reject known integrations without an attach implementation before preparing files.
+pub fn validate_host(host: HostKind) -> Result<()> {
+    match host {
+        HostKind::Maya
+        | HostKind::Max
+        | HostKind::Blender
+        | HostKind::Unity
+        | HostKind::StandalonePython => Ok(()),
+        HostKind::StandaloneCsharp => bail!("Attach is not implemented for host kind: {host}"),
+    }
+}
+
 /// Inject the Bridge into host process `pid`, connecting to `config`'s Bridge endpoint.
-pub fn inject(config: &Config, pid: u32, host: &str, name: &str) -> Result<()> {
+pub fn inject(config: &Config, pid: u32, host: HostKind, name: &str) -> Result<()> {
+    validate_host(host)?;
     ensure!(
         !BOOTSTRAP.is_empty(),
         "This build has no attach bootstrap; attach is only available on Windows"
     );
     let bootstrap = stage("flint-bootstrap.dll", BOOTSTRAP)?;
     let (runtime, payload, core) = match host {
-        "maya" | "max" | "blender" | "python" => (
+        HostKind::Maya | HostKind::Max | HostKind::Blender | HostKind::StandalonePython => (
             Runtime::Cpython,
             stage("flint-python.zip", PYTHON_ZIP)?,
             None,
         ),
-        "unity" => (
+        HostKind::Unity => (
             Runtime::Dotnet,
-            stage("Flint.Unity.Attach.dll", UNITY_ATTACH)?,
+            stage("Flint.Unity.dll", UNITY_BRIDGE)?,
             Some(stage("flint_bridge_core.dll", CORE)?),
         ),
-        other => bail!("Unknown host kind: {other}"),
+        HostKind::StandaloneCsharp => bail!("Attach is not implemented for host kind: {host}"),
     };
     let request = AttachRequest {
-        host: host.to_string(),
+        host,
         runtime,
         bootstrap,
         payload,

@@ -73,4 +73,5 @@ pub(crate) enum ApplyResult {
     Applied = 0,
     Busy = 1,
     Invalid = 2,
+    Stopped = 3,
 }

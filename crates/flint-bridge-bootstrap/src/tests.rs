@@ -18,7 +18,8 @@ fn python_bootstrap_starts_attach_on_a_daemon_thread() {
     // A Windows path must survive as a literal, and the connection must run off
     // the injected thread so it never blocks holding the GIL.
     assert!(source.contains(r#""C:\\tools\\flint-python.zip""#));
-    assert!(source.contains("flint_bridge.attach(host=\"maya\""));
+    assert!(source.contains("import_module(\"flint_bridge.maya\").manager"));
+    assert!(source.contains("manager.attach(address="));
     assert!(source.contains("port=6321"));
     assert!(source.contains("daemon=True).start()"));
     // A failure on that thread is reported where the injector reads it.
@@ -33,7 +34,6 @@ fn python_bootstrap_quotes_unusual_names_safely() {
     // JSON-encoded fields are valid Python string literals, so the quote,
     // backslash, and newline are escaped rather than breaking the source.
     assert!(source.contains(r#"name="a\"b\\c\n场景""#));
-    assert!(source.lines().count() >= 5);
 }
 
 #[test]

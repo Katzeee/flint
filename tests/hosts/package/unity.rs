@@ -88,6 +88,19 @@ public static class FlintTestBootstrap
     })?;
     let instance = instance.unwrap();
     let id = instance["instance_id"].as_str().unwrap();
+    let attached = app.call(
+        "attach",
+        &[
+            "--pid",
+            &host.0.id().to_string(),
+            "--host-kind",
+            "unity",
+            "--name",
+            "Unity Editor",
+        ],
+        0,
+    )?;
+    assert_eq!(attached["instance_id"], instance["instance_id"]);
     assert_eq!(instance["pid"], host.0.id());
     let candidates: Value = serde_json::from_str(
         &checked(
@@ -101,79 +114,8 @@ public static class FlintTestBootstrap
         .unwrap()
         .iter()
         .any(|candidate| { candidate["pid"] == host.0.id() && candidate["host"] == "unity" }));
-    let workflow = app.workflow("unity-mono-validation")?;
-    let scene = unity_execution(&app, id, &workflow,
-        "var item = new GameObject(\"Flint Unity validation\");\nDebug.Log(\"UNITY_SCENE_OK \" + System.Diagnostics.Process.GetCurrentProcess().Id);\nUnityEngine.Object.DestroyImmediate(item);")?;
-    assert_eq!(scene["status"], "succeeded", "{scene:?}");
-    assert!(scene["stdout"].as_str().unwrap().contains("UNITY_SCENE_OK"));
-    let failure = unity_execution(
-        &app,
-        id,
-        &workflow,
-        "throw new InvalidOperationException(\"UNITY_EXPECTED_FAILURE\");",
-    )?;
-    assert_eq!(failure["status"], "failed", "{failure:?}");
-    assert!(failure["traceback"]
-        .as_str()
-        .unwrap()
-        .contains("UNITY_EXPECTED_FAILURE"));
-    let syntax = unity_execution(&app, id, &workflow, "this is not valid C#;")?;
-    assert_eq!(syntax["status"], "failed", "{syntax:?}");
-    assert_eq!(syntax["error"], "compile_error");
+    crate::hosts::unity::verify_execution(&app, id)?;
     assert!(host.0.try_wait()?.is_none());
     println!("VALIDATION_PASSED unity {}", app.directory.display());
     Ok(())
-}
-
-fn unity_execution(app: &App, instance: &str, workflow: &str, code: &str) -> Result<Value> {
-    let submitted = run(
-        app.command("exec").args([
-            "--instance-id",
-            instance,
-            "--workflow-id",
-            workflow,
-            "--code",
-            code,
-        ]),
-        Duration::from_secs(60),
-        None,
-    )?;
-    anyhow::ensure!(
-        submitted
-            .status
-            .code()
-            .is_some_and(|code| code == 0 || code == 1),
-        "Unity submission failed: {} {}",
-        submitted.stdout,
-        submitted.stderr
-    );
-    let accepted: Value = serde_json::from_str(&submitted.stdout)?;
-    let execution = accepted["execution_id"].as_str().unwrap();
-    let mut detail = None;
-    wait_until(Duration::from_secs(60), || {
-        let response = run(
-            app.command("execution").args([
-                "--workflow-id",
-                workflow,
-                "--execution-id",
-                execution,
-                "--view",
-                "full",
-            ]),
-            Duration::from_secs(15),
-            None,
-        )?;
-        anyhow::ensure!(
-            response
-                .status
-                .code()
-                .is_some_and(|code| code == 0 || code == 1),
-            "Unity execution lookup failed: {} {}",
-            response.stdout,
-            response.stderr
-        );
-        detail = Some(serde_json::from_str::<Value>(&response.stdout)?);
-        Ok(detail.as_ref().unwrap()["status"] != "running")
-    })?;
-    Ok(detail.unwrap())
 }

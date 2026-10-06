@@ -1,4 +1,5 @@
 use flint_backend::{Backend, BackendHandle};
+use flint_contracts::host::HostKind;
 use flint_control_client::{instance_json, status_json};
 use tauri::{
     menu::{Menu, MenuItem},
@@ -53,19 +54,21 @@ async fn candidates() -> Result<serde_json::Value, String> {
 async fn attach(
     state: tauri::State<'_, BackendHandle>,
     pid: u32,
-    host_kind: Option<String>,
+    host_kind: Option<HostKind>,
 ) -> Result<serde_json::Value, String> {
     let backend = state.inner().clone();
     let config = backend.config().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let host = match host_kind {
             Some(kind) => kind,
-            None => flint_hosts::candidate(pid)
-                .ok_or_else(|| format!("Process {pid} is not a recognized host"))?
-                .host
-                .to_string(),
+            None => {
+                flint_hosts::candidate(pid)
+                    .ok_or_else(|| format!("Process {pid} is not a recognized host"))?
+                    .host
+            }
         };
-        crate::attach::inject(&config, pid, &host, &host).map_err(|error| error.to_string())?;
+        let name: &str = host.into();
+        crate::attach::inject(&config, pid, host, name).map_err(|error| error.to_string())?;
         // The injected Bridge connects to this in-process backend; wait for it,
         // or for the injected side to report why it could not.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -73,7 +76,7 @@ async fn attach(
             if let Some(instance) = backend
                 .instances()
                 .into_iter()
-                .find(|item| item.pid == pid && item.instance_name == host)
+                .find(|item| item.pid == pid && item.instance_name == name)
             {
                 return Ok(serde_json::json!({
                     "attached": true,

@@ -5,6 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+flint-contracts = { workspace = true, default-features = false }
 sysinfo = { workspace = true, features = ["system", "multithread"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <AssemblyName>Flint.Unity</AssemblyName>
+    <RootNamespace>Flint.Unity</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="attach/Attach.cs" />
+    <Compile Include="*.cs" />
+    <Compile Include="../../platforms/dotnet/src/Flint.Bridge/*.cs" />
+  </ItemGroup>
+</Project>

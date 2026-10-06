@@ -3,8 +3,8 @@ use crate::{
     settings::{BridgeSettings, Identity, SettingsSnapshot},
     state::{Obstacle, ObstacleKind, State},
 };
-use flint_protocol::timing::{HEARTBEAT_ACK_TIMEOUT, HEARTBEAT_INTERVAL};
-use flint_protocol::{envelope::Payload, *};
+use flint_contracts::protocol::timing::{HEARTBEAT_ACK_TIMEOUT, HEARTBEAT_INTERVAL};
+use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use std::{
     convert::Infallible,
@@ -18,7 +18,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-type Wire = flint_protocol::framing::Wire<TcpStream>;
+type Wire = flint_contracts::protocol::framing::Wire<TcpStream>;
 
 async fn connect(settings: &BridgeSettings) -> Result<Wire, String> {
     let stream = tokio::time::timeout(

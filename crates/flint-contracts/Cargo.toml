@@ -1,0 +1,21 @@
+[package]
+name = "flint-contracts"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[features]
+default = ["protocol"]
+protocol = ["dep:bytes", "dep:prost", "dep:tokio-util", "dep:tokio", "dep:futures-util"]
+
+[dependencies]
+serde_with.workspace = true
+strum = { workspace = true, features = ["derive"] }
+bytes = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+tokio-util = { workspace = true, features = ["codec"], optional = true }
+tokio = { workspace = true, features = ["io-util", "time"], optional = true }
+futures-util = { workspace = true, features = ["sink"], optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }

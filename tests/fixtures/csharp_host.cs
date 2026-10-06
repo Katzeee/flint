@@ -13,14 +13,14 @@ internal static class Program
         {
             var config = JsonSerializer.Serialize(new
             {
-                host = "csharp",
+                host = "standalone_csharp",
                 address = "127.0.0.1",
                 port = int.Parse(args[1]),
                 name = "Standalone C# runtime",
                 runtime_version = Environment.Version.ToString(),
                 enabled = true
             });
-            using var bridge = new NativeBridge(args[0], config);
+            using var bridge = new NativeCore(args[0], config);
             var deadline = DateTime.UtcNow.AddSeconds(20);
             while ((!bridge.Connected || string.IsNullOrEmpty(bridge.InstanceId)) &&
                    DateTime.UtcNow < deadline)

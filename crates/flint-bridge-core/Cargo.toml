@@ -8,7 +8,7 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-flint-protocol.workspace = true
+flint-contracts = { workspace = true, features = ["protocol"] }
 fs2.workspace = true
 tokio = { workspace = true, features = ["rt", "net", "sync", "time", "io-util", "macros"] }
 tokio-util = { workspace = true, features = ["rt"] }

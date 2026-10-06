@@ -152,12 +152,15 @@ test("desktop navigation preserves connection identity, asynchronous selection a
               };
             }
             if (command === "focus_application") return;
+            if (command === "attach")
+              return { attached: true, pid: args.pid, host: args.hostKind, instance_id: "maya-1", execution_ready: true };
             if (command === "desktop_info")
               return {
                 version: "0.1.0",
                 state_dir: "C:/FlintData",
                 control_endpoint: "127.0.0.1:6322",
                 bridge_endpoint: "127.0.0.1:6321",
+                attach_supported: true,
               };
             if (command === "stop_backend") {
               if (!window.__allowStop)
@@ -176,6 +179,11 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       .waitFor();
     await page.getByRole("article").getByRole("link").click();
     await page.getByText("C:/Maya/maya.exe", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Attach Bridge", exact: true }).last().click();
+    assert.deepEqual(
+      await page.evaluate(() => window.__invokeCalls.find((call) => call.command === "attach").args),
+      { pid: 4520, hostKind: "maya" },
+    );
 
     // A discovered process becomes connected while its detail is open. The same PID must not
     // remain in both sections, and its window operations retain the process identity.
@@ -250,6 +258,17 @@ test("desktop navigation preserves connection identity, asynchronous selection a
     await page.getByRole("article").filter({
       has: page.getByRole("link", { name: "Scene maya-3", exact: true }),
     }).getByText("Window is minimized", { exact: true }).waitFor();
+
+    // Connected registrations are not restricted to the built-in discovery kinds.
+    await page.evaluate(() => {
+      window.__mockSnapshot.instances.push({
+        ...window.__mockSnapshot.instances[0],
+        instance_id: "custom-1",
+        instance_type: "custom-editor",
+        pid: 4523,
+      });
+    });
+    await page.getByText("custom-editor · PID 4523", { exact: true }).waitFor();
 
     await page.getByRole("link", { name: "Workflows", exact: true }).click();
     await page.evaluate(() => {

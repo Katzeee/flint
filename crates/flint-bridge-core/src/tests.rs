@@ -1,6 +1,6 @@
 use super::*;
 use crate::settings::ApplyResult;
-use flint_protocol::{envelope::Payload, *};
+use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
@@ -50,7 +50,7 @@ impl Core {
         unsafe { flint_bridge_apply_settings(self.0, settings.as_ptr()) }
     }
     fn reconnect(&self) {
-        unsafe { flint_bridge_reconnect(self.0) }
+        assert!(unsafe { flint_bridge_reconnect(self.0) });
     }
     fn obstacle(&self) -> Value {
         self.status()["connection"]["obstacle"].clone()
@@ -73,7 +73,7 @@ unsafe fn take(value: *mut c_char) -> Option<String> {
 }
 
 fn config(port: u16) -> String {
-    json!({"host": "python", "address": "127.0.0.1", "port": port, "name": "场景",
+    json!({"host": "custom-editor", "address": "127.0.0.1", "port": port, "name": "场景",
            "runtime_version": "test"})
     .to_string()
 }
@@ -250,6 +250,8 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
     let core = connected(&mut first);
     let original = first.registration();
     assert_eq!(original.instance_name, "场景");
+    // Registration identifiers are open, independently of Flint's built-in HostKind.
+    assert_eq!(original.instance_type, "custom-editor");
     let second = Backend::start();
     assert_eq!(
         core.apply_settings(settings(second.port, "新场景", true)),

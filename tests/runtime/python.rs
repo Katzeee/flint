@@ -17,7 +17,7 @@ fn exported_zip_connects_and_executes_in_python() -> Result<()> {
         "Python loaded the Bridge from {imported}, not {}",
         archive.display()
     );
-    let instance = app.await_instance("python", None)?;
+    let instance = app.await_instance("standalone_python", None)?;
     assert_eq!(instance["pid"], host.report["pid"]);
     let workflow = app.workflow("python-runtime-export")?;
     let execution = app.execute(
@@ -48,5 +48,22 @@ fn exported_zip_conforms_to_the_runtime_scenarios() -> Result<()> {
         .current_dir(&app.directory)
         .env_remove("PYTHONPATH")
         .env_remove("PYTHONHOME");
-    conformance::verify(&app, "python", Driver::start(command)?)
+    conformance::verify(&app, "standalone_python", Driver::start(command)?)
+}
+
+#[test]
+#[ignore = "requires Python; run `cargo xtask test python`"]
+fn exported_host_entry_preserves_the_connection_contract() -> Result<()> {
+    let app = App::new();
+    app.call("start", &[], 0)?;
+    let bundle = app.export()?;
+    let mut command = Command::new(python());
+    command
+        .args(["-I", "-S", "-X", "utf8"])
+        .arg(fixture("python_integration_driver.py"))
+        .arg(bundle)
+        .current_dir(&app.directory)
+        .env_remove("PYTHONPATH")
+        .env_remove("PYTHONHOME");
+    conformance::verify_host_entry(&app, "standalone_python", Driver::start(command)?)
 }

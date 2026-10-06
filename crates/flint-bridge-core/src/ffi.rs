@@ -23,7 +23,7 @@ unsafe fn input(value: *const c_char) -> Option<String> {
 
 #[no_mangle]
 pub extern "C" fn flint_bridge_abi_version() -> u32 {
-    3
+    4
 }
 
 /// Returns null on failure and sets `error_kind` to a nonzero
@@ -112,6 +112,11 @@ pub unsafe extern "C" fn flint_bridge_busy(core: *const BridgeCore) -> bool {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn flint_bridge_stopped(core: *const BridgeCore) -> bool {
+    core.as_ref().is_none_or(BridgeCore::stopped)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn flint_bridge_instance_id(core: *const BridgeCore) -> *mut c_char {
     let Some(core) = core.as_ref() else {
         return ptr::null_mut();
@@ -120,10 +125,8 @@ pub unsafe extern "C" fn flint_bridge_instance_id(core: *const BridgeCore) -> *m
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn flint_bridge_reconnect(core: *const BridgeCore) {
-    if let Some(core) = core.as_ref() {
-        core.reconnect();
-    }
+pub unsafe extern "C" fn flint_bridge_reconnect(core: *const BridgeCore) -> bool {
+    core.as_ref().is_some_and(BridgeCore::reconnect)
 }
 
 #[no_mangle]

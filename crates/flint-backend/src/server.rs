@@ -1,8 +1,8 @@
 use crate::store::{now, Store};
 use anyhow::{Context, Result};
 use flint_config::Config;
-use flint_protocol::timing::HEARTBEAT_IDLE_TIMEOUT;
-use flint_protocol::{envelope::Payload, *};
+use flint_contracts::protocol::timing::HEARTBEAT_IDLE_TIMEOUT;
+use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use std::{
     collections::HashMap,
@@ -22,7 +22,7 @@ mod control;
 
 const FIRST_MESSAGE_TIMEOUT: Duration = Duration::from_secs(30);
 
-type Wire = flint_protocol::framing::Wire<TcpStream>;
+type Wire = flint_contracts::protocol::framing::Wire<TcpStream>;
 
 fn failure(code: ErrorCode, message: impl Into<String>) -> Payload {
     Payload::ProtocolError(ProtocolError {

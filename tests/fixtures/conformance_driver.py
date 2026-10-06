@@ -10,19 +10,19 @@ import time
 
 sys.path.insert(0, sys.argv[1])
 from flint_bridge import BridgeBusyError, BridgeCreationError
-from flint_bridge.connection import native
+from flint_bridge.connection import native_core
 
 core = None
 held = None
-packaged_library = native._library_path
+packaged_library = native_core._library_path
 
 
 def create(command):
     global core
     library = command.get("library")
-    native._library_path = (lambda: Path(library)) if library else packaged_library
+    native_core._library_path = (lambda: Path(library)) if library else packaged_library
     try:
-        created = native.NativeCore(command["config"])
+        created = native_core.NativeCore(command["config"])
     except BridgeCreationError as error:
         return {"error": {"kind": error.kind, "message": str(error)}}
     core = created

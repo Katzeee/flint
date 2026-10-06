@@ -60,3 +60,18 @@ fn invalid_input_and_help_do_not_start_backend() -> Result<()> {
     assert!(!app.directory.join("runtime").join("backend.log").exists());
     Ok(())
 }
+
+#[test]
+fn attach_distinguishes_unknown_hosts_from_unimplemented_integrations() -> Result<()> {
+    let app = App::new();
+    let unknown = app.call("attach", &["--pid", "0", "--host-kind", "custom-editor"], 2)?;
+    assert_eq!(unknown["error_code"], "invalid_arguments");
+    let unsupported = app.call(
+        "attach",
+        &["--pid", "0", "--host-kind", "standalone_csharp"],
+        1,
+    )?;
+    assert_eq!(unsupported["error_code"], "command_failed");
+    assert!(!app.directory.join("runtime").join("backend.log").exists());
+    Ok(())
+}

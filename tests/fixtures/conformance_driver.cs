@@ -9,7 +9,7 @@ using Flint.Bridge;
 // reported as the binding produced them; Rust owns every assertion.
 internal static class Program
 {
-    private static NativeBridge core;
+    private static NativeCore core;
     private static string held;
 
     private static int Main(string[] args)
@@ -57,7 +57,7 @@ internal static class Program
     {
         try
         {
-            core = new NativeBridge(library, config);
+            core = new NativeCore(library, config);
             return new JsonObject { ["created"] = true };
         }
         catch (BridgeCreationException error)

@@ -1,3 +1,4 @@
+use flint_contracts::host::HostKind;
 use serde::Serialize;
 use std::ffi::OsString;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
@@ -13,7 +14,7 @@ mod tests;
 #[derive(Serialize)]
 pub struct HostCandidate {
     pub pid: u32,
-    pub host: &'static str,
+    pub host: HostKind,
     pub executable: String,
 }
 
@@ -56,14 +57,14 @@ fn collect(processes: ProcessesToUpdate<'_>) -> Vec<HostCandidate> {
     found
 }
 
-fn host_kind(name: &str, command: &[OsString]) -> Option<&'static str> {
+fn host_kind(name: &str, command: &[OsString]) -> Option<HostKind> {
     match name {
-        "maya.exe" | "maya" => Some("maya"),
-        "3dsmax.exe" => Some("max"),
-        "blender.exe" | "blender" => Some("blender"),
+        "maya.exe" | "maya" => Some(HostKind::Maya),
+        "3dsmax.exe" => Some(HostKind::Max),
+        "blender.exe" | "blender" => Some(HostKind::Blender),
         // Asset import workers run the editor executable but are not independent hosts.
         // Batch-mode editors remain discoverable even when they have no window.
-        "unity.exe" if !is_unity_import_worker(command) => Some("unity"),
+        "unity.exe" if !is_unity_import_worker(command) => Some(HostKind::Unity),
         _ => None,
     }
 }

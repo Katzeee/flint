@@ -33,7 +33,7 @@ pub fn python() -> PathBuf {
         return PathBuf::from(path);
     }
     let output = Command::new("uv")
-        .current_dir(root().join("bridges/python"))
+        .current_dir(root().join("bridges"))
         .args(["python", "find", ">=3.11,<3.15"])
         .output()
         .expect("uv is required to locate the test Python interpreter");

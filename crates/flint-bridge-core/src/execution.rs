@@ -1,5 +1,5 @@
 use crate::state::State;
-use flint_protocol::{envelope::Payload, *};
+use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -8,7 +8,7 @@ use std::{
 };
 use tokio::{net::TcpStream, sync::mpsc as async_mpsc};
 
-type Wire = flint_protocol::framing::Wire<TcpStream>;
+type Wire = flint_contracts::protocol::framing::Wire<TcpStream>;
 
 #[derive(Serialize)]
 pub(crate) struct ExecuteEvent {

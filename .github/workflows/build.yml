@@ -57,12 +57,12 @@ jobs:
           python-version: '3.13'
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
-          global-json-file: bridges/dotnet/global.json
+          global-json-file: bridges/global.json
       - uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
         with:
           version: '24.4'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Generated Rust protocol bindings are current
+      - name: Generated contracts are current
         run: cargo codegen --check
       - name: Tests
         run: cargo xtask test

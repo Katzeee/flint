@@ -92,7 +92,7 @@ fn python(root: &Path) -> Result<()> {
         &[
             "run",
             "--directory",
-            "bridges/python",
+            "bridges",
             "--locked",
             "--package",
             "flint-bridge",
@@ -130,7 +130,7 @@ fn csharp(root: &Path) -> Result<()> {
     )?;
     let core = target_dir(root).join("debug/flint_bridge_core.dll");
     execute(
-        &root.join("bridges/dotnet"),
+        &root.join("bridges/platforms/dotnet"),
         "dotnet",
         &[
             "test",

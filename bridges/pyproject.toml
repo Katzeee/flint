@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flint-bridge"
+version = "0.1.0"
+description = "Host-side Python bridge for flint"
+requires-python = ">=3.7"
+dependencies = []
+
+[tool.setuptools]
+packages = [
+    "flint_bridge", "flint_bridge.maya", "flint_bridge.max",
+    "flint_bridge.blender", "flint_bridge.standalone_python",
+    "flint_bridge.connection", "flint_bridge.execution",
+    "flint_bridge.execution.strategies", "flint_bridge.ui",
+]
+
+[tool.setuptools.package-dir]
+flint_bridge = "platforms/python/src/flint_bridge"
+"flint_bridge.maya" = "hosts/maya/python"
+"flint_bridge.max" = "hosts/max/python"
+"flint_bridge.blender" = "hosts/blender/python"
+"flint_bridge.standalone_python" = "hosts/standalone_python"
+"flint_bridge.connection" = "platforms/python/src/flint_bridge/connection"
+"flint_bridge.execution" = "platforms/python/src/flint_bridge/execution"
+"flint_bridge.execution.strategies" = "platforms/python/src/flint_bridge/execution/strategies"
+"flint_bridge.ui" = "platforms/python/src/flint_bridge/ui"
+
+[tool.uv]
+required-version = ">=0.12.17"
+python-downloads = "never"
+default-groups = []
+
+[dependency-groups]
+test = ["pytest==9.0.3", "PySide6-Essentials==6.11.1"]
+
+[tool.uv.dependency-groups]
+test = { requires-python = ">=3.11,<3.15" }
+
+[tool.pytest]
+minversion = "9.0"
+strict = true
+addopts = ["--import-mode=importlib", "-ra"]
+testpaths = ["platforms/python/tests", "hosts/blender/tests"]
+
+[tool.ruff]
+line-length = 120

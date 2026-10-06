@@ -2,7 +2,7 @@ use crate::{
     execution::{ExecuteEvent, ExecutionReport, ExecutionState, Outbound},
     settings::{ApplyResult, BridgeSettings, SettingsSnapshot},
 };
-use flint_protocol::HostExecuteRequest;
+use flint_contracts::protocol::HostExecuteRequest;
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
@@ -12,6 +12,7 @@ use tokio::sync::{mpsc, watch};
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub(crate) enum Connection {
+    Stopped,
     Disabled,
     Connecting,
     Connected { instance_id: String },
@@ -73,6 +74,14 @@ impl State {
         self.execution.busy()
     }
 
+    pub(crate) fn stopped(&self) -> bool {
+        matches!(self.connection, Connection::Stopped)
+    }
+
+    pub(crate) fn stop(&mut self) {
+        self.connection = Connection::Stopped;
+    }
+
     pub(crate) fn instance_id(&self) -> &str {
         match &self.connection {
             Connection::Connected { instance_id } => instance_id,
@@ -93,6 +102,9 @@ impl State {
         settings: BridgeSettings,
         updates: &watch::Sender<Arc<SettingsSnapshot>>,
     ) -> ApplyResult {
+        if self.stopped() {
+            return ApplyResult::Stopped;
+        }
         if !settings.valid() {
             return ApplyResult::Invalid;
         }
@@ -111,12 +123,16 @@ impl State {
         ApplyResult::Applied
     }
 
-    pub(crate) fn reconnect(&mut self) {
+    pub(crate) fn reconnect(&mut self) -> bool {
+        if self.stopped() {
+            return false;
+        }
         self.connection = if self.settings_snapshot.settings.enabled {
             Connection::Connecting
         } else {
             Connection::Disabled
         };
+        true
     }
 
     pub(crate) fn complete_registration(
@@ -124,6 +140,9 @@ impl State {
         settings_snapshot: &SettingsSnapshot,
         instance_id: String,
     ) -> Result<u64, String> {
+        if self.stopped() {
+            return Err("bridge stopped during registration".into());
+        }
         if self.settings_snapshot.revision != settings_snapshot.revision {
             return Err("bridge settings changed during registration".into());
         }
@@ -138,12 +157,14 @@ impl State {
         settings_snapshot: &SettingsSnapshot,
         obstacle: Option<Obstacle>,
     ) {
-        if self.settings_snapshot.revision != settings_snapshot.revision {
+        if self.stopped() || self.settings_snapshot.revision != settings_snapshot.revision {
             return;
         }
         match obstacle {
             Some(obstacle) => self.connection = Connection::Retrying { obstacle },
-            None => self.reconnect(),
+            None => {
+                self.reconnect();
+            }
         }
         // Host code can outlive this connection; only its result clears busy.
     }

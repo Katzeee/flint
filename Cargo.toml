@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/flint-protocol", "crates/flint-config", "crates/flint-backend", "crates/flint-control-client", "crates/flint-hosts", "crates/flint-bridge-core", "crates/flint-bridge-bootstrap", "apps/flint/src-tauri", "tools/protocol-codegen", "tools/xtask"]
+members = ["crates/flint-contracts", "crates/flint-config", "crates/flint-backend", "crates/flint-control-client", "crates/flint-hosts", "crates/flint-bridge-core", "crates/flint-bridge-bootstrap", "apps/flint/src-tauri", "tools/contracts-codegen", "tools/xtask"]
 default-members = ["apps/flint/src-tauri"]
 resolver = "2"
 
@@ -9,7 +9,7 @@ edition = "2021"
 publish = false
 
 [workspace.dependencies]
-flint-protocol = { path = "crates/flint-protocol" }
+flint-contracts = { path = "crates/flint-contracts", default-features = false }
 flint-config = { path = "crates/flint-config" }
 flint-backend = { path = "crates/flint-backend" }
 flint-control-client = { path = "crates/flint-control-client" }
@@ -26,6 +26,8 @@ prost = "=0.13.5"
 prost-build = "=0.13.5"
 serde = "1"
 serde_json = "1"
+serde_with = { version = "3", default-features = false, features = ["macros", "std"] }
+strum = "0.28"
 sysinfo = { version = "0.33", default-features = false }
 tauri = "2"
 tauri-build = "2"

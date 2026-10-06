@@ -25,7 +25,7 @@ fn build_against_export(app: &App, program: &str) -> Result<(PathBuf, PathBuf)> 
             Duration::from_secs(15),
         )?;
     }
-    let binding = bundle.join("NativeBridge.cs");
+    let binding = bundle.join("NativeCore.cs");
     let native = bundle.join("flint_bridge_core.dll");
     anyhow::ensure!(
         binding.is_file() && native.is_file(),
@@ -42,7 +42,7 @@ fn build_against_export(app: &App, program: &str) -> Result<(PathBuf, PathBuf)> 
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../bundle/NativeBridge.cs" Link="NativeBridge.cs" />
+    <Compile Include="../bundle/*.cs" />
   </ItemGroup>
 </Project>
 "#,
@@ -99,7 +99,7 @@ fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
     })?;
     let report = report.unwrap();
     assert_eq!(report["pid"], host.0.id());
-    let instance = app.await_instance("csharp", None)?;
+    let instance = app.await_instance("standalone_csharp", None)?;
     assert_eq!(instance["instance_id"], report["instance_id"]);
     let workflow = app.workflow("csharp-runtime-export")?;
     let execution = app.execute(
@@ -129,5 +129,19 @@ fn exported_zip_conforms_to_the_runtime_scenarios() -> Result<()> {
         .arg(assembly)
         .arg(native)
         .current_dir(&app.directory);
-    conformance::verify(&app, "csharp", Driver::start(command)?)
+    conformance::verify(&app, "standalone_csharp", Driver::start(command)?)
+}
+
+#[test]
+#[ignore = "requires .NET 10; run `cargo xtask test csharp`"]
+fn exported_host_entry_preserves_the_connection_contract() -> Result<()> {
+    let app = App::new();
+    app.call("start", &[], 0)?;
+    let (assembly, native) = build_against_export(&app, "csharp_integration_driver.cs")?;
+    let mut command = Command::new("dotnet");
+    command
+        .arg(assembly)
+        .arg(native)
+        .current_dir(&app.directory);
+    conformance::verify_host_entry(&app, "standalone_csharp", Driver::start(command)?)
 }

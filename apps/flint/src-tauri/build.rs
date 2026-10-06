@@ -1,16 +1,27 @@
 use std::{fs, path::Path, process::Command};
 
-fn watch_frontend_sources(directory: &Path) {
-    for entry in fs::read_dir(directory).expect("Cannot read frontend source directory") {
-        let entry = entry.expect("Cannot read frontend source entry");
+fn watch_sources(directory: &Path) {
+    for entry in fs::read_dir(directory).expect("Cannot read source directory") {
+        let entry = entry.expect("Cannot read source entry");
         let path = entry.path();
         let name = entry.file_name();
         if path.is_dir() {
             if !matches!(
                 name.to_str(),
-                Some("dist" | "build" | "node_modules" | ".git" | "generated")
+                Some(
+                    "dist"
+                        | "build"
+                        | "node_modules"
+                        | ".git"
+                        | "generated"
+                        | "bin"
+                        | "obj"
+                        | "__pycache__"
+                        | ".venv"
+                        | ".pytest_cache"
+                )
             ) {
-                watch_frontend_sources(&path);
+                watch_sources(&path);
             }
         } else if name != "generated.ts" {
             println!("cargo:rerun-if-changed={}", path.display());
@@ -18,15 +29,20 @@ fn watch_frontend_sources(directory: &Path) {
     }
 }
 
-fn package(root: &Path, script: &str, output: &Path, native: &Path) {
-    let status = Command::new("uv")
-        .current_dir(root.join("bridges/python"))
+fn package(root: &Path, script: &str, output: &Path, native: &Path, managed: Option<&Path>) {
+    let mut command = Command::new("uv");
+    command
+        .current_dir(root.join("bridges"))
         .args(["run", "--no-project", "--python", ">=3.11", "python"])
         .arg("-I")
         .arg(root.join(script))
         .arg(output)
         .arg("--native")
-        .arg(native)
+        .arg(native);
+    if let Some(assembly) = managed {
+        command.arg("--managed").arg(assembly);
+    }
+    let status = command
         .status()
         .expect("uv is required on PATH to run Bridge packagers");
     assert!(
@@ -61,30 +77,35 @@ fn main() {
         "apps/flint/cairn/packages",
         "apps/flint/cairn/scripts",
     ] {
-        watch_frontend_sources(&root.join(directory));
+        watch_sources(&root.join(directory));
     }
     for input in [
         "Cargo.toml",
         "Cargo.lock",
-        "bridges/python/pyproject.toml",
-        "crates/flint-protocol/Cargo.toml",
-        "crates/flint-protocol/src",
+        "bridges/global.json",
+        "bridges/pyproject.toml",
+        "crates/flint-contracts/Cargo.toml",
+        "crates/flint-contracts/src",
         "crates/flint-bridge-core/Cargo.toml",
         "crates/flint-bridge-core/src",
         "crates/flint-bridge-bootstrap/Cargo.toml",
         "crates/flint-bridge-bootstrap/src",
-        "bridges/python/tools/package_bridge.py",
-        "bridges/python/packages/bridge/src/flint_bridge",
-        "bridges/python/hosts/blender",
-        "bridges/python/hosts/maya",
-        "bridges/python/hosts/max",
-        "bridges/dotnet/tools/package_csharp.py",
-        "bridges/dotnet/hosts/unity",
-        "bridges/dotnet/src/Flint.Bridge/NativeBridge.cs",
-        "bridges/dotnet/src/Flint.Unity.Attach/Attach.cs",
-        "bridges/dotnet/src/Flint.Unity.Attach/Flint.Unity.Attach.csproj",
+        "bridges/platforms/python/tools/package_bridge.py",
+        "bridges/platforms/python/src/flint_bridge",
+        "bridges/hosts/standalone_python",
+        "bridges/hosts/blender",
+        "bridges/hosts/maya",
+        "bridges/hosts/max",
+        "bridges/platforms/dotnet/tools/package_csharp.py",
+        "bridges/hosts/unity",
+        "bridges/platforms/dotnet/src/Flint.Bridge",
     ] {
-        println!("cargo:rerun-if-changed={}", root.join(input).display());
+        let path = root.join(input);
+        if path.is_dir() {
+            watch_sources(&path);
+        } else {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
     let target = std::env::var("TARGET").expect("Cargo target triple");
     let native_target = out.join("native-target");
@@ -110,43 +131,78 @@ fn main() {
         _ => "libflint_bridge_core.so",
     };
     let native = native_target.join(&target).join("release").join(library);
+    // Build one Unity adapter for both the Editor package and external attach.
+    let core = out.join("flint_bridge_core.dll");
+    let unity_bridge = out.join("flint-unity.dll");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        std::fs::copy(&native, &core).expect("Cannot stage the native core for attach");
+        let build_dir = out.join("unity-bridge-build");
+        let status = Command::new("dotnet")
+            .current_dir(root.join("bridges/hosts/unity"))
+            .args([
+                "build",
+                "-c",
+                "Release",
+                "-p:RestoreLockedMode=true",
+                "--nologo",
+                "-v",
+                "quiet",
+                "-o",
+            ])
+            .arg(&build_dir)
+            .status()
+            .expect("dotnet (from global.json) is required to build the Unity Bridge assembly");
+        assert!(status.success(), "Unity Bridge assembly build failed");
+        std::fs::copy(build_dir.join("Flint.Unity.dll"), &unity_bridge)
+            .expect("Cannot stage the Unity Bridge assembly");
+    } else {
+        std::fs::write(&core, []).expect("Cannot stage the core placeholder");
+        std::fs::write(&unity_bridge, []).expect("Cannot stage the Unity Bridge placeholder");
+    }
+
     package(
         &root,
-        "bridges/python/tools/package_bridge.py",
+        "bridges/platforms/python/tools/package_bridge.py",
         &out.join("flint-python.zip"),
         &native,
+        None,
     );
     package(
         &root,
-        "bridges/python/hosts/blender/package.py",
+        "bridges/hosts/blender/package.py",
         &out.join("flint-blender.zip"),
         &native,
+        None,
     );
     package(
         &root,
-        "bridges/python/hosts/maya/package.py",
+        "bridges/hosts/maya/package.py",
         &out.join("flint-maya.zip"),
         &native,
+        None,
     );
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         package(
             &root,
-            "bridges/python/hosts/max/package.py",
+            "bridges/hosts/max/package.py",
             &out.join("flint-max.zip"),
             &native,
+            None,
         );
         package(
             &root,
-            "bridges/dotnet/tools/package_csharp.py",
+            "bridges/platforms/dotnet/tools/package_csharp.py",
             &out.join("flint-csharp.zip"),
             &native,
+            None,
         );
         if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64") {
             package(
                 &root,
-                "bridges/dotnet/hosts/unity/upm/package.py",
+                "bridges/hosts/unity/upm/package.py",
                 &out.join("flint-unity.tgz"),
                 &native,
+                Some(&unity_bridge),
             );
         }
     }
@@ -180,28 +236,6 @@ fn main() {
         std::fs::copy(&built, &bootstrap).expect("Cannot stage the attach bootstrap");
     } else {
         std::fs::write(&bootstrap, []).expect("Cannot stage the attach bootstrap placeholder");
-    }
-
-    // Stage the native core and build the managed attach assembly for Unity, and
-    // embed both. The assembly is portable IL (one build for any platform); it is
-    // compiled with the .NET SDK. Windows only, where attach is available.
-    let core = out.join("flint_bridge_core.dll");
-    let unity_attach = out.join("flint-unity-attach.dll");
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        std::fs::copy(&native, &core).expect("Cannot stage the native core for attach");
-        let build_dir = out.join("unity-attach-build");
-        let status = Command::new("dotnet")
-            .current_dir(root.join("bridges/dotnet/src/Flint.Unity.Attach"))
-            .args(["build", "-c", "Release", "--nologo", "-v", "quiet", "-o"])
-            .arg(&build_dir)
-            .status()
-            .expect("dotnet (from global.json) is required to build the Unity attach assembly");
-        assert!(status.success(), "Unity attach assembly build failed");
-        std::fs::copy(build_dir.join("Flint.Unity.Attach.dll"), &unity_attach)
-            .expect("Cannot stage the Unity attach assembly");
-    } else {
-        std::fs::write(&core, []).expect("Cannot stage the core placeholder");
-        std::fs::write(&unity_attach, []).expect("Cannot stage the Unity attach placeholder");
     }
 
     let frontend = root.join("apps/flint");

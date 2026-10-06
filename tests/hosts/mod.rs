@@ -1,5 +1,6 @@
 mod injection;
 mod package;
+mod unity;
 
 use anyhow::{Context, Result};
 use std::{env, path::PathBuf};

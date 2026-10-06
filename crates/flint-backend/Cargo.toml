@@ -6,7 +6,7 @@ publish.workspace = true
 
 [dependencies]
 flint-config.workspace = true
-flint-protocol.workspace = true
+flint-contracts = { workspace = true, features = ["protocol"] }
 tokio = { workspace = true, features = ["rt", "macros", "net", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }
 futures-util = { workspace = true, features = ["sink"] }

@@ -12,13 +12,13 @@ report = {"pid": os.getpid(), "version": "%s.%s" % sys.version_info[:2]}
 try:
     sys.path.insert(0, config["bundle"])
     import flint_bridge
-    from flint_bridge import connect, disconnect
+    from flint_bridge.standalone_python import manager
     report["module_file"] = flint_bridge.__file__
-    bridge = connect("python", port=config["port"])
+    bridge = manager.connect(port=config["port"])
     if not bridge.wait_until_connected(10):
         raise RuntimeError("Both channels did not become ready")
     report["instance_id"] = bridge.instance_id
-    report["reused"] = connect("python", port=config["port"]) is bridge
+    report["reused"] = manager.connect(port=config["port"]) is bridge
 except BaseException:
     report["error"] = traceback.format_exc()
 ready = directory / "ready.json"
@@ -40,4 +40,4 @@ if "error" not in report:
             (directory / "bridge-idle-after-drop").write_text("idle", encoding="utf-8")
             await_idle_after_drop = False
         time.sleep(0.05)
-    disconnect()
+    manager.disconnect()

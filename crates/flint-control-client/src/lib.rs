@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use flint_config::Config;
-use flint_protocol::{envelope::Payload, *};
+use flint_contracts::protocol::{envelope::Payload, *};
 use fs2::FileExt;
 use futures_util::SinkExt;
 use std::{

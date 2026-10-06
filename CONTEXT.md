@@ -8,6 +8,10 @@ Flint connects applications that execute code to a backend that coordinates requ
 A running application process whose own language runtime executes code submitted through Flint, such as Maya, 3ds Max, or a Python process.
 _Avoid_: Host for a network address; use endpoint address.
 
+**Host kind**:
+A built-in host integration recognized by Flint, represented by `HostKind` in the shared contracts. An application integration owns its runtime selection and execution behavior; a standalone integration identifies a fixed source language. Recognizing a kind does not imply that Flint can discover or attach it. Bridge registration identifiers remain open strings, so independently loaded Bridges can identify hosts outside this built-in set.
+_Avoid_: Language or runtime kind for this integration identity.
+
 **Host runtime**:
 The interpreter or managed runtime inside a host application that executes submitted code. Its version is reported by a connected instance.
 _Avoid_: Runtime without qualification.
@@ -26,6 +30,9 @@ _Avoid_: Host application, instance.
 
 **Bridge core**:
 The shared native component of a Bridge that owns its connection, registration, heartbeat, framing, and reconnection behavior. It does not execute host code, and it holds a process-wide claim so a host process runs at most one Bridge.
+
+**Bridge manager**:
+The platform component that creates, reuses, configures, and releases a host's Bridge using execution and scheduling capabilities supplied by the host. It manages Bridge resources; connection policy belongs to the Bridge core.
 
 **Attach**:
 Starting a Bridge from outside its host process by injecting the Bridge into the running process, rather than the host loading the Bridge itself. Both paths connect the same Bridge to the backend; attach lets flint connect a host without the user running flint's code inside it. Attaching to a process whose Bridge it can reach applies the new settings to that Bridge, and a failure is reported back to the requester.

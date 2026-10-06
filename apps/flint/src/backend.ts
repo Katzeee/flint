@@ -1,3 +1,5 @@
+import type { HostKind } from "./generated/host.js";
+
 export type BackendStatus = Readonly<{
   ready: boolean;
   pid: number;
@@ -16,7 +18,7 @@ export type ConnectedInstance = Readonly<{
 }>;
 
 export type HostCandidate = Readonly<{
-  host: string;
+  host: HostKind;
   pid: number;
   executable: string;
 }>;
@@ -119,14 +121,14 @@ export function focusApplication(pid: number): Promise<void> {
 export type AttachResult = Readonly<{
   attached: boolean;
   pid: number;
-  host: string;
+  host: HostKind;
   instance_id: string;
   execution_ready: boolean;
 }>;
 
 export function attachHost(
   pid: number,
-  hostKind?: string,
+  hostKind?: HostKind,
 ): Promise<AttachResult> {
   return invoke<AttachResult>("attach", { pid, hostKind });
 }

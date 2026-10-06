@@ -7,7 +7,7 @@ fn backend_lifecycle_preserves_python_host_and_records() -> Result<()> {
     let app = App::new();
     let host = PythonHost::start(&app, &python())?;
     assert_eq!(host.report["reused"], true);
-    let instance = app.await_instance("python", None)?;
+    let instance = app.await_instance("standalone_python", None)?;
     assert_eq!(instance["pid"], host.report["pid"]);
     let id = instance["instance_id"].as_str().unwrap();
     let workflow = app.workflow("Unicode 场景")?;
@@ -16,7 +16,7 @@ fn backend_lifecycle_preserves_python_host_and_records() -> Result<()> {
     let stored = app.details(&workflow, &execution, 0)?;
     assert_eq!(stored["stdout"], "中文😀 42\n");
     app.call("restart", &[], 0)?;
-    let reconnected = app.await_instance("python", Some(id))?;
+    let reconnected = app.await_instance("standalone_python", Some(id))?;
     assert_eq!(app.details(&workflow, &execution, 0)?, stored);
     let next = app.execute(
         reconnected["instance_id"].as_str().unwrap(),
@@ -47,7 +47,7 @@ fn a_lost_connection_does_not_replay_running_code() -> Result<()> {
     let execution = app.execute(id, &workflow, &code, 0)?;
     assert_eq!(execution["status"], "running");
     host.drop_execution_connection()?;
-    let reconnected = app.await_instance("python", Some(id))?;
+    let reconnected = app.await_instance("standalone_python", Some(id))?;
     let lost = app.details(&workflow, &execution, 1)?;
     assert!(lost["error"].as_str().unwrap().contains("unknown"));
     wait_until(Duration::from_secs(10), || Ok(marker.exists()))?;
