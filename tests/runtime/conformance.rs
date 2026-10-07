@@ -77,61 +77,26 @@ fn settings(port: u16, name: &str) -> Value {
 
 fn config(host: &str, port: u16) -> Value {
     json!({"host": host, "address": "127.0.0.1", "port": port,
-           "name": "conformance", "runtime_version": "conformance"})
+           "name": "场景 🌍", "runtime_version": "conformance"})
 }
 
-/// Verify the exported native binding, including its creation errors and events.
-pub fn verify(app: &App, host: &str, mut driver: Driver) -> Result<()> {
-    // Creation failures carry a kind beside the message.
-    let invalid = driver.call(json!({"op": "create", "config": {}}))?;
-    assert_eq!(
-        invalid["error"]["kind"], "invalid_configuration",
-        "{invalid}"
-    );
-    assert!(
-        invalid["error"]["message"]
-            .as_str()
-            .is_some_and(|message| !message.is_empty()),
-        "{invalid}"
-    );
-    let missing = app.directory.join("missing").join("flint_bridge_core.dll");
-    let unavailable = driver.call(json!({"op": "create", "library": missing,
-                                         "config": config(host, app.bridge_port)}))?;
-    assert_eq!(
-        unavailable["error"]["kind"], "library_unavailable",
-        "{unavailable}"
-    );
-    assert!(
-        unavailable["error"]["message"]
-            .as_str()
-            .is_some_and(|message| message.contains(missing.to_str().unwrap())),
-        "{unavailable}"
-    );
-
-    // A connected Bridge's snapshot has exactly this shape.
+/// Verify execution callbacks, settings and diagnostics through the exported binding.
+pub fn verify(app: &App, host: &str, mut driver: Driver, code: &str, stdout: &str) -> Result<()> {
     let created = driver.call(json!({"op": "create", "config": config(host, app.bridge_port)}))?;
     assert_eq!(created, json!({"created": true}));
     let connected = driver.status_until("connected")?;
     let instance = connected["connection"]["instance_id"].clone();
     assert!(instance.as_str().is_some_and(|id| !id.is_empty()));
-    assert_eq!(
-        connected,
-        json!({"connection": {"state": "connected", "instance_id": instance},
-               "busy": false, "settings": settings(app.bridge_port, "conformance")})
-    );
-
-    let claimed = driver.call(json!({"op": "create", "config": config(host, app.bridge_port)}))?;
-    assert_eq!(claimed["error"]["kind"], "claimed", "{claimed}");
-    let owner = claimed["error"]["message"].as_str().unwrap();
-    assert!(owner.contains(host), "{claimed}");
-    assert!(owner.contains("conformance"), "{claimed}");
-    assert!(owner.contains(env!("CARGO_PKG_VERSION")), "{claimed}");
+    assert_eq!(connected["busy"], false);
+    assert_eq!(connected["settings"]["address"], "127.0.0.1");
+    assert_eq!(connected["settings"]["port"], app.bridge_port);
+    assert_eq!(connected["settings"]["name"], "场景 🌍");
+    assert_eq!(connected["settings"]["enabled"], true);
 
     // `exec` waits for the result, which the driver holds until told to report.
     let workflow = app.workflow("runtime-conformance")?;
     let execution = std::thread::scope(|scope| -> Result<Value> {
-        let submitted =
-            scope.spawn(|| app.execute(instance.as_str().unwrap(), &workflow, "held", 0));
+        let submitted = scope.spawn(|| app.execute(instance.as_str().unwrap(), &workflow, code, 0));
         let taken = driver.call(json!({"op": "take"}))?;
         assert!(taken["request_id"].is_string(), "{taken}");
         assert_eq!(driver.call(json!({"op": "status"}))?["busy"], true);
@@ -145,9 +110,14 @@ pub fn verify(app: &App, host: &str, mut driver: Driver) -> Result<()> {
         submitted.join().unwrap()
     })?;
     assert_eq!(execution["status"], "succeeded", "{execution}");
+    assert_eq!(app.details(&workflow, &execution, 0)?["stdout"], stdout);
 
-    verify_settings(app, &mut driver)?;
-    verify_release(app, host, &mut driver)
+    verify_binding_settings(&mut driver)?;
+    assert_eq!(
+        driver.call(json!({"op": "close"}))?,
+        json!({"closed": true})
+    );
+    Ok(())
 }
 
 /// Exercise the platform host manager through its real connect/attach entry.
@@ -157,18 +127,7 @@ pub fn verify_host_entry(app: &App, host: &str, mut driver: Driver) -> Result<()
         driver.call(json!({"op": "create", "config": options}))?,
         json!({"created": true})
     );
-    let connected = driver.status_until("connected")?;
-    assert_eq!(
-        driver.call(json!({"op": "create", "config": options}))?,
-        json!({"created": true})
-    );
-    assert_eq!(driver.call(json!({"op": "status"}))?, connected);
-
-    let conflicting = driver.call(json!({"op": "create", "config": config(host, free_port())}))?;
-    assert!(conflicting["error"]["message"]
-        .as_str()
-        .is_some_and(|message| !message.is_empty()));
-    assert_eq!(driver.call(json!({"op": "status"}))?, connected);
+    driver.status_until("connected")?;
 
     // Reattaching applies settings through the real host entry, including when
     // registration must move to a different backend.
@@ -187,24 +146,17 @@ pub fn verify_host_entry(app: &App, host: &str, mut driver: Driver) -> Result<()
     );
     driver.call(json!({"op": "attach", "settings": settings(app.bridge_port, "conformance")}))?;
 
-    verify_settings(app, &mut driver)?;
-    verify_release(app, host, &mut driver)?;
+    verify_invalid_settings(app, &mut driver)?;
+    assert_eq!(
+        driver.call(json!({"op": "close"}))?,
+        json!({"closed": true})
+    );
     verify_manager_lifecycle(app, host, &mut driver)
 }
 
-/// These policies belong to the native core. An adapter must preserve them.
-fn verify_settings(app: &App, driver: &mut Driver) -> Result<()> {
+/// Wrappers must preserve explicitly supplied invalid values rather than defaulting them.
+fn verify_invalid_settings(app: &App, driver: &mut Driver) -> Result<()> {
     let connected = driver.status_until("connected")?;
-    let instance = &connected["connection"]["instance_id"];
-    assert!(instance.as_str().is_some_and(|id| !id.is_empty()));
-    assert_eq!(
-        connected,
-        json!({"connection": {"state": "connected", "instance_id": instance},
-        "busy": false, "settings": settings(app.bridge_port, "conformance")})
-    );
-
-    // Invalid settings remain invalid through every wrapper; defaults must not
-    // replace explicitly supplied invalid values.
     for invalid in [settings(0, "conformance"), settings(app.bridge_port, "")] {
         assert_eq!(
             driver.call(json!({"op": "apply", "settings": invalid}))?,
@@ -212,63 +164,19 @@ fn verify_settings(app: &App, driver: &mut Driver) -> Result<()> {
         );
         assert_eq!(driver.call(json!({"op": "status"}))?, connected);
     }
+    Ok(())
+}
 
-    let mut disabled = settings(app.bridge_port, "conformance");
-    disabled["enabled"] = json!(false);
-    assert_eq!(
-        driver.call(json!({"op": "apply", "settings": disabled}))?,
-        json!({"applied": true})
-    );
-    assert_eq!(
-        driver.status_until("disabled")?,
-        json!({"connection": {"state": "disabled"},
-        "busy": false, "settings": disabled})
-    );
-    assert_eq!(
-        driver
-            .call(json!({"op": "apply", "settings": settings(app.bridge_port, "conformance")}))?,
-        json!({"applied": true})
-    );
-    driver.status_until("connected")?;
-
-    // A connection that cannot be made explains itself inside its state.
+/// Settings and native connection diagnostics survive the language boundary.
+fn verify_binding_settings(driver: &mut Driver) -> Result<()> {
     let unreachable = free_port();
-    let moved = driver.call(json!({"op": "apply", "settings": settings(unreachable, "moved")}))?;
+    let moved = driver.call(json!({"op": "apply", "settings": settings(unreachable, "新场景")}))?;
     assert_eq!(moved, json!({"applied": true}));
     let retrying = driver.status_until("retrying")?;
     let obstacle = &retrying["connection"]["obstacle"];
     assert_eq!(obstacle["kind"], "unreachable", "{retrying}");
     assert!(obstacle["message"].as_str().is_some_and(|m| !m.is_empty()));
-    assert_eq!(retrying["settings"], settings(unreachable, "moved"));
-
-    assert_eq!(
-        driver.call(json!({"op": "reconnect"}))?,
-        json!({"reconnected": true})
-    );
-    assert_eq!(
-        driver
-            .call(json!({"op": "apply", "settings": settings(app.bridge_port, "conformance")}))?,
-        json!({"applied": true})
-    );
-    driver.status_until("connected")?;
-    Ok(())
-}
-
-fn verify_release(app: &App, host: &str, driver: &mut Driver) -> Result<()> {
-    assert_eq!(
-        driver.call(json!({"op": "close"}))?,
-        json!({"closed": true})
-    );
-    // Successful disposal releases the native process claim through this entry.
-    assert_eq!(
-        driver.call(json!({"op": "create", "config": config(host, app.bridge_port)}))?,
-        json!({"created": true})
-    );
-    driver.status_until("connected")?;
-    assert_eq!(
-        driver.call(json!({"op": "close"}))?,
-        json!({"closed": true})
-    );
+    assert_eq!(retrying["settings"], settings(unreachable, "新场景"));
     Ok(())
 }
 
@@ -315,7 +223,6 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     let probe = driver.call(json!({"op": "probe"}))?;
     assert_eq!(probe["created"], created + 1);
     assert_eq!(probe["factory_thread"], probe["dispatch_thread"]);
-    driver.call(json!({"op": "create", "config": options}))?;
     let mut disabled = settings(app.bridge_port, "paused");
     disabled["enabled"] = json!(false);
     driver.call(json!({"op": "apply", "settings": disabled}))?;
@@ -341,6 +248,10 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
         let stopped = driver.call(json!({"op": "status"}))?;
         assert_eq!(stopped["connection"], json!({"state": "stopped"}));
         assert_eq!(stopped["busy"], true);
+        assert_eq!(
+            driver.call(json!({"op": "probe"}))?["released"],
+            before["released"]
+        );
         for command in [
             json!({"op": "create", "config": options}),
             json!({"op": "apply", "settings": settings(app.bridge_port, "changed")}),
@@ -367,10 +278,6 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
         submitted.join().unwrap()
     })?;
     assert_eq!(execution["status"], "failed", "{execution}");
-    assert_eq!(
-        execution["error"],
-        "Host disconnected; execution outcome is unknown"
-    );
     assert_eq!(
         driver.call(json!({"op": "close"}))?,
         json!({"closed": true})

@@ -1,9 +1,4 @@
 use super::*;
-use std::{
-    sync::{mpsc as sync_mpsc, Mutex},
-    thread,
-    time::Duration,
-};
 use tokio::sync::mpsc;
 
 fn settings(name: &str, enabled: bool) -> BridgeSettings {
@@ -31,49 +26,55 @@ fn initial() -> Arc<SettingsSnapshot> {
 
 #[test]
 fn settings_change_rejects_a_registration_waiting_to_commit() {
-    for replacement in [settings("changed", true), settings("original", false)] {
+    for (case, replacements) in [
+        ("renamed", vec![settings("changed", true)]),
+        ("disabled", vec![settings("original", false)]),
+        (
+            "returned to the original settings",
+            vec![settings("changed", true), settings("original", true)],
+        ),
+    ] {
         let snapshot = initial();
-        let state = Arc::new(Mutex::new(BridgeState::new(snapshot.clone())));
+        let mut state = BridgeState::new(snapshot.clone());
         let (updates, latest) = watch::channel(snapshot.clone());
-        let (ready_tx, ready_rx) = sync_mpsc::channel();
-        let (resume_tx, resume_rx) = sync_mpsc::channel();
-        let registering = state.clone();
-        let old = snapshot.clone();
-        let registration = thread::spawn(move || {
-            ready_tx.send(()).unwrap();
-            resume_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-            registering
-                .lock()
-                .unwrap()
-                .complete_registration(&old, "obsolete".into())
-        });
-        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        let applied = state
-            .lock()
-            .unwrap()
-            .apply_settings(replacement.clone(), &updates);
-        resume_tx.send(()).unwrap();
-        assert_eq!(applied, ApplyResult::Applied);
-        assert!(registration.join().unwrap().is_err());
-
-        let mut state = state.lock().unwrap();
+        for replacement in &replacements {
+            assert_eq!(
+                state.apply_settings(replacement.clone(), &updates),
+                ApplyResult::Applied,
+                "{case}"
+            );
+        }
+        let replacement = replacements.last().unwrap();
+        assert!(
+            state
+                .complete_registration(&snapshot, "obsolete".into())
+                .is_err(),
+            "{case}: accepted the obsolete registration"
+        );
         assert_eq!(
             state.connection,
             if replacement.enabled {
                 Connection::Connecting
             } else {
                 Connection::Disabled
-            }
+            },
+            "{case}"
         );
         assert!(state
             .begin_execution(0, "obsolete-request".into(), HostExecuteRequest::default())
             .is_none());
-        assert!(Arc::ptr_eq(&state.settings_snapshot, &latest.borrow()));
+        assert!(latest.borrow().settings == *replacement, "{case}");
+        assert!(state.settings_snapshot.settings == *replacement, "{case}");
+        assert_eq!(state.settings_snapshot.revision, latest.borrow().revision);
+        assert!(latest.borrow().revision > snapshot.revision, "{case}");
         if replacement.enabled {
-            assert!(state
-                .complete_registration(&latest.borrow(), "current".into())
-                .is_ok());
-            assert!(state.connected());
+            assert!(
+                state
+                    .complete_registration(&latest.borrow(), "current".into())
+                    .is_ok(),
+                "{case}: rejected the current registration"
+            );
+            assert!(state.connected(), "{case}");
         }
     }
 }
@@ -82,60 +83,22 @@ fn settings_change_rejects_a_registration_waiting_to_commit() {
 fn old_session_cleanup_cannot_overwrite_new_settings_or_registration() {
     for enabled in [true, false] {
         let old = initial();
-        let state = Arc::new(Mutex::new(BridgeState::new(old.clone())));
-        state
-            .lock()
-            .unwrap()
-            .complete_registration(&old, "old".into())
-            .unwrap();
+        let mut state = BridgeState::new(old.clone());
+        state.complete_registration(&old, "old".into()).unwrap();
         let (updates, latest) = watch::channel(old.clone());
-        let (ready_tx, ready_rx) = sync_mpsc::channel();
-        let (resume_tx, resume_rx) = sync_mpsc::channel();
-        let ending = state.clone();
-        let cleanup = thread::spawn(move || {
-            ready_tx.send(()).unwrap();
-            resume_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-            ending
-                .lock()
-                .unwrap()
-                .finish_session(&old, Some(lost("obsolete")));
-        });
-        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        let expected = {
-            let mut state = state.lock().unwrap();
-            assert_eq!(
-                state.apply_settings(settings("changed", enabled), &updates),
-                ApplyResult::Applied
-            );
-            if enabled {
-                state
-                    .complete_registration(&latest.borrow(), "current".into())
-                    .unwrap();
-            }
-            serde_json::to_value(state.status()).unwrap()
-        };
-        resume_tx.send(()).unwrap();
-        cleanup.join().unwrap();
         assert_eq!(
-            serde_json::to_value(state.lock().unwrap().status()).unwrap(),
-            expected
+            state.apply_settings(settings("changed", enabled), &updates),
+            ApplyResult::Applied
         );
+        if enabled {
+            state
+                .complete_registration(&latest.borrow(), "current".into())
+                .unwrap();
+        }
+        let expected = serde_json::to_value(state.status()).unwrap();
+        state.finish_session(&old, Some(lost("obsolete")));
+        assert_eq!(serde_json::to_value(state.status()).unwrap(), expected);
     }
-}
-
-#[test]
-fn returning_to_the_same_settings_does_not_revive_an_old_registration() {
-    let old = initial();
-    let mut state = BridgeState::new(old.clone());
-    let (updates, latest) = watch::channel(old.clone());
-    state.apply_settings(settings("changed", true), &updates);
-    state.apply_settings(old.settings.clone(), &updates);
-    assert!(state
-        .complete_registration(&old, "obsolete".into())
-        .is_err());
-    assert!(state
-        .complete_registration(&latest.borrow(), "current".into())
-        .is_ok());
 }
 
 #[test]

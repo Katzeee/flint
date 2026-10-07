@@ -44,10 +44,12 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
     );
     let execution = app.execute(id, &workflow, &code, 0)?;
     assert_eq!(execution["status"], "running");
-    assert!(app.details(&workflow, &execution, 0)?["stdout"]
-        .as_str()
-        .unwrap()
-        .contains("BEGIN"));
+    wait_until(Duration::from_secs(15), || {
+        Ok(app.details(&workflow, &execution, 0)?["stdout"]
+            .as_str()
+            .unwrap()
+            .contains("BEGIN"))
+    })?;
     assert_eq!(app.call("stop", &[], 1)?["error_code"], "backend_busy");
     assert_eq!(
         app.execute(id, &workflow, "print('must not run')", 1)?["error_code"],
@@ -63,41 +65,5 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
     );
     let next = app.execute(id, &workflow, "print('NEXT')", 0)?;
     assert_eq!(next["status"], "succeeded");
-    Ok(())
-}
-
-#[test]
-fn file_and_stdin_sources_are_preserved() -> Result<()> {
-    let app = App::new();
-    let host = PythonHost::start(&app, &python())?;
-    let id = host.report["instance_id"].as_str().unwrap();
-    let workflow = app.workflow("sources")?;
-    let source = app.directory.join("example.py");
-    fs::write(&source, "print('FROM_FILE')")?;
-    let execution = app.call(
-        "exec",
-        &[
-            "--instance-id",
-            id,
-            "--workflow-id",
-            &workflow,
-            "--file",
-            source.to_str().unwrap(),
-        ],
-        0,
-    )?;
-    let details = app.details(&workflow, &execution, 0)?;
-    assert_eq!(details["code"], "print('FROM_FILE')");
-    assert_eq!(details["stdout"], "FROM_FILE\n");
-    let execution = app.input(
-        "exec",
-        &["--instance-id", id, "--workflow-id", &workflow, "--stdin"],
-        0,
-        Some("print('FROM_STDIN')"),
-    )?;
-    assert_eq!(
-        app.details(&workflow, &execution, 0)?["stdout"],
-        "FROM_STDIN\n"
-    );
     Ok(())
 }

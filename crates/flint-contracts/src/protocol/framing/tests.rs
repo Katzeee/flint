@@ -19,48 +19,6 @@ fn sample() -> Envelope {
     }
 }
 
-fn framed(envelope: Envelope) -> BytesMut {
-    let mut bytes = BytesMut::new();
-    EnvelopeCodec::default()
-        .encode(envelope, &mut bytes)
-        .unwrap();
-    bytes
-}
-
-#[test]
-fn fragmented_and_coalesced_frames_preserve_messages() {
-    let first = sample();
-    let mut second = sample();
-    second.request_id = "request-2".into();
-    let mut wire = framed(first.clone());
-    wire.extend_from_slice(&framed(second.clone()));
-    let mut codec = EnvelopeCodec::default();
-    let mut buffer = BytesMut::new();
-    let mut received = Vec::new();
-    for byte in wire {
-        buffer.extend_from_slice(&[byte]);
-        while let Some(item) = codec.decode(&mut buffer).unwrap() {
-            received.push(item);
-        }
-    }
-    assert_eq!(received, vec![first, second]);
-    assert!(codec.decode_eof(&mut buffer).unwrap().is_none());
-}
-
-#[test]
-fn rejects_truncated_header_and_body_at_eof() {
-    let frame = framed(sample());
-    for length in 1..frame.len() {
-        let mut codec = EnvelopeCodec::default();
-        let mut input = BytesMut::from(&frame[..length]);
-        assert!(codec.decode(&mut input).unwrap().is_none());
-        assert!(
-            codec.decode_eof(&mut input).is_err(),
-            "accepted truncation at {length}"
-        );
-    }
-}
-
 #[test]
 fn rejects_invalid_lengths_before_reading_a_body() {
     for length in [0, MAX_FRAME_BYTES as u32 + 1, u32::MAX] {

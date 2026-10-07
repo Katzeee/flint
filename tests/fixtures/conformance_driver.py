@@ -4,15 +4,15 @@ Reads one JSON command per line and answers each with one JSON line. Results
 are reported as the binding produced them; Rust owns every assertion.
 """
 import json
-from pathlib import Path
 import sys
 import threading
 from queue import Queue
 
 sys.path.insert(0, sys.argv[1])
-from flint_bridge import BridgeBusyError, BridgeCreationError
+from flint_bridge import BridgeBusyError
 from flint_bridge.connection import native_core
 from flint_bridge.execution.capabilities import ExecutionCapabilities
+from flint_bridge.execution.executor import CodeExecutor
 from flint_bridge.execution.scheduling import WorkerThread
 
 core = None
@@ -21,26 +21,26 @@ requests = Queue()
 release = threading.Event()
 
 
-class Executor:
-    def run(self, request, out, err):
+class Executor(CodeExecutor):
+    def prepare(self, request):
+        return request, super().prepare(request)
+
+    def run(self, prepared, out, err):
+        request, code = prepared
         requests.put(request)
         if not release.wait(15):
             raise TimeoutError("Test did not release execution")
-
-
-packaged_library = native_core._library_path
+        super().run(code, out, err)
 
 
 def create(command):
     global core, scheduler
-    library = command.get("library")
-    native_core._library_path = (lambda: Path(library)) if library else packaged_library
     worker = WorkerThread()
     try:
         created = native_core.NativeCore(command["config"], ExecutionCapabilities(Executor(), worker))
-    except BridgeCreationError as error:
+    except BaseException:
         worker.close()
-        return {"error": {"kind": error.kind, "message": str(error)}}
+        raise
     release.clear()
     core, scheduler = created, worker
     return {"created": True}
@@ -51,8 +51,6 @@ def apply(command):
         core.apply_settings(command["settings"])
     except BridgeBusyError:
         return {"rejected": "busy"}
-    except ValueError:
-        return {"rejected": "invalid_settings"}
     return {"applied": True}
 
 
@@ -65,11 +63,6 @@ def finish(command):
     return {"reported": True}
 
 
-def reconnect(command):
-    core.reconnect()
-    return {"reconnected": True}
-
-
 def close(command):
     if not core.stop():
         return {"closed": False}
@@ -80,7 +73,7 @@ def close(command):
 
 COMMANDS = {
     "create": create, "apply": apply, "take": take, "finish": finish,
-    "reconnect": reconnect, "close": close,
+    "close": close,
     "status": lambda command: core.status,
 }
 

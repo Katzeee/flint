@@ -86,3 +86,5 @@ impl Drop for ProcessClaim {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) use tests::TestScope;

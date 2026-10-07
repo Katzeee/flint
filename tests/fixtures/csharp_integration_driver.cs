@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -127,6 +128,9 @@ internal static class Program
 
     private static void Main(string[] args)
     {
+        var utf8 = new UTF8Encoding(false);
+        Console.InputEncoding = utf8;
+        Console.OutputEncoding = utf8;
         library = args[0];
         using (manager = new BridgeManager("standalone_csharp", () => Environment.Version.ToString(), CreateExecution, Dispatch))
         {

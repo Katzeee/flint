@@ -9,6 +9,18 @@ report = {"pid": os.getpid(), "python": sys.version, "host": CONFIG["host"]}
 if CONFIG["host"] != "blender":
     from PySide2 import QtCore, QtWidgets
 
+
+def capture_settings_window():
+    QtWidgets.QApplication.processEvents()
+    dialogs = [widget for widget in QtWidgets.QApplication.topLevelWidgets()
+               if widget.windowTitle() == "Flint Bridge" and widget.isVisible()]
+    if not dialogs:
+        raise RuntimeError("The Flint Bridge settings window is not visible")
+    if not dialogs[-1].grab().save(CONFIG["screenshot"]):
+        raise RuntimeError("Host settings screenshot failed")
+    return True
+
+
 try:
     if CONFIG["host"] == "blender":
         import bpy
@@ -25,9 +37,7 @@ try:
         draft.port = CONFIG["port"]
         if bpy.ops.flint_bridge.apply_settings() != {"FINISHED"}:
             raise RuntimeError("The Blender Add-on did not apply its settings")
-        bridge = getattr(sys, "_flint_bridge_service", None)
-        if bridge is None:
-            raise RuntimeError("The Blender Add-on did not start a Bridge")
+        from flint_blender.flint_bridge.blender import manager
     else:
         report["main_thread"] = QtCore.QThread.currentThread() is QtWidgets.QApplication.instance().thread()
     if not report["main_thread"]:
@@ -40,12 +50,8 @@ try:
         import flint_maya
         report["package_module"] = flint_maya.__file__
         flint_maya.show_settings()
-        report["settings_visible"] = flint_maya._dialog.isVisible()
-        QtWidgets.QApplication.processEvents()
-        dialogs = [widget for widget in QtWidgets.QApplication.topLevelWidgets()
-                   if widget.windowTitle() == "Flint Bridge" and widget.isVisible()]
-        if not dialogs or not dialogs[-1].grab().save(CONFIG["screenshot"]):
-            raise RuntimeError("Maya settings screenshot failed")
+        report["settings_visible"] = capture_settings_window()
+        from flint_bridge.maya import manager
         report["version"] = cmds.about(version=True)
         report["scene"] = cmds.file(query=True, sceneName=True)
     elif CONFIG["host"] == "max":
@@ -60,17 +66,14 @@ try:
         import flint_max
         report["package_module"] = flint_max.__file__
         flint_max.show_settings()
-        report["settings_visible"] = flint_max._dialog.isVisible()
-        QtWidgets.QApplication.processEvents()
-        if not flint_max._dialog.grab().save(CONFIG["screenshot"]):
-            raise RuntimeError("3ds Max settings screenshot failed")
+        report["settings_visible"] = capture_settings_window()
+        from flint_bridge.max import manager
     else:
         report["version"] = bpy.app.version_string
         report["scene"] = bpy.data.filepath
-    if CONFIG["host"] != "blender":
-        bridge = getattr(sys, "_flint_bridge_service", None)
-        if bridge is None:
-            raise RuntimeError("The host package did not start a Bridge")
+    bridge = manager.current()
+    if bridge is None:
+        raise RuntimeError("The host package did not start a Bridge")
     if not bridge.wait_until_connected(15):
         raise RuntimeError("Both bridge channels did not connect")
     report["instance_id"] = bridge.instance_id

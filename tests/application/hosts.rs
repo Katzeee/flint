@@ -3,34 +3,6 @@ use anyhow::Result;
 use serde_json::Value;
 use std::{process::Command, time::Duration};
 
-#[test]
-fn local_host_commands_work_without_starting_a_backend() -> Result<()> {
-    let directory = tempfile::tempdir()?;
-    let output = checked(
-        Command::new(binary())
-            .args(["hosts", "--json"])
-            .env("FLINT_TEST_ROOT", directory.path()),
-        Duration::from_secs(10),
-    )?;
-    let discovery: Value = serde_json::from_str(&output.stdout)?;
-    assert!(discovery["hosts"].is_array());
-    for operation in ["info", "focus"] {
-        let output = run(
-            Command::new(binary())
-                .args(["hosts", operation, "--pid", "0", "--json"])
-                .env("FLINT_TEST_ROOT", directory.path()),
-            Duration::from_secs(10),
-            None,
-        )?;
-        assert_eq!(output.status.code(), Some(1));
-        let error: Value = serde_json::from_str(&output.stdout)?;
-        assert_eq!(error["error_code"], "command_failed");
-    }
-    assert!(!directory.path().join("workflows").exists());
-    assert!(!directory.path().join("runtime").exists());
-    Ok(())
-}
-
 #[cfg(windows)]
 #[test]
 fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {

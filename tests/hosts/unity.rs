@@ -3,12 +3,17 @@ use anyhow::Result;
 use serde_json::Value;
 use std::time::Duration;
 
-pub fn verify_execution(app: &App, id: &str) -> Result<()> {
+pub fn verify_scene_execution(app: &App, id: &str) -> Result<()> {
     let workflow = app.workflow("unity-mono-validation")?;
     let scene = unity_execution(app, id, &workflow,
         "var item = new GameObject(\"Flint Unity validation\");\nDebug.Log(\"UNITY_SCENE_OK \" + System.Diagnostics.Process.GetCurrentProcess().Id);\nUnityEngine.Object.DestroyImmediate(item);")?;
     assert_eq!(scene["status"], "succeeded", "{scene:?}");
     assert!(scene["stdout"].as_str().unwrap().contains("UNITY_SCENE_OK"));
+    Ok(())
+}
+
+pub fn verify_execution_failures(app: &App, id: &str) -> Result<()> {
+    let workflow = app.workflow("unity-execution-failures")?;
     let failure = unity_execution(
         app,
         id,

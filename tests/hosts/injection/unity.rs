@@ -102,7 +102,7 @@ public static class FlintReload
         Ok(attached["instance_id"].as_str().unwrap().to_string())
     };
     let first = attach()?;
-    crate::hosts::unity::verify_execution(&app, &first)?;
+    crate::hosts::unity::verify_scene_execution(&app, &first)?;
 
     fs::write(&trigger, "")?;
     wait_until(Duration::from_secs(120), || Ok(load_count() >= 2))?;
@@ -141,7 +141,7 @@ public static class FlintReload
         instances["instances"][0]["instance_id"] == second.as_str(),
         "the refused attach changed the Bridge: {instances}"
     );
-    crate::hosts::unity::verify_execution(&app, &second)?;
+    crate::hosts::unity::verify_scene_execution(&app, &second)?;
     assert!(host.0.try_wait()?.is_none());
     Ok(())
 }

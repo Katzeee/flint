@@ -114,7 +114,8 @@ public static class FlintTestBootstrap
         .unwrap()
         .iter()
         .any(|candidate| { candidate["pid"] == host.0.id() && candidate["host"] == "unity" }));
-    crate::hosts::unity::verify_execution(&app, id)?;
+    crate::hosts::unity::verify_scene_execution(&app, id)?;
+    crate::hosts::unity::verify_execution_failures(&app, id)?;
     assert!(host.0.try_wait()?.is_none());
     println!("VALIDATION_PASSED unity {}", app.directory.display());
     Ok(())

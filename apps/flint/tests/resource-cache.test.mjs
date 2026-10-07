@@ -10,25 +10,24 @@ const { ResourceCache } = await import(`data:text/javascript;base64,${Buffer.fro
 test("returning to an in-flight native read reuses its work after the previous page leaves", { timeout: 2000 }, async () => {
   const cache = new ResourceCache();
   let reads = 0;
-  let finish;
-  let signal;
+  const started = Promise.withResolvers();
+  const result = Promise.withResolvers();
   const read = (abort) => {
     reads += 1;
-    signal = abort;
-    return new Promise((resolve) => { finish = resolve; });
+    started.resolve(abort);
+    return result.promise;
   };
   const first = cache.acquire("preview:blender:1");
   const pending = cache.read(first, read);
-  await Promise.resolve();
+  const signal = await started.promise;
   cache.release(first);
   assert.equal(signal.aborted, true);
   const second = cache.acquire("preview:blender:1");
   const reused = cache.read(second, read);
-  await Promise.resolve();
-  assert.equal(reads, 1);
-  finish("image");
+  result.resolve("image");
   assert.equal(await pending, "image");
   assert.equal(await reused, "image");
+  assert.equal(reads, 1);
   cache.release(second);
   assert.equal(cache.peek("preview:blender:1").data, "image");
 });
@@ -53,18 +52,19 @@ test("a shared read stops only after its last consumer leaves and preserves its 
   const first = cache.acquire("workflows");
   await cache.read(first, async () => "previous");
   const second = cache.acquire("workflows");
-  let signal;
+  const started = Promise.withResolvers();
   const pending = cache.read(first, (abort) => {
-    signal = abort;
+    started.resolve(abort);
     return new Promise((_, reject) => {
       abort.addEventListener("abort", () => reject(abort.reason), { once: true });
     });
   });
-  await Promise.resolve();
+  const cancelled = assert.rejects(pending, { name: "AbortError" });
+  const signal = await started.promise;
   cache.release(first);
   assert.equal(signal.aborted, false);
   cache.release(second);
-  await assert.rejects(pending, { name: "AbortError" });
+  await cancelled;
   assert.equal(cache.peek("workflows").data, "previous");
 });
 

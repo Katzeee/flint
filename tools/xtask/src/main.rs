@@ -85,25 +85,36 @@ fn gui(root: &Path) -> Result<()> {
     execute(&app, npm, &["test"], &[])
 }
 
+fn python_environment(root: &Path, command: &[&str]) -> Result<()> {
+    let mut args = vec![
+        "run",
+        "--directory",
+        "bridges",
+        "--locked",
+        "--package",
+        "flint-bridge",
+        "--group",
+        "test",
+        "--python",
+        ">=3.11,<3.15",
+    ];
+    args.extend_from_slice(command);
+    execute(root, "uv", &args, &[])
+}
+
 fn python(root: &Path) -> Result<()> {
-    execute(
+    python_environment(root, &["pytest", "-q"])?;
+    python_environment(
         root,
-        "uv",
         &[
-            "run",
-            "--directory",
-            "bridges",
+            "cargo",
+            "test",
             "--locked",
             "--package",
-            "flint-bridge",
-            "--group",
-            "test",
-            "--python",
-            ">=3.11,<3.15",
-            "pytest",
-            "-q",
+            "flint-bridge-bootstrap",
+            "--",
+            "--ignored",
         ],
-        &[],
     )?;
     cargo_test(
         root,

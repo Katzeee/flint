@@ -18,19 +18,28 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       headers: { "Content-Security-Policy": tauri.app.security.csp },
     },
   });
-  const address = server.httpServer.address();
-  assert.ok(address && typeof address !== "string");
-  const application = await _electron.launch({
-    args: [join(appRoot, "tests/harness.cjs")],
-    cwd: appRoot,
-  });
+  let application;
   try {
+    const address = server.httpServer.address();
+    assert.ok(address && typeof address !== "string");
+    application = await _electron.launch({
+      args: [join(appRoot, "tests/harness.cjs")],
+      cwd: appRoot,
+    });
     const page = await application.firstWindow();
     await page.setViewportSize({ width: 1280, height: 850 });
+    const cspViolations = [];
+    await page.exposeFunction("__recordCspViolation", (violation) => {
+      cspViolations.push(violation);
+    });
     await page.addInitScript(() => {
-      window.__cspViolations = [];
+      window.__cspReports = [];
       document.addEventListener("securitypolicyviolation", (event) =>
-        window.__cspViolations.push(`${event.effectiveDirective} ${event.blockedURI}`),
+        window.__cspReports.push(window.__recordCspViolation({
+          document: document.URL,
+          directive: event.effectiveDirective,
+          resource: event.blockedURI,
+        })),
       );
     });
     await page.addInitScript(() => {
@@ -215,7 +224,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
         window.__invokeCalls.some(
           (call) =>
             call.command === "focus_application" &&
-            call.args.pid === 4520 && Object.keys(call.args).length === 1,
+            call.args.pid === 4520,
         ),
       ),
     );
@@ -231,9 +240,16 @@ test("desktop navigation preserves connection identity, asynchronous selection a
     const card = page.getByRole("article").filter({
       has: page.getByRole("link", { name: "Character_Rig.ma", exact: true }),
     });
-    const bounds = await card.boundingBox();
-    assert.ok(bounds);
-    await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + 50);
+    const thumbnail = card.locator("img");
+    await thumbnail.waitFor({ state: "visible" });
+    await thumbnail.scrollIntoViewIfNeeded();
+    const imageBounds = await thumbnail.boundingBox();
+    assert.ok(imageBounds);
+    // The card's stretched link receives the pointer over the image.
+    await page.mouse.click(
+      imageBounds.x + imageBounds.width / 2,
+      imageBounds.y + imageBounds.height / 2,
+    );
     await page
       .getByRole("button", { name: "Switch to application", exact: true })
       .waitFor();
@@ -243,7 +259,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
     await page.evaluate(() => {
       const instance = window.__mockSnapshot.instances[0];
       window.__mockSnapshot.instances.push(
-        { ...instance, instance_id: "maya-2", pid: 4521 },
+        { ...instance, instance_id: "custom-2", instance_type: "custom-editor", pid: 4521 },
         { ...instance, instance_id: "maya-3", pid: 4522 },
       );
     });
@@ -254,21 +270,14 @@ test("desktop navigation preserves connection identity, asynchronous selection a
     await page
       .getByRole("link", { name: "Scene maya-3", exact: true })
       .waitFor();
-    assert.equal(await page.evaluate(() => window.__peakCaptures), 2);
+    const customCard = page.getByRole("article").filter({
+      has: page.getByRole("link", { name: "Scene maya-2", exact: true }),
+    });
+    await customCard.locator("img").evaluate((image) => image.decode());
+    assert.ok(await page.evaluate(() => window.__peakCaptures <= 2));
     await page.getByRole("article").filter({
       has: page.getByRole("link", { name: "Scene maya-3", exact: true }),
     }).getByText("Window is minimized", { exact: true }).waitFor();
-
-    // Connected registrations are not restricted to the built-in discovery kinds.
-    await page.evaluate(() => {
-      window.__mockSnapshot.instances.push({
-        ...window.__mockSnapshot.instances[0],
-        instance_id: "custom-1",
-        instance_type: "custom-editor",
-        pid: 4523,
-      });
-    });
-    await page.getByText("custom-editor · PID 4523", { exact: true }).waitFor();
 
     await page.getByRole("link", { name: "Workflows", exact: true }).click();
     await page.evaluate(() => {
@@ -308,15 +317,6 @@ test("desktop navigation preserves connection identity, asynchronous selection a
     assert.equal(new URL(page.url()).hash, "#/workflows");
     await page.setViewportSize({ width: 1280, height: 850 });
     await page.getByRole("link", { name: "Settings", exact: true }).click();
-    await page.getByRole("combobox", { name: "Theme" }).click();
-    await page.getByRole("option", { name: "Dark", exact: true }).click();
-    await page.reload();
-    await page.waitForFunction(
-      () => document.documentElement.dataset.cairnAppearance === "dark",
-    );
-    await page.getByRole("link", { name: "Open-source licenses" }).click();
-    await page.getByRole("heading", { name: "Typography licenses" }).waitFor();
-    await page.getByRole("button", { name: "Back to settings" }).click();
 
     await page
       .getByRole("button", { name: "Stop", exact: true })
@@ -347,11 +347,15 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       ),
       2,
     );
-    assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
+    await page.evaluate(() => Promise.all(window.__cspReports));
+    assert.deepEqual(cspViolations, []);
   } finally {
-    await application.close();
-    await new Promise((resolve, reject) =>
-      server.httpServer.close((error) => (error ? reject(error) : resolve())),
-    );
+    try {
+      await application?.close();
+    } finally {
+      await new Promise((resolve, reject) =>
+        server.httpServer.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   }
 });

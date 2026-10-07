@@ -13,6 +13,10 @@ crate-type = ["cdylib"]
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+wait-timeout.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",

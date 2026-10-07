@@ -419,6 +419,18 @@ impl PythonHost {
         })?;
         let report = report.unwrap();
         anyhow::ensure!(report.get("error").is_none(), "Host bootstrap: {report}");
+        let imported = report["module_file"]
+            .as_str()
+            .context("Missing Python module path")?;
+        anyhow::ensure!(
+            imported.to_lowercase().starts_with(&format!(
+                "{}{}",
+                bundle.to_string_lossy().to_lowercase(),
+                std::path::MAIN_SEPARATOR
+            )),
+            "Python loaded the Bridge from {imported}, outside {}",
+            bundle.display()
+        );
         anyhow::ensure!(
             report["pid"].as_u64().is_some_and(|pid| pid > 0),
             "Missing host PID"

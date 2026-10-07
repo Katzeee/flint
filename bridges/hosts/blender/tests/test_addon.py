@@ -10,6 +10,7 @@ def load_addon(monkeypatch, connect):
         "flint_blender", addon_path, submodule_search_locations=[str(addon_path.parent)])
     addon = importlib.util.module_from_spec(spec)
     events = []
+    registered = {}
     bpy = ModuleType("bpy")
     props = ModuleType("bpy.props")
     for name in ("BoolProperty", "IntProperty", "StringProperty", "PointerProperty"):
@@ -18,8 +19,12 @@ def load_addon(monkeypatch, connect):
     bpy.types = SimpleNamespace(AddonPreferences=object, Operator=object,
                                 PropertyGroup=object, Panel=object,
                                 WindowManager=type("WindowManager", (), {}))
-    bpy.utils = SimpleNamespace(register_class=lambda klass: None,
-                                unregister_class=lambda klass: None)
+    def registration_key(klass):
+        return getattr(klass, "bl_idname", klass.__name__)
+
+    bpy.utils = SimpleNamespace(
+        register_class=lambda klass: registered.__setitem__(registration_key(klass), klass),
+        unregister_class=lambda klass: registered.pop(registration_key(klass)))
     preferences = SimpleNamespace(
         address="127.0.0.1", port=6321, instance_name="Blender", enabled=True)
     draft = SimpleNamespace(
@@ -47,36 +52,37 @@ def load_addon(monkeypatch, connect):
     monkeypatch.setitem(sys.modules, "flint_blender.flint_bridge", platform)
     monkeypatch.setitem(sys.modules, "flint_blender.flint_bridge.blender", SimpleNamespace(manager=manager))
     spec.loader.exec_module(addon)
-    return addon, bpy, events, preferences, draft
+    return addon, bpy, events, preferences, draft, registered
 
 
 class BridgeCreationError(RuntimeError):
     pass
 
 
-def test_addon_enable_connects_and_disable_disconnects(monkeypatch):
-    addon, bpy, events, preferences, draft = load_addon(monkeypatch, lambda: None)
-    addon.register()
-    draft.port = 6330
-    assert addon.FLINT_OT_apply_settings().execute(bpy.context) == {"FINISHED"}
-    assert preferences.port == 6330
-    addon.unregister()
-
-    assert events == [
-        ("connect", {"address": "127.0.0.1",
-                     "port": 6321, "name": "Blender", "enabled": True}),
-        ("configure", (), {"address": "127.0.0.1", "port": 6330,
-                                    "name": "Blender", "enabled": True}),
-        ("disconnect",),
-    ]
-
-
 def test_a_bridge_that_cannot_start_leaves_the_addon_usable(monkeypatch, capsys):
     def occupied():
         raise BridgeCreationError("Another Bridge already owns this process")
 
-    addon, bpy, events, preferences, draft = load_addon(monkeypatch, occupied)
+    addon, bpy, events, preferences, draft, registered = load_addon(monkeypatch, occupied)
     addon.register()
-    assert "Another Bridge already owns this process" in capsys.readouterr().out
-    assert addon.FLINT_OT_apply_settings().execute(bpy.context) == {"FINISHED"}
-    assert [event[0] for event in events] == ["connect", "configure"]
+    try:
+        assert "Another Bridge already owns this process" in capsys.readouterr().out
+        assert registered["flint_blender"] is addon.FlintBridgePreferences
+        assert registered["FLINT_PT_connection"] is addon.FLINT_PT_connection
+        assert hasattr(bpy.types.WindowManager, "flint_bridge_draft")
+        draft.port = 6330
+        apply = registered["flint_bridge.apply_settings"]()
+        assert apply.execute(bpy.context) == {"FINISHED"}
+        assert preferences.port == 6330
+    finally:
+        addon.unregister()
+
+    assert registered == {}
+    assert not hasattr(bpy.types.WindowManager, "flint_bridge_draft")
+    assert events == [
+        ("connect", {"address": "127.0.0.1",
+                     "port": 6321, "name": "Blender", "enabled": True}),
+        ("configure", (), {"address": "127.0.0.1", "port": 6330,
+                           "name": "Blender", "enabled": True}),
+        ("disconnect",),
+    ]

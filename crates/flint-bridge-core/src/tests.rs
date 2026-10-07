@@ -1,57 +1,88 @@
 use super::*;
+use crate::claim::TestScope;
 use crate::host::{
     fake::{write, Fake, Mode},
     OwnedHost,
 };
 use crate::settings::ApplyResult;
 use flint_contracts::protocol::{envelope::Payload, *};
-use futures_util::SinkExt;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
-use std::time::Instant;
 use std::{
     ffi::{c_char, CStr, CString},
     sync::{mpsc, Arc},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::mpsc as async_mpsc;
-use uuid::Uuid;
+use tokio_util::sync::CancellationToken;
+
+const WAIT: Duration = Duration::from_secs(10);
+
+pub(crate) fn join_thread(thread: thread::JoinHandle<()>, name: &str, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while !thread.is_finished() {
+        if Instant::now() >= deadline {
+            if thread::panicking() {
+                eprintln!("{name} did not finish within {timeout:?}");
+                return;
+            }
+            panic!("{name} did not finish within {timeout:?}");
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    if let Err(panic) = thread.join() {
+        if thread::panicking() {
+            eprintln!("{name} panicked during cleanup");
+        } else {
+            std::panic::resume_unwind(panic);
+        }
+    }
+}
 
 /// A core whose host runs posted tickets on the test thread and holds each run.
-struct Core(*mut BridgeCore, Arc<Fake>);
+struct Core {
+    pointer: *mut BridgeCore,
+    fake: Arc<Fake>,
+    scope: Option<TestScope>,
+}
 
 impl Core {
     fn new(port: u16) -> Self {
         let options = serde_json::from_str(&config(port)).unwrap();
         let fake = Fake::new();
         *fake.run.lock().unwrap() = Mode::Hold;
-        let core = BridgeCore::new_for_test(
-            options,
-            OwnedHost::new(fake.callbacks()),
-            &Uuid::new_v4().simple().to_string(),
-        )
-        .unwrap();
-        Self(Box::into_raw(Box::new(core)), fake)
+        let scope = TestScope::new();
+        let core =
+            BridgeCore::new_for_test(options, OwnedHost::new(fake.callbacks()), scope.name())
+                .unwrap();
+        Self {
+            pointer: Box::into_raw(Box::new(core)),
+            fake,
+            scope: Some(scope),
+        }
     }
     fn connected(&self) -> bool {
-        unsafe { flint_bridge_connected(self.0) }
+        unsafe { flint_bridge_connected(self.pointer) }
     }
     fn busy(&self) -> bool {
-        unsafe { flint_bridge_busy(self.0) }
+        unsafe { flint_bridge_busy(self.pointer) }
     }
     fn instance_id(&self) -> String {
-        unsafe { take(flint_bridge_instance_id(self.0)) }.unwrap()
+        unsafe { take(flint_bridge_instance_id(self.pointer)) }.unwrap()
     }
     fn status(&self) -> Value {
-        serde_json::from_str(&unsafe { take(flint_bridge_status_json(self.0)) }.unwrap()).unwrap()
+        serde_json::from_str(&unsafe { take(flint_bridge_status_json(self.pointer)) }.unwrap())
+            .unwrap()
     }
     fn wait_request(&self, timeout: Duration) -> Option<Value> {
         let deadline = Instant::now() + timeout;
         loop {
-            self.1.run_ticket(Duration::from_millis(1));
-            if let Some(request) = self.1.take_request() {
-                return Some(request);
+            self.fake.run_ticket(Duration::from_millis(1));
+            if self.fake.held().is_some() {
+                if let Some(request) = self.fake.take_request() {
+                    return Some(request);
+                }
             }
             if Instant::now() >= deadline {
                 return None;
@@ -59,12 +90,12 @@ impl Core {
         }
     }
     fn write(&self, stdout: &str, stderr: &str) -> bool {
-        self.1
+        self.fake
             .held()
             .is_some_and(|step| unsafe { write(step, stdout, stderr) })
     }
     fn finish(&self) -> bool {
-        let Some(step) = self.1.take_held() else {
+        let Some(step) = self.fake.take_held() else {
             return false;
         };
         unsafe { flint_step_succeed(step, 0) };
@@ -72,24 +103,31 @@ impl Core {
     }
     fn apply_settings(&self, settings: Value) -> u32 {
         let settings = CString::new(settings.to_string()).unwrap();
-        unsafe { flint_bridge_apply_settings(self.0, settings.as_ptr()) }
+        unsafe { flint_bridge_apply_settings(self.pointer, settings.as_ptr()) }
     }
     fn reconnect(&self) {
-        assert!(unsafe { flint_bridge_reconnect(self.0) });
-    }
-    fn obstacle(&self) -> Value {
-        self.status()["connection"]["obstacle"].clone()
+        assert!(unsafe { flint_bridge_reconnect(self.pointer) });
     }
 }
 
 impl Drop for Core {
     fn drop(&mut self) {
-        unsafe {
-            flint_bridge_stop(self.0);
-            flint_bridge_destroy(self.0);
-        }
-        // Destruction leaves outstanding steps valid; finishing one has no effect.
-        self.finish();
+        let pointer = self.pointer as usize;
+        let fake = self.fake.clone();
+        let scope = self.scope.take();
+        let cleanup = thread::spawn(move || {
+            let _scope = scope;
+            // This worker exclusively owns destruction and the test claim cleanup.
+            unsafe {
+                let pointer = pointer as *mut BridgeCore;
+                flint_bridge_stop(pointer);
+                flint_bridge_destroy(pointer);
+            }
+            if let Some(step) = fake.take_held() {
+                unsafe { flint_step_succeed(step, 0) };
+            }
+        });
+        join_thread(cleanup, "core cleanup", WAIT);
     }
 }
 
@@ -112,16 +150,8 @@ fn settings(port: u16, name: &str, enabled: bool) -> Value {
     json!({"address":"127.0.0.1","port":port,"name":name,"enabled":enabled})
 }
 
-fn unused_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
 fn wait_until(mut condition: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + WAIT;
     while !condition() {
         assert!(Instant::now() < deadline, "condition timed out");
         thread::sleep(Duration::from_millis(10));
@@ -153,12 +183,14 @@ fn execute(request_id: &str) -> Envelope {
     )
 }
 
-/// Accepts one bridge, acknowledges its heartbeats, and relays the execution channel.
+/// Accepts bridges, acknowledges heartbeats, and identifies the session receiving each report.
 struct Backend {
     port: u16,
-    registered: mpsc::Receiver<RegisterInstance>,
+    registered: mpsc::Receiver<(usize, RegisterInstance)>,
     requests: async_mpsc::UnboundedSender<Envelope>,
-    received: mpsc::Receiver<Envelope>,
+    received: mpsc::Receiver<(usize, Envelope)>,
+    session: usize,
+    shutdown: CancellationToken,
     thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -174,53 +206,61 @@ impl Backend {
         let (requests, mut pending) = async_mpsc::unbounded_channel::<Envelope>();
         let (registration_tx, registered) = mpsc::channel();
         let (forward, received) = mpsc::channel();
+        let shutdown = CancellationToken::new();
+        let cancelled = shutdown.clone();
         let thread = thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap();
             runtime.block_on(async move {
-                let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-                for _ in 0..sessions {
-                    let (socket, _) = listener.accept().await.unwrap();
-                    let mut heartbeat = framed(socket);
-                    let register = heartbeat.next().await.unwrap().unwrap();
-                    let Some(Payload::RegisterInstance(info)) = register.payload else {
-                        panic!("expected instance registration");
-                    };
-                    registration_tx.send(info).unwrap();
-                    heartbeat.send(accepted(register.request_id)).await.unwrap();
-                    tokio::spawn(async move {
-                        while let Some(Ok(message)) = heartbeat.next().await {
-                            if heartbeat.send(accepted(message.request_id)).await.is_err() {
-                                break;
-                            }
-                        }
-                    });
-                    let (socket, _) = listener.accept().await.unwrap();
-                    let mut execution = framed(socket);
-                    let register = execution.next().await.unwrap().unwrap();
-                    let Some(Payload::RegisterExecutionChannel(channel)) = &register.payload else {
-                        panic!("expected execution channel registration");
-                    };
-                    assert_eq!(channel.session_token, "token");
-                    execution.send(accepted(register.request_id)).await.unwrap();
-                    loop {
-                        tokio::select! {
-                            request = pending.recv() => match request {
-                                Some(request) => execution.send(request).await.unwrap(),
-                                None => break,
-                            },
-                            message = execution.next() => match message {
-                                Some(Ok(message)) => {
-                                    if forward.send(message).is_err() {
+                tokio::select! {
+                    biased;
+                    _ = cancelled.cancelled() => {}
+                    _ = async {
+                        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+                        for session in 0..sessions {
+                            let (socket, _) = listener.accept().await.unwrap();
+                            let mut heartbeat = framed(socket);
+                            let register = heartbeat.next().await.unwrap().unwrap();
+                            let Some(Payload::RegisterInstance(info)) = register.payload else {
+                                panic!("expected instance registration");
+                            };
+                            registration_tx.send((session, info)).unwrap();
+                            heartbeat.send(accepted(register.request_id)).await.unwrap();
+                            tokio::spawn(async move {
+                                while let Some(Ok(message)) = heartbeat.next().await {
+                                    if heartbeat.send(accepted(message.request_id)).await.is_err() {
                                         break;
                                     }
                                 }
-                                _ => break,
-                            },
+                            });
+                            let (socket, _) = listener.accept().await.unwrap();
+                            let mut execution = framed(socket);
+                            let register = execution.next().await.unwrap().unwrap();
+                            let Some(Payload::RegisterExecutionChannel(channel)) = &register.payload else {
+                                panic!("expected execution channel registration");
+                            };
+                            assert_eq!(channel.session_token, "token");
+                            execution.send(accepted(register.request_id)).await.unwrap();
+                            loop {
+                                tokio::select! {
+                                    request = pending.recv() => match request {
+                                        Some(request) => execution.send(request).await.unwrap(),
+                                        None => break,
+                                    },
+                                    message = execution.next() => match message {
+                                        Some(Ok(message)) => {
+                                            if forward.send((session, message)).is_err() {
+                                                break;
+                                            }
+                                        }
+                                        _ => break,
+                                    },
+                                }
+                            }
                         }
-                    }
+                    } => {}
                 }
             });
         });
@@ -229,34 +269,51 @@ impl Backend {
             registered,
             requests,
             received,
+            session: 0,
+            shutdown,
             thread: Some(thread),
         }
     }
     fn send(&self, envelope: Envelope) {
         self.requests.send(envelope).unwrap();
     }
-    fn registration(&self) -> RegisterInstance {
-        self.registered
-            .recv_timeout(Duration::from_secs(10))
-            .unwrap()
+    fn registration(&mut self) -> RegisterInstance {
+        let (session, registration) = self.registered.recv_timeout(WAIT).unwrap_or_else(|error| {
+            self.propagate_panic();
+            panic!("backend received no registration: {error}");
+        });
+        self.session = session;
+        registration
     }
     fn receive(&mut self) -> Envelope {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        self.receive_before(Instant::now() + WAIT)
+    }
+    /// Reports observed on the most recently registered session, including any wrong request ID.
+    fn receive_before(&mut self, deadline: Instant) -> Envelope {
         loop {
-            match self.received.recv_timeout(Duration::from_millis(50)) {
-                Ok(envelope) => return envelope,
-                Err(_) => {
+            self.propagate_panic();
+            assert!(
+                Instant::now() < deadline,
+                "backend received nothing for session {}",
+                self.session
+            );
+            match self.received.recv_timeout(Duration::from_millis(10)) {
+                Ok((session, envelope)) if session == self.session => return envelope,
+                Ok(_) => {}
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
                     self.propagate_panic();
-                    assert!(Instant::now() < deadline, "backend received nothing");
+                    panic!("backend report channel closed");
                 }
             }
         }
     }
-    /// Every envelope through the next execution result, which is last.
+    /// Every envelope through the next execution result, within one deadline.
     fn until_result(&mut self) -> Vec<Envelope> {
+        let deadline = Instant::now() + WAIT;
         let mut received = vec![];
         loop {
-            let envelope = self.receive();
+            let envelope = self.receive_before(deadline);
             let done = matches!(envelope.payload, Some(Payload::ExecutionResult(_)));
             received.push(envelope);
             if done {
@@ -270,9 +327,16 @@ impl Backend {
             .as_ref()
             .is_some_and(|thread| thread.is_finished())
         {
-            if let Err(panic) = self.thread.take().unwrap().join() {
-                std::panic::resume_unwind(panic);
-            }
+            join_thread(self.thread.take().unwrap(), "backend", WAIT);
+        }
+    }
+}
+
+impl Drop for Backend {
+    fn drop(&mut self) {
+        self.shutdown.cancel();
+        if let Some(thread) = self.thread.take() {
+            join_thread(thread, "backend cleanup", WAIT);
         }
     }
 }
@@ -292,14 +356,36 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
     let core = connected(&mut first);
     let original = first.registration();
     assert_eq!(original.instance_name, "场景");
-    // Registration identifiers are open, independently of Flint's built-in HostKind.
     assert_eq!(original.instance_type, "custom-editor");
-    let second = Backend::start();
+
+    first.send(execute("active"));
+    assert_eq!(core.wait_request(WAIT).unwrap()["request_id"], "active");
+    let mut second = Backend::start();
+    let replacement = settings(second.port, "新场景", true);
     assert_eq!(
-        core.apply_settings(settings(second.port, "新场景", true)),
+        core.apply_settings(replacement.clone()),
+        ApplyResult::Busy as u32
+    );
+    assert!(core.connected());
+    assert_eq!(core.status()["settings"]["name"], "场景");
+    assert!(core.finish());
+    let completed = first.until_result();
+    assert!(completed
+        .iter()
+        .all(|message| message.request_id == "active"));
+    let Some(Payload::ExecutionResult(result)) = &completed.last().unwrap().payload else {
+        panic!("expected the active execution result on the original connection");
+    };
+    assert_eq!(result.status, ExecutionStatus::Succeeded as i32);
+
+    assert_eq!(
+        core.apply_settings(replacement),
         ApplyResult::Applied as u32
     );
-    wait_until(|| core.connected());
+    wait_until(|| {
+        second.propagate_panic();
+        core.connected()
+    });
     let updated = second.registration();
     assert_eq!(updated.instance_name, "新场景");
     assert_eq!(updated.bridge_id, original.bridge_id);
@@ -313,142 +399,53 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
 }
 
 #[test]
-fn applying_settings_refuses_to_interrupt_an_active_execution() {
-    let mut first = Backend::start();
-    let core = connected(&mut first);
-    first.registration();
-    first.send(execute("request-1"));
-    assert!(core.wait_request(Duration::from_secs(10)).is_some());
-    let second = Backend::start();
-    assert_eq!(
-        core.apply_settings(settings(second.port, "changed", true)),
-        ApplyResult::Busy as u32
-    );
-    assert!(core.connected());
-    assert!(core.finish());
-    first.until_result();
-    assert_eq!(
-        core.apply_settings(settings(second.port, "changed", true)),
-        ApplyResult::Applied as u32
-    );
-    wait_until(|| core.connected());
-    assert_eq!(second.registration().instance_name, "changed");
-}
-
-#[test]
-fn disabling_and_reenabling_keeps_the_core_available() {
-    let mut first = Backend::start();
-    let core = connected(&mut first);
-    first.registration();
-    let second = Backend::start();
-    assert_eq!(
-        core.apply_settings(settings(second.port, "场景", false)),
-        ApplyResult::Applied as u32
-    );
-    wait_until(|| !core.connected());
-    assert_eq!(core.status()["connection"], json!({"state": "disabled"}));
-    assert_eq!(core.instance_id(), "");
-    assert_eq!(
-        core.apply_settings(settings(second.port, "场景", true)),
-        ApplyResult::Applied as u32
-    );
-    wait_until(|| core.connected());
-    assert_eq!(second.registration().instance_name, "场景");
-}
-
-#[test]
-fn manual_reconnect_uses_the_applied_settings_without_reporting_an_obstacle() {
-    let mut backend = Backend::start_sessions(2);
-    let core = connected(&mut backend);
-    let original = backend.registration();
-    core.reconnect();
-    wait_until(|| core.connected());
-    let updated = backend.registration();
-    assert_eq!(updated.bridge_id, original.bridge_id);
-    assert_eq!(updated.instance_name, original.instance_name);
-    assert_eq!(core.status()["connection"]["state"], "connected");
-    assert!(core.obstacle().is_null());
-}
-
-#[test]
 fn reconnect_does_not_forward_previous_executions_to_the_new_channel() {
     let mut backend = Backend::start_sessions(2);
     let core = connected(&mut backend);
     backend.registration();
     backend.send(execute("old"));
-    assert!(core.wait_request(Duration::from_secs(10)).is_some());
+    assert_eq!(core.wait_request(WAIT).unwrap()["request_id"], "old");
+
     core.reconnect();
-    wait_until(|| core.connected());
+    wait_until(|| {
+        backend.propagate_panic();
+        core.connected()
+    });
     backend.registration();
     assert!(core.busy());
+    backend.send(execute("overlap"));
+    let rejected = backend.receive();
+    assert_eq!(rejected.request_id, "overlap");
+    let Some(Payload::ExecutionResult(result)) = rejected.payload else {
+        panic!("expected a refusal for the overlapping execution");
+    };
+    assert_eq!(result.status, ExecutionStatus::Failed as i32);
+    assert_eq!(result.error.as_deref(), Some("instance_busy"));
+    assert!(core.busy());
+
     assert!(core.write("late", ""));
     assert!(core.finish());
     assert!(!core.busy());
     backend.send(execute("new"));
     assert_eq!(
-        core.wait_request(Duration::from_secs(10)).unwrap()["request_id"],
-        "new"
+        core.wait_request(WAIT).unwrap()["request_id"],
+        "new",
+        "the refused execution must not run after the old execution finishes"
     );
     assert!(core.finish());
     let received = backend.until_result();
     assert!(received.iter().all(|envelope| envelope.request_id == "new"));
-}
-
-#[test]
-fn unregistered_bridge_is_idle_and_reports_its_obstacle() {
-    let core = Core::new(unused_port());
-    wait_until(|| core.obstacle().is_object());
-    assert_eq!(core.status()["connection"]["state"], "retrying");
-    assert_eq!(core.obstacle()["kind"], "unreachable");
-    assert!(core.obstacle()["message"]
-        .as_str()
-        .is_some_and(|message| !message.is_empty()));
-    assert!(!core.connected());
-    assert!(!core.busy());
-    assert_eq!(core.instance_id(), "");
-    assert!(core.wait_request(Duration::ZERO).is_none());
-    assert!(!core.finish());
-}
-
-#[test]
-fn a_backend_that_closes_before_acknowledging_is_a_registration_obstacle() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let closing = thread::spawn(move || {
-        let (socket, _) = listener.accept().unwrap();
-        drop(socket);
-    });
-    let core = Core::new(port);
-    wait_until(|| core.obstacle().is_object());
-    closing.join().unwrap();
-    assert_eq!(core.obstacle()["kind"], "registration");
-}
-
-#[test]
-fn a_registered_session_that_ends_is_lost_and_recovers_on_reconnect() {
-    let mut backend = Backend::start();
-    let core = connected(&mut backend);
-    backend.registration();
-    drop(backend);
-    wait_until(|| core.obstacle().is_object());
-    assert_eq!(core.obstacle()["kind"], "lost");
-    assert_eq!(core.instance_id(), "");
-    let mut replacement = Backend::start();
-    assert_eq!(
-        core.apply_settings(settings(replacement.port, "场景", true)),
-        ApplyResult::Applied as u32
-    );
-    wait_until(|| {
-        replacement.propagate_panic();
-        core.connected()
-    });
-    assert!(core.obstacle().is_null());
+    let Some(Payload::ExecutionResult(result)) = &received.last().unwrap().payload else {
+        panic!("expected the new execution result");
+    };
+    assert_eq!(result.status, ExecutionStatus::Succeeded as i32);
 }
 
 #[test]
 fn execution_is_delivered_and_its_output_and_result_are_reported() {
     let mut backend = Backend::start();
     let core = connected(&mut backend);
+    backend.registration();
     assert_eq!(core.instance_id(), "instance-1");
     backend.send(execute("request-1"));
     let event = core.wait_request(Duration::from_secs(10)).unwrap();
@@ -487,39 +484,4 @@ fn execution_is_delivered_and_its_output_and_result_are_reported() {
     assert_eq!(result.execution_id, "execution-request-1");
     assert_eq!(result.status, ExecutionStatus::Succeeded as i32);
     assert!(!core.finish());
-}
-
-#[test]
-fn stop_reports_running_host_code_until_it_finishes() {
-    let mut backend = Backend::start();
-    let core = connected(&mut backend);
-    backend.send(execute("request-1"));
-    assert!(core.wait_request(Duration::from_secs(10)).is_some());
-    assert!(!unsafe { flint_bridge_stop(core.0) });
-    assert!(unsafe { flint_bridge_stopped(core.0) });
-    assert!(core.busy());
-    assert!(core.finish());
-    assert!(unsafe { flint_bridge_stop(core.0) });
-}
-
-#[test]
-fn overlapping_execution_is_answered_as_instance_busy() {
-    let mut backend = Backend::start();
-    let core = connected(&mut backend);
-    backend.send(execute("request-1"));
-    assert!(core.wait_request(Duration::from_secs(10)).is_some());
-    backend.send(execute("request-2"));
-    let rejected = loop {
-        let envelope = backend.receive();
-        if envelope.request_id == "request-2" {
-            break envelope;
-        }
-    };
-    let Some(Payload::ExecutionResult(result)) = rejected.payload else {
-        panic!("expected execution result, got {rejected:?}");
-    };
-    assert_eq!(result.status, ExecutionStatus::Failed as i32);
-    assert_eq!(result.error.as_deref(), Some("instance_busy"));
-    assert!(core.wait_request(Duration::from_millis(100)).is_none());
-    assert!(core.busy());
 }

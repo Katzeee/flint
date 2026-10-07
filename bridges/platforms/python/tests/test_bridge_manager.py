@@ -51,10 +51,16 @@ def test_registration_wait_uses_the_budget_remaining_after_initialization(monkey
     first = integration.connect()
     waits = []
     first.wait_until_connected = lambda timeout: waits.append(timeout) or True
-    times = iter((100, 104, 106))
+    clock = SimpleNamespace(now=100)
+
+    def dispatch(callback):
+        clock.now += 6
+        callback()
+
     monkeypatch.setattr("flint_bridge.connection.bridge_manager.time",
-                        SimpleNamespace(monotonic=lambda: next(times)))
-    assert integration.attach(timeout=10) == first.instance_id
+                        SimpleNamespace(monotonic=lambda: clock.now))
+    owner = BridgeManager(integration.host, integration.create_execution, dispatch)
+    assert owner.attach(timeout=10) == first.instance_id
     assert waits == [4]
 
 

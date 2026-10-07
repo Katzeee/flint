@@ -108,7 +108,7 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         self.host.revoke();
         self.schedule.take();
-        self.dispatcher.take().unwrap().join().unwrap();
+        crate::tests::join_thread(self.dispatcher.take().unwrap(), "host dispatcher", WAIT);
     }
 }
 
@@ -118,51 +118,58 @@ fn failed(result: &ExecutionResult, error: &str) {
 }
 
 #[test]
-fn a_synchronous_host_prepares_and_runs_within_one_ticket() {
-    let mut f = Fixture::new();
-    f.submit();
-    f.ticket();
-    assert_eq!(
-        f.fake.calls(),
-        ["prepare".to_string(), format!("run {PREPARED}")]
-    );
-    assert_eq!(f.fake.take_request().unwrap()["code"], "code");
-    assert!(!f.busy());
-    let messages: [Payload; 2] = f.messages().try_into().unwrap();
-    let [Payload::ExecutionOutputUpdate(output), Payload::ExecutionResult(result)] = messages
-    else {
-        panic!("expected output before the result");
-    };
-    assert_eq!(output.stdout_delta, "prepared\nran\n");
-    assert_eq!(result.status, ExecutionStatus::Succeeded as i32);
-    assert_eq!(result.error, None);
-}
-
-#[test]
-fn asynchronous_preparation_continues_on_a_new_ticket() {
-    let mut f = Fixture::new();
-    *f.fake.prepare.lock().unwrap() = Mode::Hold;
-    f.submit();
-    f.ticket();
-    assert_eq!(f.fake.calls(), ["prepare"]);
-    assert!(f.busy());
-    let step = f.fake.take_held().unwrap() as usize;
-    thread::spawn(move || unsafe {
-        let step = step as *mut Step;
-        assert!(write(step, "preparing\n", ""));
-        flint_step_succeed(step, 9);
-    })
-    .join()
-    .unwrap();
-    f.ticket();
-    assert_eq!(f.fake.calls(), ["prepare", "run 9"]);
-    let messages: [Payload; 2] = f.messages().try_into().unwrap();
-    let [Payload::ExecutionOutputUpdate(output), Payload::ExecutionResult(result)] = messages
-    else {
-        panic!("expected output before the result");
-    };
-    assert_eq!(output.stdout_delta, "preparing\nran\n");
-    assert_eq!(result.status, ExecutionStatus::Succeeded as i32);
+fn preparation_completion_runs_the_value_and_reports_ordered_output() {
+    for (case, asynchronous, prepared, stdout) in [
+        ("synchronous", false, PREPARED, "prepared\nran\n"),
+        ("asynchronous", true, 9, "preparing\nran\n"),
+    ] {
+        let mut f = Fixture::new();
+        if asynchronous {
+            *f.fake.prepare.lock().unwrap() = Mode::Hold;
+        }
+        f.submit();
+        if asynchronous {
+            let deadline = std::time::Instant::now() + WAIT;
+            while f.fake.held().is_none() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "{case}: preparation did not start"
+                );
+                f.fake.run_ticket(Duration::from_millis(1));
+            }
+            assert_eq!(f.fake.calls(), ["prepare"], "{case}");
+            assert!(f.busy(), "{case}");
+            let step = f.fake.take_held().unwrap() as usize;
+            let completion = thread::spawn(move || unsafe {
+                let step = step as *mut Step;
+                assert!(write(step, "preparing\n", ""));
+                flint_step_succeed(step, prepared);
+            });
+            crate::tests::join_thread(completion, "asynchronous preparation", WAIT);
+        }
+        let deadline = std::time::Instant::now() + WAIT;
+        while f.busy() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{case}: execution did not finish"
+            );
+            f.fake.run_ticket(Duration::from_millis(1));
+        }
+        assert_eq!(
+            f.fake.calls(),
+            ["prepare".to_string(), format!("run {prepared}")],
+            "{case}"
+        );
+        assert_eq!(f.fake.take_request().unwrap()["code"], "code", "{case}");
+        let messages: [Payload; 2] = f.messages().try_into().expect(case);
+        let [Payload::ExecutionOutputUpdate(output), Payload::ExecutionResult(result)] = messages
+        else {
+            panic!("{case}: expected output before the result");
+        };
+        assert_eq!(output.stdout_delta, stdout, "{case}");
+        assert_eq!(result.status, ExecutionStatus::Succeeded as i32, "{case}");
+        assert_eq!(result.error, None, "{case}");
+    }
 }
 
 #[test]

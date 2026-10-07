@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,19 +31,21 @@ internal static class Program
 
     private static int Main(string[] args)
     {
+        var utf8 = new UTF8Encoding(false);
+        Console.InputEncoding = utf8;
+        Console.OutputEncoding = utf8;
         var library = args[0];
         string line;
         while ((line = Console.ReadLine()) != null)
         {
-            var command = JsonNode.Parse(line)!.AsObject();
-            JsonNode reply = command["op"]!.GetValue<string>() switch
+            using var document = JsonDocument.Parse(line);
+            var command = document.RootElement;
+            JsonNode reply = command.GetProperty("op").GetString() switch
             {
-                "create" => Create(command["library"]?.GetValue<string>() ?? library,
-                    command["config"]!.ToJsonString()),
-                "apply" => Apply(command["settings"]!.ToJsonString()),
+                "create" => Create(library, command.GetProperty("config").GetRawText()),
+                "apply" => Apply(command.GetProperty("settings").GetRawText()),
                 "take" => Take(),
                 "finish" => Finish(),
-                "reconnect" => Reconnect(),
                 "close" => Close(),
                 "status" => JsonNode.Parse(core.StatusJson),
                 var other => throw new InvalidOperationException("Unknown command " + other)
@@ -52,15 +54,6 @@ internal static class Program
         }
         return 0;
     }
-
-    private static readonly Dictionary<BridgeCreationErrorKind, string> Kinds = new()
-    {
-        [BridgeCreationErrorKind.InvalidConfiguration] = "invalid_configuration",
-        [BridgeCreationErrorKind.Claimed] = "claimed",
-        [BridgeCreationErrorKind.System] = "system",
-        [BridgeCreationErrorKind.LibraryUnavailable] = "library_unavailable",
-        [BridgeCreationErrorKind.AbiMismatch] = "abi_mismatch",
-    };
 
     private static JsonNode Create(string library, string config)
     {
@@ -72,13 +65,10 @@ internal static class Program
             release.Reset();
             return new JsonObject { ["created"] = true };
         }
-        catch (BridgeCreationException error)
+        catch
         {
             worker.Dispose();
-            return new JsonObject
-            {
-                ["error"] = new JsonObject { ["kind"] = Kinds[error.Kind], ["message"] = error.Message }
-            };
+            throw;
         }
     }
 
@@ -93,22 +83,12 @@ internal static class Program
         {
             return new JsonObject { ["rejected"] = "busy" };
         }
-        catch (ArgumentException)
-        {
-            return new JsonObject { ["rejected"] = "invalid_settings" };
-        }
     }
 
     private static JsonNode Take()
     {
         if (!requests.TryTake(out var request, 10000)) throw new TimeoutException("No execution entered the host");
         return new JsonObject { ["request_id"] = request.RequestId };
-    }
-
-    private static JsonNode Reconnect()
-    {
-        core.Reconnect();
-        return new JsonObject { ["reconnected"] = true };
     }
 
     private static JsonNode Close()

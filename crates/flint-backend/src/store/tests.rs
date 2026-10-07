@@ -13,7 +13,7 @@ fn record(store: &Store, workflow: &str, code: &str, request_id: &str) -> String
 }
 
 #[test]
-fn completed_records_survive_restart() {
+fn restart_preserves_completed_records_and_marks_interrupted_outcomes_unknown() {
     let directory = tempfile::tempdir().unwrap();
     let store = Store::open(directory.path().into()).unwrap();
     let workflow = store.create("场景".into(), "test".into()).unwrap();
@@ -24,22 +24,13 @@ fn completed_records_survive_restart() {
             e.stdout = "1\n".into();
         })
         .unwrap();
+    let running = record(&store, &workflow, "running()", "request2");
     drop(store);
     let store = Store::open(directory.path().into()).unwrap();
     let restored = store.execution(&workflow, &execution).unwrap();
     assert_eq!(restored.status, "succeeded");
     assert_eq!(restored.stdout, "1\n");
-}
-
-#[test]
-fn interrupted_execution_has_unknown_outcome_after_restart() {
-    let directory = tempfile::tempdir().unwrap();
-    let store = Store::open(directory.path().into()).unwrap();
-    let workflow = store.create("interrupted".into(), "test".into()).unwrap();
-    let execution = record(&store, &workflow, "running()", "request1");
-    drop(store);
-    let store = Store::open(directory.path().into()).unwrap();
-    let interrupted = store.execution(&workflow, &execution).unwrap();
+    let interrupted = store.execution(&workflow, &running).unwrap();
     assert_eq!(interrupted.status, "failed");
     assert!(interrupted.error.unwrap().contains("unknown"));
 }
@@ -47,8 +38,10 @@ fn interrupted_execution_has_unknown_outcome_after_restart() {
 #[test]
 fn workflow_ids_cannot_escape_the_store() {
     let directory = tempfile::tempdir().unwrap();
-    let store = Store::open(directory.path().into()).unwrap();
-    assert!(store.load("../outside").is_err());
+    let outside = Store::open(directory.path().into()).unwrap();
+    let workflow = outside.create("Outside".into(), "".into()).unwrap();
+    let store = Store::open(directory.path().join("store")).unwrap();
+    assert!(store.load(&format!("../{workflow}")).is_err());
 }
 
 #[test]

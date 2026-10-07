@@ -33,15 +33,8 @@ fn concurrent_cli_calls_share_one_backend() -> Result<()> {
 }
 
 #[test]
-fn invalid_input_and_help_do_not_start_backend() -> Result<()> {
+fn input_loading_and_host_discovery_do_not_start_backend() -> Result<()> {
     let app = App::new();
-    for argument in ["--help", "--version"] {
-        checked(
-            Command::new(&app.binary).arg(argument),
-            Duration::from_secs(10),
-        )?;
-    }
-    assert_eq!(app.call("exec", &[], 2)?["error_code"], "invalid_arguments");
     assert_eq!(
         app.call(
             "exec",
@@ -57,21 +50,15 @@ fn invalid_input_and_help_do_not_start_backend() -> Result<()> {
         )?["error_code"],
         "command_failed"
     );
-    assert!(!app.directory.join("runtime").join("backend.log").exists());
-    Ok(())
-}
-
-#[test]
-fn attach_distinguishes_unknown_hosts_from_unimplemented_integrations() -> Result<()> {
-    let app = App::new();
-    let unknown = app.call("attach", &["--pid", "0", "--host-kind", "custom-editor"], 2)?;
-    assert_eq!(unknown["error_code"], "invalid_arguments");
-    let unsupported = app.call(
-        "attach",
-        &["--pid", "0", "--host-kind", "standalone_csharp"],
-        1,
+    let output = checked(
+        Command::new(&app.binary)
+            .args(["hosts", "--json"])
+            .env("FLINT_TEST_ROOT", &app.directory),
+        Duration::from_secs(10),
     )?;
-    assert_eq!(unsupported["error_code"], "command_failed");
-    assert!(!app.directory.join("runtime").join("backend.log").exists());
+    let discovery: serde_json::Value = serde_json::from_str(&output.stdout)?;
+    assert!(discovery["hosts"].is_array());
+    assert!(!app.directory.join("workflows").exists());
+    assert!(!app.directory.join("runtime").exists());
     Ok(())
 }

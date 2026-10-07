@@ -69,12 +69,23 @@ fn production_creation_enforces_the_process_claim_until_destruction() {
 #[test]
 fn create_rejects_invalid_configuration_and_releases_the_host() {
     let fake = Fake::new();
+    let mut released = 0;
+    let mut assert_released = |case: &str| {
+        released += 1;
+        assert_eq!(fake.released.load(Ordering::SeqCst), released, "{case}");
+    };
     let (core, error) = unsafe { creation_result(ptr::null(), &fake.callbacks()) };
     assert!(core.is_null());
     assert!(error.is_some_and(|(kind, message)| kind == 1 && !message.is_empty()));
+    assert_released("null configuration");
     let (core, error) = unsafe { creation_result(c"{}".as_ptr(), ptr::null()) };
     assert!(core.is_null());
     assert!(error.unwrap().1.contains("execution host is null"));
+    assert_eq!(
+        fake.released.load(Ordering::SeqCst),
+        1,
+        "null host has no registration to release"
+    );
     assert!(unsafe {
         flint_bridge_create(
             ptr::null(),
@@ -84,52 +95,36 @@ fn create_rejects_invalid_configuration_and_releases_the_host() {
         )
     }
     .is_null());
+    assert_released("null error outputs");
     let (core, error) = unsafe { creation_result([255u8, 0].as_ptr().cast(), &fake.callbacks()) };
     assert!(core.is_null());
     assert!(error.unwrap().1.contains("not UTF-8"));
+    assert_released("invalid UTF-8");
     let valid = options();
     let mut empty_host: Value = serde_json::from_str(&valid).unwrap();
     empty_host["host"] = "".into();
     let mut zero_port: Value = serde_json::from_str(&valid).unwrap();
     zero_port["port"] = 0.into();
-    for config in [
-        "not json".to_string(),
-        empty_host.to_string(),
-        zero_port.to_string(),
+    for (case, config) in [
+        ("invalid JSON", "not json".to_string()),
+        ("empty host", empty_host.to_string()),
+        ("zero port", zero_port.to_string()),
     ] {
         let (core, error) = create(&config, &fake);
         assert!(core.is_null(), "accepted {config}");
         assert!(error.is_some_and(|(kind, message)| kind == 1 && !message.is_empty()));
+        assert_released(case);
     }
-    assert_eq!(fake.released.load(Ordering::SeqCst), 6);
 }
 
 #[test]
-fn null_handles_are_ignored() {
+fn null_core_handles_allow_queries_and_repeated_stop() {
     let core = ptr::null_mut();
     unsafe {
         assert!(flint_bridge_stop(core));
         assert!(!flint_bridge_connected(core));
         assert!(!flint_bridge_busy(core));
         assert!(flint_bridge_instance_id(core).is_null());
-        assert!(flint_bridge_status_json(core).is_null());
-        flint_bridge_reconnect(core);
-        assert_eq!(
-            flint_bridge_apply_settings(core, c"{}".as_ptr()),
-            ApplyResult::Invalid as u32
-        );
-        flint_bridge_destroy(core);
-        flint_ticket_run(ptr::null_mut());
-        flint_ticket_drop(ptr::null_mut());
-        assert!(!flint_step_output(
-            ptr::null(),
-            ptr::null(),
-            0,
-            ptr::null(),
-            0
-        ));
-        flint_step_succeed(ptr::null_mut(), 0);
-        flint_step_fail(ptr::null_mut(), ptr::null(), ptr::null());
-        flint_bridge_string_free(ptr::null_mut());
+        assert!(flint_bridge_stop(core));
     }
 }

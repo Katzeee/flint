@@ -150,7 +150,13 @@ fn exported_zip_conforms_to_the_runtime_scenarios() -> Result<()> {
         .arg(assembly)
         .arg(native)
         .current_dir(&app.directory);
-    conformance::verify(&app, "standalone_csharp", Driver::start(command)?)
+    conformance::verify(
+        &app,
+        "standalone_csharp",
+        Driver::start(command)?,
+        "held",
+        "",
+    )
 }
 
 #[test]

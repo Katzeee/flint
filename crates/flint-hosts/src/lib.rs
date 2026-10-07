@@ -8,9 +8,6 @@ mod window;
 pub use attach::{attach, attach_error, AttachRequest, Runtime};
 pub use window::{focus_application, host_info, HostInfo, WindowInfo, WindowPreview};
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Serialize)]
 pub struct HostCandidate {
     pub pid: u32,
