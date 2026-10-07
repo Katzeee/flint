@@ -12,10 +12,18 @@ fn execution_errors_are_recorded_without_terminating_host() -> Result<()> {
     let execution = app.execute(id, &workflow, "raise ValueError('EXPECTED')", 1)?;
     let details = app.details(&workflow, &execution, 1)?;
     assert_eq!(details["status"], "failed");
+    assert_eq!(details["error"], "execution_failed");
     assert!(details["traceback"]
         .as_str()
         .unwrap()
         .contains("ValueError: EXPECTED"));
+    let execution = app.execute(id, &workflow, "if :", 1)?;
+    let details = app.details(&workflow, &execution, 1)?;
+    assert_eq!(details["error"], "preparation_failed");
+    assert!(details["traceback"]
+        .as_str()
+        .unwrap()
+        .contains("SyntaxError"));
     assert_eq!(
         app.execute(id, &workflow, "print('alive')", 0)?["status"],
         "succeeded"

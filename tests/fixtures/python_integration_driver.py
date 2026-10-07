@@ -8,9 +8,8 @@ import threading
 sys.path.insert(0, sys.argv[1])
 from flint_bridge import BridgeManager, BridgeBusyError, BridgeCreationError, BridgeStoppedError
 from flint_bridge.connection import native_core
-from flint_bridge.execution.models import InstanceExecResult, InstanceExecStatus
-from flint_bridge.execution.runner import CodeRunner
-from flint_bridge.execution.strategies.direct import DirectExecutionStrategy
+from flint_bridge.execution.capabilities import ExecutionCapabilities
+from flint_bridge.execution.scheduling import CallbackQueue, WorkerThread
 
 probe = {"created": 0, "released": 0, "finished": 0, "factory_thread": None, "dispatch_thread": None}
 started, release = threading.Event(), threading.Event()
@@ -21,24 +20,28 @@ attach_result = None
 packaged_library = native_core._library_path
 
 
-class Strategy(DirectExecutionStrategy):
-    def _close(self):
+class Scheduler(WorkerThread):
+    def __init__(self):
+        super().__init__()
+        probe["created"] += 1
+
+    def close(self):
+        super().close()
         probe["released"] += 1
 
 
 class Executor:
-    def execute(self, execution_id, code, out, err, filename):
+    def run(self, prepared, out, err):
         started.set()
         if not release.wait(25):
             raise TimeoutError("Test did not release the host execution")
         probe["finished"] += 1
-        return InstanceExecResult(execution_id, InstanceExecStatus.SUCCEEDED)
+        return None
 
 
-def create_runner():
-    probe["created"] += 1
+def create_execution():
     probe["factory_thread"] = threading.get_ident()
-    return CodeRunner(Executor(), Strategy())
+    return ExecutionCapabilities(Executor(), Scheduler())
 
 
 def run_dispatched(callback):
@@ -53,7 +56,7 @@ def dispatch(callback):
         threading.Thread(target=run_dispatched, args=(callback,), daemon=True).start()
 
 
-manager = BridgeManager("standalone_python", create_runner, dispatch)
+manager = BridgeManager("standalone_python", create_execution, dispatch)
 
 
 def call(command):
@@ -70,8 +73,9 @@ def call(command):
                 native_core._library_path = packaged_library
             return {"created": True}
         if operation == "claim":
-            core = native_core.NativeCore(command["config"])
-            core.close()
+            core = native_core.NativeCore(command["config"], ExecutionCapabilities(Executor(), CallbackQueue()))
+            core.stop()
+            core.destroy()
             return {"created": True}
         if operation == "apply":
             manager.configure(**command["settings"])

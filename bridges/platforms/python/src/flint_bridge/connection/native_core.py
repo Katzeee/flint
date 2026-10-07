@@ -1,4 +1,4 @@
-"""C ABI access to the shared host-side connection core."""
+"""C ABI access to the shared host-side Bridge core."""
 import ctypes
 import hashlib
 import json
@@ -9,6 +9,7 @@ import sys
 import tempfile
 
 from .errors import BridgeBusyError, BridgeCreationError, BridgeStoppedError
+from .execution_binding import bind as bind_execution, ExecutionBinding, Host
 
 # Creation error codes from the native core.
 _CREATION_ERRORS = {1: "invalid_configuration", 2: "claimed", 3: "system"}
@@ -56,20 +57,17 @@ def _load():
         _bind(library)
     except AttributeError as error:
         raise BridgeCreationError("abi_mismatch", "Bridge core is missing {}".format(error))
-    if library.flint_bridge_abi_version() != 4:
+    if library.flint_bridge_abi_version() != 6:
         raise BridgeCreationError("abi_mismatch", "Unsupported native Bridge ABI")
     return library
 
 
 def _bind(library):
+    bind_execution(library)
     library.flint_bridge_abi_version.restype = ctypes.c_uint32
     library.flint_bridge_create.argtypes = [
-        ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_void_p)]
+        ctypes.c_char_p, ctypes.POINTER(Host), ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_void_p)]
     library.flint_bridge_create.restype = ctypes.c_void_p
-    library.flint_bridge_poll.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-    library.flint_bridge_poll.restype = ctypes.c_void_p
-    library.flint_bridge_report_execution.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-    library.flint_bridge_report_execution.restype = ctypes.c_bool
     library.flint_bridge_connected.argtypes = [ctypes.c_void_p]
     library.flint_bridge_connected.restype = ctypes.c_bool
     library.flint_bridge_busy.argtypes = [ctypes.c_void_p]
@@ -85,18 +83,20 @@ def _bind(library):
     library.flint_bridge_apply_settings.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
     library.flint_bridge_apply_settings.restype = ctypes.c_uint32
     library.flint_bridge_stop.argtypes = [ctypes.c_void_p]
+    library.flint_bridge_stop.restype = ctypes.c_bool
     library.flint_bridge_destroy.argtypes = [ctypes.c_void_p]
     library.flint_bridge_string_free.argtypes = [ctypes.c_void_p]
 
 
 class NativeCore:
-    def __init__(self, config):
+    def __init__(self, config, capabilities):
         self._library = _load()
         encoded = json.dumps(config, ensure_ascii=False).encode("utf-8")
+        binding = ExecutionBinding(self._library, capabilities)
         kind = ctypes.c_uint32()
         error = ctypes.c_void_p()
         self._handle = self._library.flint_bridge_create(
-            encoded, ctypes.byref(kind), ctypes.byref(error))
+            encoded, ctypes.byref(binding.callbacks), ctypes.byref(kind), ctypes.byref(error))
         message = self._string(error.value)
         if not self._handle:
             raise BridgeCreationError(_CREATION_ERRORS.get(kind.value, "system"),
@@ -109,14 +109,6 @@ class NativeCore:
             return ctypes.string_at(pointer).decode("utf-8")
         finally:
             self._library.flint_bridge_string_free(pointer)
-
-    def poll(self, timeout_ms):
-        event = self._string(self._library.flint_bridge_poll(self._handle, timeout_ms))
-        return json.loads(event) if event is not None else None
-
-    def report_execution(self, report):
-        encoded = json.dumps(report, ensure_ascii=False).encode("utf-8")
-        return self._library.flint_bridge_report_execution(self._handle, encoded)
 
     @property
     def connected(self):
@@ -155,9 +147,10 @@ class NativeCore:
             raise RuntimeError("Unknown Bridge settings result")
 
     def stop(self):
-        self._library.flint_bridge_stop(self._handle)
+        """End the connection; False while started host code is still active."""
+        return bool(self._library.flint_bridge_stop(self._handle))
 
-    def close(self):
+    def destroy(self):
         if self._handle:
             self._library.flint_bridge_destroy(self._handle)
             self._handle = None

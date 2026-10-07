@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Concurrent;
+using System.IO;
 using System.Text.Json.Nodes;
 using Flint.Bridge;
 
@@ -10,7 +14,20 @@ using Flint.Bridge;
 internal static class Program
 {
     private static NativeCore core;
-    private static string held;
+    private static WorkerThread scheduler;
+    private static readonly BlockingCollection<ExecutionRequest> requests = new BlockingCollection<ExecutionRequest>();
+    private static readonly ManualResetEventSlim release = new ManualResetEventSlim();
+    private sealed class Executor : IExecutor
+    {
+        public Task<object> Prepare(ExecutionRequest request) => Task.FromResult<object>(request);
+        public Task Run(object prepared, TextWriter stdout, TextWriter stderr)
+        {
+            requests.Add((ExecutionRequest)prepared);
+            if (!release.Wait(15000)) throw new TimeoutException("Test did not release execution");
+            return Task.CompletedTask;
+        }
+    }
+    private static JsonNode Finish() { release.Set(); return new JsonObject { ["reported"] = true }; }
 
     private static int Main(string[] args)
     {
@@ -25,15 +42,7 @@ internal static class Program
                     command["config"]!.ToJsonString()),
                 "apply" => Apply(command["settings"]!.ToJsonString()),
                 "take" => Take(),
-                "finish" => new JsonObject
-                {
-                    ["reported"] = core.ReportExecution(JsonSerializer.Serialize(new
-                    {
-                        kind = "result",
-                        request_id = held,
-                        succeeded = true
-                    }))
-                },
+                "finish" => Finish(),
                 "reconnect" => Reconnect(),
                 "close" => Close(),
                 "status" => JsonNode.Parse(core.StatusJson),
@@ -55,13 +64,17 @@ internal static class Program
 
     private static JsonNode Create(string library, string config)
     {
+        var worker = new WorkerThread();
         try
         {
-            core = new NativeCore(library, config);
+            core = new NativeCore(library, config, new ExecutionCapabilities(new Executor(), worker));
+            scheduler = worker;
+            release.Reset();
             return new JsonObject { ["created"] = true };
         }
         catch (BridgeCreationException error)
         {
+            worker.Dispose();
             return new JsonObject
             {
                 ["error"] = new JsonObject { ["kind"] = Kinds[error.Kind], ["message"] = error.Message }
@@ -88,15 +101,8 @@ internal static class Program
 
     private static JsonNode Take()
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            var message = core.Poll(100);
-            if (message == null) continue;
-            held = JsonNode.Parse(message)!["request_id"]!.GetValue<string>();
-            return new JsonObject { ["request_id"] = held };
-        }
-        return new JsonObject { ["request_id"] = null };
+        if (!requests.TryTake(out var request, 10000)) throw new TimeoutException("No execution entered the host");
+        return new JsonObject { ["request_id"] = request.RequestId };
     }
 
     private static JsonNode Reconnect()
@@ -107,7 +113,9 @@ internal static class Program
 
     private static JsonNode Close()
     {
+        if (!core.Stop()) return new JsonObject { ["closed"] = false };
         core.Dispose();
+        scheduler.Dispose();
         return new JsonObject { ["closed"] = true };
     }
 }

@@ -4,6 +4,7 @@ use std::{
     thread,
     time::Duration,
 };
+use tokio::sync::mpsc;
 
 fn settings(name: &str, enabled: bool) -> BridgeSettings {
     BridgeSettings {
@@ -32,7 +33,7 @@ fn initial() -> Arc<SettingsSnapshot> {
 fn settings_change_rejects_a_registration_waiting_to_commit() {
     for replacement in [settings("changed", true), settings("original", false)] {
         let snapshot = initial();
-        let state = Arc::new(Mutex::new(State::new(snapshot.clone())));
+        let state = Arc::new(Mutex::new(BridgeState::new(snapshot.clone())));
         let (updates, latest) = watch::channel(snapshot.clone());
         let (ready_tx, ready_rx) = sync_mpsc::channel();
         let (resume_tx, resume_rx) = sync_mpsc::channel();
@@ -81,7 +82,7 @@ fn settings_change_rejects_a_registration_waiting_to_commit() {
 fn old_session_cleanup_cannot_overwrite_new_settings_or_registration() {
     for enabled in [true, false] {
         let old = initial();
-        let state = Arc::new(Mutex::new(State::new(old.clone())));
+        let state = Arc::new(Mutex::new(BridgeState::new(old.clone())));
         state
             .lock()
             .unwrap()
@@ -125,7 +126,7 @@ fn old_session_cleanup_cannot_overwrite_new_settings_or_registration() {
 #[test]
 fn returning_to_the_same_settings_does_not_revive_an_old_registration() {
     let old = initial();
-    let mut state = State::new(old.clone());
+    let mut state = BridgeState::new(old.clone());
     let (updates, latest) = watch::channel(old.clone());
     state.apply_settings(settings("changed", true), &updates);
     state.apply_settings(old.settings.clone(), &updates);
@@ -140,13 +141,13 @@ fn returning_to_the_same_settings_does_not_revive_an_old_registration() {
 #[test]
 fn current_session_failure_clears_connection_but_preserves_host_execution() {
     let snapshot = initial();
-    let mut state = State::new(snapshot.clone());
+    let mut state = BridgeState::new(snapshot.clone());
     let generation = state
         .complete_registration(&snapshot, "current".into())
         .unwrap();
-    assert!(state
+    let id = state
         .begin_execution(generation, "request".into(), HostExecuteRequest::default())
-        .is_some());
+        .unwrap();
     state.finish_session(&snapshot, Some(lost("connection lost")));
     assert_eq!(
         state.connection,
@@ -156,15 +157,7 @@ fn current_session_failure_clears_connection_but_preserves_host_execution() {
     );
     assert!(state.busy());
     let (outbound, mut received) = mpsc::unbounded_channel();
-    assert!(state.report_execution(
-        ExecutionReport::Result {
-            request_id: "request".into(),
-            succeeded: true,
-            traceback: None,
-            error: None,
-        },
-        &outbound
-    ));
+    assert!(state.finish_execution(id, Ok(()), &outbound));
     assert!(!state.busy());
     assert_eq!(received.try_recv().unwrap().generation, generation);
 }
@@ -172,12 +165,12 @@ fn current_session_failure_clears_connection_but_preserves_host_execution() {
 #[test]
 fn stop_is_terminal_even_when_registration_or_session_cleanup_arrives_late() {
     let snapshot = initial();
-    let mut state = State::new(snapshot.clone());
+    let mut state = BridgeState::new(snapshot.clone());
     let (updates, _) = watch::channel(snapshot.clone());
     let generation = state
         .complete_registration(&snapshot, "current".into())
         .unwrap();
-    state
+    let active = state
         .begin_execution(generation, "active".into(), HostExecuteRequest::default())
         .unwrap();
     state.stop();
@@ -198,15 +191,7 @@ fn stop_is_terminal_even_when_registration_or_session_cleanup_arrives_late() {
         .begin_execution(generation, "new".into(), HostExecuteRequest::default())
         .is_none());
     let (outbound, _) = mpsc::unbounded_channel();
-    state.report_execution(
-        ExecutionReport::Result {
-            request_id: "active".into(),
-            succeeded: true,
-            traceback: None,
-            error: None,
-        },
-        &outbound,
-    );
+    state.finish_execution(active, Ok(()), &outbound);
     assert!(!state.busy());
     assert!(state.stopped());
 }

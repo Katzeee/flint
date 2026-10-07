@@ -3,10 +3,41 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using Flint.Bridge;
 
 internal static class Program
 {
+    private sealed class Command : IDisposable
+    {
+        internal string Code, Cleaned;
+        public void Dispose() { if (Cleaned != null) File.WriteAllText(Cleaned, "cleaned"); }
+    }
+    private sealed class Executor : IExecutor
+    {
+        private readonly string release;
+        internal Executor(string release) { this.release = release; }
+        public async Task<object> Prepare(ExecutionRequest request)
+        {
+            await Task.Yield();
+            return new Command { Code = request.Code, Cleaned = request.Code == "async" ? release + ".cleaned" : null };
+        }
+        public async Task Run(object prepared, TextWriter stdout, TextWriter stderr)
+        {
+            var code = ((Command)prepared).Code;
+            if (code == "ping") { stdout.Write("CSHARP_ZIP_OK\n"); return; }
+            if (code != "async") throw new InvalidOperationException("unsupported_test_command");
+            stdout.Write("BEGIN\0🙂\n");
+            GC.Collect();
+            var deadline = DateTime.UtcNow.AddSeconds(20);
+            while (!File.Exists(release))
+            {
+                if (DateTime.UtcNow >= deadline) throw new TimeoutException("Test did not release async execution");
+                await Task.Delay(10);
+            }
+            stderr.Write("异步完成\n");
+        }
+    }
     private static int Main(string[] args)
     {
         try
@@ -20,7 +51,8 @@ internal static class Program
                 runtime_version = Environment.Version.ToString(),
                 enabled = true
             });
-            using var bridge = new NativeCore(args[0], config);
+            using var bridge = new NativeCore(args[0], config,
+                new ExecutionCapabilities(new Executor(args[3] + ".release"), new WorkerThread()));
             var deadline = DateTime.UtcNow.AddSeconds(20);
             while ((!bridge.Connected || string.IsNullOrEmpty(bridge.InstanceId)) &&
                    DateTime.UtcNow < deadline)
@@ -32,40 +64,7 @@ internal static class Program
                 pid = Process.GetCurrentProcess().Id,
                 instance_id = bridge.InstanceId
             }));
-            while (!File.Exists(args[3]))
-            {
-                var message = bridge.Poll(100);
-                if (message == null) continue;
-                using var request = JsonDocument.Parse(message);
-                var id = request.RootElement.GetProperty("request_id").GetString();
-                var code = request.RootElement.GetProperty("code").GetString();
-                if (code == "ping")
-                {
-                    if (!bridge.ReportExecution(JsonSerializer.Serialize(new
-                    {
-                        kind = "output",
-                        request_id = id,
-                        stdout = "CSHARP_ZIP_OK\n",
-                        stderr = ""
-                    }))) throw new InvalidOperationException("Output was rejected");
-                    if (!bridge.ReportExecution(JsonSerializer.Serialize(new
-                    {
-                        kind = "result",
-                        request_id = id,
-                        succeeded = true
-                    }))) throw new InvalidOperationException("Result was rejected");
-                }
-                else
-                {
-                    if (!bridge.ReportExecution(JsonSerializer.Serialize(new
-                    {
-                        kind = "result",
-                        request_id = id,
-                        succeeded = false,
-                        error = "unsupported_test_command"
-                    }))) throw new InvalidOperationException("Rejection was rejected");
-                }
-            }
+            while (!File.Exists(args[3])) Thread.Sleep(50);
             return 0;
         }
         catch (Exception exception)

@@ -1,20 +1,15 @@
 from .. import BridgeManager
 from ..execution.executor import CodeExecutor
-from ..execution.runner import CodeRunner
+from ..execution.capabilities import ExecutionCapabilities
 
-from ..execution.strategies import QtMainThreadExecutionStrategy
+from ..execution.scheduling import QtMainThread
 from ..qt import resolve_qt
 
 
-def create_strategy():
-    strategy = QtMainThreadExecutionStrategy(resolve_qt(fallback="PySide2"))
-    try:
-        import maya.cmds
-        maya.cmds.about(version=True)
-        return strategy
-    except BaseException:
-        strategy.close()
-        raise
+def create_scheduler():
+    import maya.cmds
+    maya.cmds.about(version=True)
+    return QtMainThread(resolve_qt(fallback="PySide2"))
 
 
 def dispatch_initialization(callback):
@@ -23,8 +18,8 @@ def dispatch_initialization(callback):
     maya.utils.executeDeferred(callback)
 
 
-def create_runner():
-    return CodeRunner(CodeExecutor(), create_strategy())
+def create_execution():
+    return ExecutionCapabilities(CodeExecutor(), create_scheduler())
 
 
-manager = BridgeManager("maya", create_runner, dispatch_initialization)
+manager = BridgeManager("maya", create_execution, dispatch_initialization)

@@ -1,7 +1,7 @@
 use crate::{
-    execution::{run_execution, ExecuteEvent, Outbound},
+    execution::{run_execution, Outbound},
     settings::{BridgeSettings, Identity, SettingsSnapshot},
-    state::{Obstacle, ObstacleKind, State},
+    state::{BridgeState, Obstacle, ObstacleKind},
 };
 use flint_contracts::protocol::timing::{HEARTBEAT_ACK_TIMEOUT, HEARTBEAT_INTERVAL};
 use flint_contracts::protocol::{envelope::Payload, *};
@@ -72,8 +72,8 @@ async fn run_session(
     identity: &Identity,
     settings_snapshot: &SettingsSnapshot,
     bridge_id: &str,
-    state: Arc<Mutex<State>>,
-    events: mpsc::Sender<ExecuteEvent>,
+    state: Arc<Mutex<BridgeState>>,
+    schedule: mpsc::Sender<u64>,
     outbound: &mut async_mpsc::UnboundedReceiver<Outbound>,
 ) -> Result<Infallible, Obstacle> {
     let mut heartbeat_wire = connect(&settings_snapshot.settings)
@@ -89,7 +89,13 @@ async fn run_session(
         .complete_registration(settings_snapshot, instance_id.clone())
         .map_err(obstacle(ObstacleKind::Registration))?;
     let heartbeat = run_heartbeat(heartbeat_wire, instance_id);
-    let execution = run_execution(execution_wire, generation, state.clone(), events, outbound);
+    let execution = run_execution(
+        execution_wire,
+        generation,
+        state.clone(),
+        schedule,
+        outbound,
+    );
     let Err(message) = tokio::select! {
         result = heartbeat => result,
         result = execution => result,
@@ -144,8 +150,8 @@ async fn register(
 pub(crate) async fn run(
     identity: Identity,
     mut settings: watch::Receiver<Arc<SettingsSnapshot>>,
-    state: Arc<Mutex<State>>,
-    events: mpsc::Sender<ExecuteEvent>,
+    state: Arc<Mutex<BridgeState>>,
+    schedule: mpsc::Sender<u64>,
     mut outbound: async_mpsc::UnboundedReceiver<Outbound>,
     stop: CancellationToken,
     reconnect: Arc<tokio::sync::Notify>,
@@ -169,7 +175,7 @@ pub(crate) async fn run(
                 changed = change.is_ok();
                 None
             },
-            Err(obstacle) = run_session(&identity, &current, &bridge_id, state.clone(), events.clone(), &mut outbound) => Some(obstacle),
+            Err(obstacle) = run_session(&identity, &current, &bridge_id, state.clone(), schedule.clone(), &mut outbound) => Some(obstacle),
             _ = reconnect.notified() => {
                 requested = true;
                 None

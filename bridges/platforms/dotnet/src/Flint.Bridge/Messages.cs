@@ -22,22 +22,16 @@ namespace Flint.Bridge
     }
 
     [DataContract]
+    internal sealed class BridgeStatus
+    {
+        [DataMember(Name = "settings")] public BridgeSettings Settings { get; set; }
+    }
+
+    [DataContract]
     public sealed class ExecutionRequest
     {
         [DataMember(Name = "request_id")] public string RequestId { get; set; }
         [DataMember(Name = "code")] public string Code { get; set; }
-    }
-
-    [DataContract]
-    public sealed class ExecutionReport
-    {
-        [DataMember(Name = "kind")] public string Kind { get; set; }
-        [DataMember(Name = "request_id")] public string RequestId { get; set; }
-        [DataMember(Name = "stdout")] public string Stdout { get; set; } = "";
-        [DataMember(Name = "stderr")] public string Stderr { get; set; } = "";
-        [DataMember(Name = "succeeded")] public bool Succeeded { get; set; }
-        [DataMember(Name = "traceback")] public string Traceback { get; set; }
-        [DataMember(Name = "error")] public string Error { get; set; }
     }
 
     internal static class Json

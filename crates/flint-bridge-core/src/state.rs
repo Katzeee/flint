@@ -1,11 +1,11 @@
 use crate::{
-    execution::{ExecuteEvent, ExecutionReport, ExecutionState, Outbound},
+    execution::Execution,
     settings::{ApplyResult, BridgeSettings, SettingsSnapshot},
 };
 use flint_contracts::protocol::HostExecuteRequest;
 use serde::Serialize;
 use std::sync::Arc;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 
 /// What the Bridge connection is doing now. A failure exists only inside the
 /// state it explains, so leaving that state is what clears it.
@@ -45,22 +45,24 @@ pub(crate) struct StatusSnapshot<'a> {
     settings: &'a BridgeSettings,
 }
 
-pub(crate) struct State {
+pub(crate) struct BridgeState {
     settings_snapshot: Arc<SettingsSnapshot>,
     connection: Connection,
     generation: u64,
-    execution: ExecutionState,
+    executions: u64,
+    pub(crate) execution: Option<Execution>,
 }
 
 // Callers hold the same mutex for settings changes, registration commits, and
 // execution admission: checking a revision and publishing state are indivisible.
-impl State {
+impl BridgeState {
     pub(crate) fn new(settings_snapshot: Arc<SettingsSnapshot>) -> Self {
         let mut state = Self {
             settings_snapshot,
             connection: Connection::Disabled,
             generation: 0,
-            execution: ExecutionState::default(),
+            executions: 0,
+            execution: None,
         };
         state.reconnect();
         state
@@ -71,7 +73,7 @@ impl State {
     }
 
     pub(crate) fn busy(&self) -> bool {
-        self.execution.busy()
+        self.execution.is_some()
     }
 
     pub(crate) fn stopped(&self) -> bool {
@@ -174,19 +176,18 @@ impl State {
         generation: u64,
         request_id: String,
         request: HostExecuteRequest,
-    ) -> Option<ExecuteEvent> {
-        if !self.connected() || self.generation != generation {
+    ) -> Option<u64> {
+        if !self.connected() || self.generation != generation || self.busy() {
             return None;
         }
-        self.execution.begin(generation, request_id, request)
-    }
-
-    pub(crate) fn report_execution(
-        &mut self,
-        report: ExecutionReport,
-        outbound: &mpsc::UnboundedSender<Outbound>,
-    ) -> bool {
-        self.execution.report(report, outbound)
+        self.executions += 1;
+        self.execution = Some(Execution::new(
+            self.executions,
+            generation,
+            request_id,
+            request,
+        ));
+        Some(self.executions)
     }
 }
 

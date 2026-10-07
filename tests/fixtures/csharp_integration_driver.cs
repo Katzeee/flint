@@ -2,6 +2,8 @@ using System;
 using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
 using System.Threading;
+using System.Threading.Tasks;
+using System.IO;
 using Flint.Bridge;
 
 // Only the host executor and dispatcher are controlled here. Rust judges the
@@ -18,23 +20,28 @@ internal static class Program
     private static BridgeManager manager;
     private static string library;
 
-    private sealed class Executor : IExecutionAdapter
+    private sealed class Scheduler : IExecutionScheduler
     {
-        public void Execute(ExecutionRequest request, Action<ExecutionReport> report)
+        private readonly WorkerThread worker = new WorkerThread();
+        public Scheduler() { Interlocked.Increment(ref created); }
+        public void Post(Action callback) { worker.Post(callback); }
+        public void Dispose() { worker.Dispose(); Interlocked.Increment(ref released); }
+    }
+    private sealed class Executor : IExecutor
+    {
+        public Task<object> Prepare(ExecutionRequest request) => Task.FromResult<object>(request);
+        public Task Run(object prepared, TextWriter stdout, TextWriter stderr)
         {
             started.Set();
             if (!release.Wait(25000)) throw new TimeoutException("Test did not release the host execution");
             Interlocked.Increment(ref finished);
-            report(new ExecutionReport { Kind = "result", RequestId = request.RequestId, Succeeded = true });
+            return Task.CompletedTask;
         }
-        public void Dispose() { Interlocked.Increment(ref released); }
     }
-
-    private static IExecutionAdapter CreateExecutor()
+    private static ExecutionCapabilities CreateExecution()
     {
-        Interlocked.Increment(ref created);
         factoryThread = Thread.CurrentThread.ManagedThreadId;
-        return new Executor();
+        return new ExecutionCapabilities(new Executor(), new Scheduler());
     }
 
     private static void RunDispatched(Action callback)
@@ -63,7 +70,8 @@ internal static class Program
                     manager.Connect(command["library"]?.GetValue<string>() ?? library, Settings(command["config"]));
                     return new JsonObject { ["created"] = true };
                 case "claim":
-                    using (var core = new NativeCore(library, command["config"].ToJsonString())) { }
+                    using (var core = new NativeCore(library, command["config"].ToJsonString(),
+                        new ExecutionCapabilities(new Executor(), new CallbackQueue()))) { }
                     return new JsonObject { ["created"] = true };
                 case "apply":
                     manager.Configure(Settings(command["settings"]));
@@ -120,7 +128,7 @@ internal static class Program
     private static void Main(string[] args)
     {
         library = args[0];
-        using (manager = new BridgeManager("standalone_csharp", () => Environment.Version.ToString(), CreateExecutor, Dispatch))
+        using (manager = new BridgeManager("standalone_csharp", () => Environment.Version.ToString(), CreateExecution, Dispatch))
         {
             try
             {

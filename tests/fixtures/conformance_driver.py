@@ -6,26 +6,43 @@ are reported as the binding produced them; Rust owns every assertion.
 import json
 from pathlib import Path
 import sys
-import time
+import threading
+from queue import Queue
 
 sys.path.insert(0, sys.argv[1])
 from flint_bridge import BridgeBusyError, BridgeCreationError
 from flint_bridge.connection import native_core
+from flint_bridge.execution.capabilities import ExecutionCapabilities
+from flint_bridge.execution.scheduling import WorkerThread
 
 core = None
-held = None
+scheduler = None
+requests = Queue()
+release = threading.Event()
+
+
+class Executor:
+    def run(self, request, out, err):
+        requests.put(request)
+        if not release.wait(15):
+            raise TimeoutError("Test did not release execution")
+
+
 packaged_library = native_core._library_path
 
 
 def create(command):
-    global core
+    global core, scheduler
     library = command.get("library")
     native_core._library_path = (lambda: Path(library)) if library else packaged_library
+    worker = WorkerThread()
     try:
-        created = native_core.NativeCore(command["config"])
+        created = native_core.NativeCore(command["config"], ExecutionCapabilities(Executor(), worker))
     except BridgeCreationError as error:
+        worker.close()
         return {"error": {"kind": error.kind, "message": str(error)}}
-    core = created
+    release.clear()
+    core, scheduler = created, worker
     return {"created": True}
 
 
@@ -40,20 +57,12 @@ def apply(command):
 
 
 def take(command):
-    global held
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        held = core.poll(100)
-        if held is not None:
-            return {"request_id": held["request_id"]}
-    return {"request_id": None}
+    return {"request_id": requests.get(timeout=10)["request_id"]}
 
 
 def finish(command):
-    return {"reported": core.report_execution({
-        "kind": "result", "request_id": held["request_id"], "succeeded": True,
-        "traceback": None, "error": None,
-    })}
+    release.set()
+    return {"reported": True}
 
 
 def reconnect(command):
@@ -62,8 +71,10 @@ def reconnect(command):
 
 
 def close(command):
-    core.stop()
-    core.close()
+    if not core.stop():
+        return {"closed": False}
+    core.destroy()
+    scheduler.close()
     return {"closed": True}
 
 

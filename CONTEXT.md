@@ -29,10 +29,13 @@ The host-side connector that registers an application with the backend and carri
 _Avoid_: Host application, instance.
 
 **Bridge core**:
-The shared native component of a Bridge that owns its connection, registration, heartbeat, framing, and reconnection behavior. It does not execute host code, and it holds a process-wide claim so a host process runs at most one Bridge.
+The shared native component of a Bridge that owns its connection, registration, heartbeat, framing, and reconnection behavior. It orchestrates each execution's preparation, invocation, cancellation, and result through the host's execution capabilities; the host runtime executes the code. It holds a process-wide claim so a host process runs at most one Bridge.
+
+**Execution capabilities**:
+The host-specific part of execution that a host adapter supplies to the Bridge core: a scheduler that runs the core's callbacks on the thread where the host executes code, and an executor that prepares and runs submitted code in the host runtime. When and whether each step happens, and how its outcome is reported, belong to the core.
 
 **Bridge manager**:
-The platform component that creates, reuses, configures, and releases a host's Bridge using execution and scheduling capabilities supplied by the host. It manages Bridge resources; connection policy belongs to the Bridge core.
+The platform component that creates, reuses, configures, and releases a host's Bridge using the host's execution capabilities. It manages Bridge resources; connection policy belongs to the Bridge core.
 
 **Attach**:
 Starting a Bridge from outside its host process by injecting the Bridge into the running process, rather than the host loading the Bridge itself. Both paths connect the same Bridge to the backend; attach lets flint connect a host without the user running flint's code inside it. Attaching to a process whose Bridge it can reach applies the new settings to that Bridge, and a failure is reported back to the requester.
@@ -49,7 +52,7 @@ _Avoid_: Last error, for an obstacle or for any failure in general.
 A request to a Bridge, or to start one, that was refused without changing any state, such as settings refused while host code executes or a Bridge that could not be created. Its reason returns to whoever made the request and never appears as a connection obstacle.
 
 **Host adapter**:
-The host-side code that dispatches a Bridge execution request through the host runtime on the thread required by that application.
+The host-side code that supplies its application's execution capabilities, along with its startup, settings storage, and teardown.
 
 **Backend**:
 The single local service for the current user that accepts control commands and Bridge connections, coordinates executions, and owns workflow records. CLI sessions reuse this service independently of their working directory.

@@ -1,20 +1,16 @@
 from .. import BridgeManager
 from ..execution.executor import CodeExecutor
-from ..execution.runner import CodeRunner
+from ..execution.capabilities import ExecutionCapabilities
 
-from ..execution.strategies import DirectExecutionStrategy
-
-
-def create_strategy():
-    return DirectExecutionStrategy()
+from ..execution.scheduling import WorkerThread
 
 
 def dispatch_initialization(callback):
     callback()
 
 
-def create_runner():
-    return CodeRunner(CodeExecutor(), create_strategy())
+def create_execution():
+    return ExecutionCapabilities(CodeExecutor(), WorkerThread())
 
 
-manager = BridgeManager("standalone_python", create_runner, dispatch_initialization)
+manager = BridgeManager("standalone_python", create_execution, dispatch_initialization)

@@ -1,18 +1,18 @@
 from .. import BridgeManager
 from ..execution.executor import CodeExecutor
-from ..execution.runner import CodeRunner
+from ..execution.capabilities import ExecutionCapabilities
 
 import threading
 
-from .strategy import BlenderMainThreadExecutionStrategy
+from .scheduler import BlenderTimerQueue
 
 
-def create_strategy():
+def create_scheduler():
     if threading.current_thread() is not threading.main_thread():
         raise RuntimeError("Connect the Blender Bridge on Blender's main thread")
     import bpy
 
-    return BlenderMainThreadExecutionStrategy(bpy.app.timers)
+    return BlenderTimerQueue(bpy.app.timers)
 
 
 def dispatch_initialization(callback):
@@ -26,8 +26,8 @@ def dispatch_initialization(callback):
     bpy.app.timers.register(once, first_interval=0.0)
 
 
-def create_runner():
-    return CodeRunner(CodeExecutor(), create_strategy())
+def create_execution():
+    return ExecutionCapabilities(CodeExecutor(), create_scheduler())
 
 
-manager = BridgeManager("blender", create_runner, dispatch_initialization)
+manager = BridgeManager("blender", create_execution, dispatch_initialization)

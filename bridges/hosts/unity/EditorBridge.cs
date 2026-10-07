@@ -7,7 +7,7 @@ namespace Flint.Unity
     public static class EditorBridge
     {
         private static readonly BridgeManager manager = new BridgeManager("unity", UnityRuntime.Version,
-            () => new UnityExecution(), UnityRuntime.Callbacks.Post);
+            () => new ExecutionCapabilities(new UnityExecution(), UnityRuntime.Callbacks), UnityRuntime.Callbacks.Post);
 
         static EditorBridge()
         {

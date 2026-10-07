@@ -11,30 +11,29 @@ namespace Flint.Bridge
         private readonly object gate = new object();
         private readonly string host;
         private readonly Func<string> runtimeVersion;
-        private readonly Func<IExecutionAdapter> createExecutor;
+        private readonly Func<ExecutionCapabilities> createExecution;
         private readonly Action<Action> dispatch;
-        private Bridge bridge;
+        private NativeCore bridge;
+        private IExecutionScheduler scheduler;
         private string library;
-        private string address;
-        private int port;
         private readonly EventHandler unload;
         private bool disposed;
 
         public BridgeManager(string host, Func<string> runtimeVersion,
-            Func<IExecutionAdapter> createExecutor, Action<Action> dispatch)
+            Func<ExecutionCapabilities> createExecution, Action<Action> dispatch)
         {
             this.host = host;
             this.runtimeVersion = runtimeVersion;
-            this.createExecutor = createExecutor;
+            this.createExecution = createExecution;
             this.dispatch = dispatch;
             unload = (_, __) => Dispose();
             AppDomain.CurrentDomain.DomainUnload += unload;
         }
 
-        public bool Connected { get { lock (gate) return bridge != null && bridge.Core.Connected; } }
-        public bool Busy { get { lock (gate) return bridge != null && bridge.Core.Busy; } }
-        public string StatusJson { get { lock (gate) return bridge?.Core.StatusJson; } }
-        public string InstanceId { get { lock (gate) return bridge?.Core.InstanceId; } }
+        public bool Connected { get { lock (gate) return bridge != null && bridge.Connected; } }
+        public bool Busy { get { lock (gate) return bridge != null && bridge.Busy; } }
+        public string StatusJson { get { lock (gate) return bridge?.StatusJson; } }
+        public string InstanceId { get { lock (gate) return bridge?.InstanceId; } }
 
         public void Connect(string nativeLibrary, BridgeSettings settings)
         {
@@ -43,24 +42,23 @@ namespace Flint.Bridge
                 if (disposed) throw new ObjectDisposedException(nameof(BridgeManager));
                 if (bridge != null)
                 {
-                    bridge.Core.CheckRunning();
-                    if (address != settings.Address || port != settings.Port)
+                    bridge.CheckRunning();
+                    var current = Json.Read<BridgeStatus>(bridge.StatusJson).Settings;
+                    if (current.Address != settings.Address || current.Port != settings.Port)
                         throw new InvalidOperationException("Disconnect the existing Bridge before changing its endpoint");
                     return;
                 }
                 library = nativeLibrary;
-                var executor = createExecutor();
+                var capabilities = createExecution();
                 try
                 {
-                    bridge = new Bridge(library, new BridgeConfiguration
-                    {
+                    bridge = new NativeCore(library, Json.Write(new BridgeConfiguration {
                         Host = host, RuntimeVersion = runtimeVersion(), Address = settings.Address,
                         Port = settings.Port, Name = settings.Name, Enabled = settings.Enabled
-                    }, executor, dispatch);
+                    }), capabilities);
                 }
-                catch { executor.Dispose(); throw; }
-                address = settings.Address;
-                port = settings.Port;
+                catch { capabilities.Scheduler.Dispose(); throw; }
+                scheduler = capabilities.Scheduler;
             }
         }
 
@@ -75,9 +73,7 @@ namespace Flint.Bridge
                     Connect(path, settings);
                     return;
                 }
-                bridge.Core.ApplySettings(Json.Write(settings));
-                address = settings.Address;
-                port = settings.Port;
+                bridge.ApplySettings(Json.Write(settings));
             }
         }
 
@@ -120,23 +116,23 @@ namespace Flint.Bridge
             lock (gate)
             {
                 if (bridge == null) throw new InvalidOperationException("No Bridge has been started");
-                bridge.Core.Reconnect();
+                bridge.Reconnect();
             }
         }
 
+        /// <summary>Releases the Bridge once no started host code remains; false means retry later.</summary>
         public bool Disconnect()
         {
             lock (gate)
             {
                 if (bridge == null) return true;
                 if (!bridge.Stop()) return false;
-                bridge.Dispose();
-                bridge = null;
+                Release();
                 return true;
             }
         }
 
-        /// <summary>Release the Bridge when its hosting context is being destroyed.</summary>
+        /// <summary>The hosting context is ending: release the Bridge even if host code has not finished.</summary>
         public void Dispose()
         {
             lock (gate)
@@ -144,9 +140,16 @@ namespace Flint.Bridge
                 if (disposed) return;
                 disposed = true;
                 AppDomain.CurrentDomain.DomainUnload -= unload;
-                bridge?.Dispose();
-                bridge = null;
+                if (bridge != null) Release();
             }
+        }
+
+        private void Release()
+        {
+            bridge.Dispose();
+            scheduler.Dispose();
+            bridge = null;
+            scheduler = null;
         }
     }
 }

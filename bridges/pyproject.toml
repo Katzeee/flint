@@ -13,8 +13,7 @@ dependencies = []
 packages = [
     "flint_bridge", "flint_bridge.maya", "flint_bridge.max",
     "flint_bridge.blender", "flint_bridge.standalone_python",
-    "flint_bridge.connection", "flint_bridge.execution",
-    "flint_bridge.execution.strategies", "flint_bridge.ui",
+    "flint_bridge.connection", "flint_bridge.execution", "flint_bridge.ui",
 ]
 
 [tool.setuptools.package-dir]
@@ -25,7 +24,6 @@ flint_bridge = "platforms/python/src/flint_bridge"
 "flint_bridge.standalone_python" = "hosts/standalone_python"
 "flint_bridge.connection" = "platforms/python/src/flint_bridge/connection"
 "flint_bridge.execution" = "platforms/python/src/flint_bridge/execution"
-"flint_bridge.execution.strategies" = "platforms/python/src/flint_bridge/execution/strategies"
 "flint_bridge.ui" = "platforms/python/src/flint_bridge/ui"
 
 [tool.uv]

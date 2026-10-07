@@ -283,8 +283,11 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     let failed = driver.call(json!({"op": "create", "config": options, "library": missing}))?;
     assert_eq!(failed["error"]["kind"], "library_unavailable", "{failed}");
     let probe = driver.call(json!({"op": "probe"}))?;
-    assert_eq!(probe["created"], created + 1);
-    assert_eq!(probe["released"], released + 1);
+    // Failed startup releases whatever execution resources it acquired.
+    let acquired = probe["created"].as_u64().unwrap();
+    let disposed = probe["released"].as_u64().unwrap();
+    assert_eq!(acquired - created, disposed - released);
+    let (created, released) = (acquired, disposed);
     assert!(driver.call(json!({"op": "status"}))?.is_null());
 
     // The host eventually drains a timed-out callback. It must do no work.
@@ -299,7 +302,7 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     );
     driver.call(json!({"op": "close"}))?;
     driver.call(json!({"op": "drain"}))?;
-    assert_eq!(driver.call(json!({"op": "probe"}))?["created"], created + 1);
+    assert_eq!(driver.call(json!({"op": "probe"}))?["created"], created);
 
     driver.call(json!({"op": "attach_begin", "settings": settings(app.bridge_port, "conformance"), "timeout_ms": 10000}))?;
     driver.call(json!({"op": "drain"}))?;
@@ -310,7 +313,7 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
         connected["connection"]["instance_id"]
     );
     let probe = driver.call(json!({"op": "probe"}))?;
-    assert_eq!(probe["created"], created + 2);
+    assert_eq!(probe["created"], created + 1);
     assert_eq!(probe["factory_thread"], probe["dispatch_thread"]);
     driver.call(json!({"op": "create", "config": options}))?;
     let mut disabled = settings(app.bridge_port, "paused");
@@ -319,7 +322,7 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     driver.status_until("disabled")?;
     driver.call(json!({"op": "apply", "settings": settings(app.bridge_port, "conformance")}))?;
     let connected = driver.status_until("connected")?;
-    assert_eq!(driver.call(json!({"op": "probe"}))?["created"], created + 2);
+    assert_eq!(driver.call(json!({"op": "probe"}))?["created"], created + 1);
 
     let workflow = app.workflow("manager-lifecycle")?;
     let instance = connected["connection"]["instance_id"].as_str().unwrap();
@@ -373,8 +376,8 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
         json!({"closed": true})
     );
     let probe = driver.call(json!({"op": "probe"}))?;
-    assert_eq!(probe["created"], created + 2);
-    assert_eq!(probe["released"], released + 2);
+    assert_eq!(probe["created"], created + 1);
+    assert_eq!(probe["released"], released + 1);
     assert_eq!(
         probe["finished"].as_u64().unwrap(),
         before["finished"].as_u64().unwrap() + 1
@@ -387,7 +390,7 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     );
     driver.call(json!({"op": "close"}))?;
     let probe = driver.call(json!({"op": "probe"}))?;
-    assert_eq!(probe["created"], created + 3);
-    assert_eq!(probe["released"], released + 3);
+    assert_eq!(probe["created"], created + 2);
+    assert_eq!(probe["released"], released + 2);
     Ok(())
 }

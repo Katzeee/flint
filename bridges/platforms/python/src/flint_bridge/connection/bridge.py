@@ -1,35 +1,37 @@
+"""A host's Bridge: its native core and the scheduler it runs callbacks on."""
 import platform
-import threading
 import time
-
-from ..execution.task import ExecutionTask
 from .native_core import NativeCore
 
 
 class Bridge:
-    """Poll the native core and report each task's events from one Bridge thread."""
-
-    def __init__(self, runner, host, address, port, name, enabled=True):
-        self.runner, self.host, self.address, self.port, self.name = runner, host, address, port, name
-        self.enabled = enabled
-        self._stop = threading.Event()
-        self.thread = threading.Thread(target=self._run, name="flint-bridge", daemon=True)
-        self._core = NativeCore({
-            "host": host,
-            "address": address,
-            "port": port,
-            "name": name,
-            "enabled": enabled,
-            "runtime_version": platform.python_implementation() + " " + platform.python_version(),
-        })
-
-    def start(self):
+    def __init__(self, capabilities, host, address, port, name, enabled=True):
+        self.host = host
+        self._scheduler = capabilities.scheduler
         try:
-            self.thread.start()
+            self._core = NativeCore({
+                "host": host, "address": address, "port": port, "name": name, "enabled": enabled,
+                "runtime_version": platform.python_implementation() + " " + platform.python_version(),
+            }, capabilities)
         except BaseException:
-            self._core.close()
+            self._scheduler.close()
             raise
-        return self
+
+    @property
+    def address(self):
+        return self.status["settings"]["address"]
+
+    @property
+    def port(self):
+        return self.status["settings"]["port"]
+
+    @property
+    def name(self):
+        return self.status["settings"]["name"]
+
+    @property
+    def enabled(self):
+        return self.status["settings"]["enabled"]
 
     @property
     def instance_id(self):
@@ -55,19 +57,12 @@ class Bridge:
             time.sleep(0.02)
         return self.connected
 
-    def stop(self, timeout=5):
-        self._stop.set()
-        self.runner.close()
-        self._core.stop()
-        # Host code can call disconnect itself. Its completion still needs the
-        # poller, so do not join that thread while execution is outstanding.
-        if self.busy:
+    def stop(self):
+        """Release the Bridge once no started host code remains; False means retry later."""
+        if not self._core.stop():
             return False
-        if threading.current_thread() is not self.thread:
-            self.thread.join(timeout)
-        if self.thread.is_alive() or self.busy:
-            return False
-        self._core.close()
+        self._core.destroy()
+        self._scheduler.close()
         return True
 
     def _force_reconnect(self):
@@ -77,36 +72,4 @@ class Bridge:
         self._core.check_running()
 
     def apply_settings(self, address, port, name, enabled=True):
-        self._core.apply_settings({
-            "address": address, "port": port, "name": name, "enabled": enabled,
-        })
-        self.address, self.port, self.name, self.enabled = address, port, name, enabled
-
-    def _run(self):
-        active = None
-        while not self._stop.is_set() or active is not None:
-            if self._stop.is_set():
-                if active is not None:
-                    active.join(0.2)
-            else:
-                event = self._core.poll(100 if active is not None else 200)
-                if event is not None:
-                    if self._stop.is_set():
-                        self._reject_unstarted(event)
-                    elif active is None:
-                        active = ExecutionTask(self.runner, event)
-                        active.start()
-                    else:
-                        raise RuntimeError("Native core delivered overlapping executions")
-            if active is not None and active.drain(self._core.report_execution):
-                active = None
-        pending = self._core.poll(0)
-        if pending is not None:
-            self._reject_unstarted(pending)
-
-    def _reject_unstarted(self, event):
-        self._core.report_execution({
-            "kind": "result", "request_id": event["request_id"],
-            "succeeded": False, "traceback": None,
-            "error": "Bridge stopped before host execution",
-        })
+        self._core.apply_settings({"address": address, "port": port, "name": name, "enabled": enabled})

@@ -2,108 +2,94 @@ using System;
 using System.IO;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using Flint.Bridge;
 
 namespace Flint.Unity
 {
-    internal sealed class UnityExecution : IExecutionAdapter
+    internal sealed class UnityExecution : IExecutor
     {
-        private readonly AsyncLocal<string> logScope = new AsyncLocal<string>();
-        private bool disposed;
+        private readonly AsyncLocal<object> logScope = new AsyncLocal<object>();
 
-        public void Execute(ExecutionRequest request, Action<ExecutionReport> report)
+        /// <summary>A built assembly and the temporary files the Bridge disposes after use.</summary>
+        private sealed class Program : IDisposable
         {
-            if (disposed) return;
+            internal string Folder, Assembly, ClassName;
+            internal Action Unsubscribe;
+            public void Dispose()
+            {
+                Unsubscribe?.Invoke();
+                if (Directory.Exists(Folder)) Directory.Delete(Folder, true);
+            }
+        }
+
+        public Task<object> Prepare(ExecutionRequest request)
+        {
+            var completion = new TaskCompletionSource<object>();
+            Build(request, completion);
+            return completion.Task;
+        }
+
+        // The compiler may be busy; retry from the Editor loop until a build starts.
+        private void Build(ExecutionRequest request, TaskCompletionSource<object> completion)
+        {
             if ((bool)ReflectionApi.Get(UnityRuntime.Editor, "isCompiling"))
             {
-                UnityRuntime.Callbacks.Post(() => Execute(request, report));
+                UnityRuntime.Callbacks.Post(() => Build(request, completion));
                 return;
             }
-            var directory = Path.Combine(Path.GetDirectoryName((string)ReflectionApi.Get(UnityRuntime.Application, "dataPath")), "Temp", "Flint");
-            var className = "FlintExecution_" + Guid.NewGuid().ToString("N");
-            var source = ManagedExecution.WriteCsharpMethod(directory, className, request.Code ?? "",
-                "using System; using UnityEngine; using UnityEditor;");
-            var assembly = Path.Combine(directory, className + ".dll");
-            var builder = Activator.CreateInstance(UnityRuntime.Builder, assembly, new[] { source });
-            Action unsubscribe = null;
-            unsubscribe = ReflectionApi.Subscribe(UnityRuntime.Builder, builder, "buildFinished", arguments =>
+            var program = new Program
             {
-                try
-                {
-                    if (disposed) return;
+                Folder = Path.Combine(Path.GetDirectoryName((string)ReflectionApi.Get(UnityRuntime.Application, "dataPath")),
+                    "Temp", "Flint", Guid.NewGuid().ToString("N")),
+                ClassName = "FlintExecution_" + Guid.NewGuid().ToString("N"),
+            };
+            try
+            {
+                var source = CsharpSource.WriteMethod(program.Folder, program.ClassName, request.Code ?? "",
+                    "using System; using UnityEngine; using UnityEditor;");
+                var builder = Activator.CreateInstance(UnityRuntime.Builder,
+                    Path.Combine(program.Folder, program.ClassName + ".dll"), new[] { source });
+                program.Unsubscribe = ReflectionApi.Subscribe(UnityRuntime.Builder, builder, "buildFinished", arguments => {
                     var errors = new StringBuilder();
                     foreach (var message in (Array)arguments[1])
                         if (ReflectionApi.Member(message, "type").ToString() == "Error")
-                            errors.AppendLine(ReflectionApi.Member(message, "file") + ":" +
-                                ReflectionApi.Member(message, "line") + ": " + ReflectionApi.Member(message, "message"));
+                            errors.AppendLine(ReflectionApi.Member(message, "file") + ":" + ReflectionApi.Member(message, "line") +
+                                ": " + ReflectionApi.Member(message, "message"));
                     if (errors.Length != 0)
-                        Finish(request, report, false, errors.ToString(), "compile_error");
-                    else
-                        Run(request, report, (string)arguments[0], className);
-                }
-                catch (Exception error) { Finish(request, report, false, error.ToString(), "execution_error"); }
-                finally
-                {
-                    unsubscribe();
-                    File.Delete(source);
-                    File.Delete(assembly);
-                    File.Delete(Path.ChangeExtension(assembly, ".pdb"));
-                }
-            });
-            try
-            {
+                    {
+                        program.Dispose();
+                        completion.TrySetException(new InvalidOperationException(errors.ToString()));
+                        return;
+                    }
+                    program.Assembly = (string)arguments[0];
+                    completion.TrySetResult(program);
+                });
                 if (!(bool)UnityRuntime.Builder.GetMethod("Build").Invoke(builder, null))
                 {
-                    unsubscribe();
-                    File.Delete(source);
-                    UnityRuntime.Callbacks.Post(() => Execute(request, report));
+                    program.Dispose();
+                    UnityRuntime.Callbacks.Post(() => Build(request, completion));
                 }
             }
             catch (Exception error)
             {
-                unsubscribe();
-                File.Delete(source);
-                Finish(request, report, false, error.ToString(), "compile_error");
+                program.Dispose();
+                completion.TrySetException(error);
             }
         }
 
-        private void Run(ExecutionRequest request, Action<ExecutionReport> report, string path, string className)
+        public Task Run(object prepared, TextWriter stdout, TextWriter stderr)
         {
-            var stdout = new StringBuilder();
-            var stderr = new StringBuilder();
-            var outputLock = new object();
-            var unsubscribe = ReflectionApi.Subscribe(UnityRuntime.Application, null, "logMessageReceivedThreaded", arguments =>
-            {
-                if (logScope.Value != request.RequestId) return;
+            var program = (Program)prepared;
+            var scope = new object();
+            var unsubscribe = ReflectionApi.Subscribe(UnityRuntime.Application, null, "logMessageReceivedThreaded", arguments => {
+                if (logScope.Value != scope) return;
                 var type = arguments[2].ToString();
-                lock (outputLock)
-                    (type == "Error" || type == "Exception" || type == "Assert" ? stderr : stdout).AppendLine((string)arguments[0]);
+                (type == "Error" || type == "Exception" || type == "Assert" ? stderr : stdout).WriteLine((string)arguments[0]);
             });
-            Exception failure = null;
-            try
-            {
-                logScope.Value = request.RequestId;
-                ManagedExecution.Invoke(path, className);
-            }
-            catch (Exception error) { failure = error; }
-            finally
-            {
-                logScope.Value = null;
-                unsubscribe();
-            }
-            lock (outputLock)
-                report(new ExecutionReport { Kind = "output", RequestId = request.RequestId,
-                    Stdout = stdout.ToString(), Stderr = stderr.ToString() });
-            Finish(request, report, failure == null, failure?.ToString(), failure == null ? null : "execution_error");
+            try { logScope.Value = scope; ManagedAssembly.Invoke(program.Assembly, program.ClassName); }
+            finally { logScope.Value = null; unsubscribe(); }
+            return Task.CompletedTask;
         }
-
-        private static void Finish(ExecutionRequest request, Action<ExecutionReport> report,
-            bool succeeded, string traceback, string error)
-        {
-            report(new ExecutionReport { Kind = "result", RequestId = request.RequestId,
-                Succeeded = succeeded, Traceback = traceback, Error = error });
-        }
-
-        public void Dispose() { disposed = true; }
     }
 }

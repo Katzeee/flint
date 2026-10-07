@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Callable
 
-from ..execution.runner import CodeRunner
+from ..execution.capabilities import ExecutionCapabilities
 from .bridge import Bridge
 
 _SERVICE = "_flint_bridge_service"
@@ -18,11 +18,11 @@ class BridgeManager:
     """Manage a fixed host's Bridge; construction does not start a connection."""
 
     host: str
-    create_runner: Callable[[], CodeRunner]
+    create_execution: Callable[[], ExecutionCapabilities]
     dispatch_initialization: Callable[[Callable[[], None]], None]
 
     def connect(self, address="127.0.0.1", port=6321, name=None, enabled=True):
-        """Reuse a matching Bridge or create one with this host's execution runner."""
+        """Reuse a matching Bridge or bind this host's execution capabilities."""
         lock = sys.__dict__.setdefault(_LOCK, threading.RLock())
         with lock:
             current = getattr(sys, _SERVICE, None)
@@ -30,20 +30,9 @@ class BridgeManager:
                 current.check_running()
                 if (current.host, current.address, current.port) != (self.host, address, port):
                     raise RuntimeError("Disconnect the existing bridge before changing its endpoint or host")
-                if current.thread.is_alive():
-                    return current
-                if current.busy:
-                    raise RuntimeError("Previous host execution is still active")
-                if not current.stop():
-                    raise RuntimeError("Previous Bridge has not finished stopping")
-                delattr(sys, _SERVICE)
-            runner = self.create_runner()
-            try:
-                bridge = Bridge(runner, self.host, address, port, self.host if name is None else name, enabled)
-                bridge.start()
-            except BaseException:
-                runner.close()
-                raise
+                return current
+            capabilities = self.create_execution()
+            bridge = Bridge(capabilities, self.host, address, port, self.host if name is None else name, enabled)
             setattr(sys, _SERVICE, bridge)
             return bridge
 

@@ -1,13 +1,13 @@
 use crate::{
     claim::{self, ClaimOutcome, ClaimOwner},
     connection,
-    execution::{ExecuteEvent, ExecutionReport, Outbound},
+    host::{Host, OwnedHost},
     settings::{ApplyResult, BridgeOptions, BridgeSettings, SettingsSnapshot},
-    state::State,
+    state::BridgeState,
 };
 use std::{
     io,
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
@@ -46,9 +46,9 @@ impl CreationError {
 }
 
 pub struct BridgeCore {
-    state: Arc<Mutex<State>>,
-    events_rx: Mutex<mpsc::Receiver<ExecuteEvent>>,
-    outbound_tx: async_mpsc::UnboundedSender<Outbound>,
+    bridge_state: Arc<Mutex<BridgeState>>,
+    host: Arc<Host>,
+    dispatcher: Mutex<Option<thread::JoinHandle<()>>>,
     shutdown: CancellationToken,
     reconnect_notify: Arc<Notify>,
     settings_tx: watch::Sender<Arc<SettingsSnapshot>>,
@@ -57,17 +57,22 @@ pub struct BridgeCore {
 }
 
 impl BridgeCore {
-    pub(crate) fn new(options: BridgeOptions) -> Result<Self, CreationError> {
-        Self::start(options, claim::acquire)
+    pub(crate) fn new(options: BridgeOptions, host: OwnedHost) -> Result<Self, CreationError> {
+        Self::start(options, host, claim::acquire)
     }
 
     #[cfg(test)]
-    pub(crate) fn new_for_test(options: BridgeOptions, scope: &str) -> Result<Self, CreationError> {
-        Self::start(options, |owner| claim::acquire_for_test(scope, owner))
+    pub(crate) fn new_for_test(
+        options: BridgeOptions,
+        host: OwnedHost,
+        scope: &str,
+    ) -> Result<Self, CreationError> {
+        Self::start(options, host, |owner| claim::acquire_for_test(scope, owner))
     }
 
     fn start(
         options: BridgeOptions,
+        host: OwnedHost,
         acquire: impl FnOnce(&ClaimOwner) -> io::Result<ClaimOutcome>,
     ) -> Result<Self, CreationError> {
         let (identity, settings) = options
@@ -92,10 +97,11 @@ impl BridgeCore {
             revision: 0,
             settings,
         });
-        let state = Arc::new(Mutex::new(State::new(settings.clone())));
+        let state = Arc::new(Mutex::new(BridgeState::new(settings.clone())));
         let (settings_tx, settings_rx) = watch::channel(settings);
-        let (events_tx, events_rx) = mpsc::channel();
         let (outbound_tx, outbound_rx) = async_mpsc::unbounded_channel();
+        let (host, schedule, dispatcher) =
+            Host::start(host, state.clone(), outbound_tx.clone()).map_err(CreationError::System)?;
         let shutdown = CancellationToken::new();
         let reconnect_notify = Arc::new(Notify::new());
         let thread_state = state.clone();
@@ -108,23 +114,42 @@ impl BridgeCore {
                     .enable_all()
                     .build()
                     .expect("Tokio runtime");
-                runtime.block_on(connection::run(
-                    identity,
-                    settings_rx,
-                    thread_state,
-                    events_tx,
-                    outbound_rx,
-                    thread_shutdown,
-                    thread_reconnect_notify,
-                ));
-            })
-            .map_err(|error| {
-                CreationError::System(format!("Cannot start the Bridge thread: {error}"))
-            })?;
+                let flush_state = thread_state.clone();
+                runtime.block_on(async {
+                    tokio::select! {
+                        _ = async {
+                            let mut timer = tokio::time::interval(Duration::from_millis(20));
+                            loop {
+                                timer.tick().await;
+                                flush_state.lock().unwrap().flush_output(&outbound_tx);
+                            }
+                        } => {},
+                        _ = connection::run(
+                            identity,
+                            settings_rx,
+                            thread_state,
+                            schedule,
+                            outbound_rx,
+                            thread_shutdown,
+                            thread_reconnect_notify,
+                        ) => {},
+                    }
+                });
+            });
+        let thread = match thread {
+            Ok(thread) => thread,
+            Err(error) => {
+                host.revoke();
+                let _ = dispatcher.join();
+                return Err(CreationError::System(format!(
+                    "Cannot start the Bridge thread: {error}"
+                )));
+            }
+        };
         Ok(Self {
-            state,
-            events_rx: Mutex::new(events_rx),
-            outbound_tx,
+            bridge_state: state,
+            host,
+            dispatcher: Mutex::new(Some(dispatcher)),
             shutdown,
             reconnect_notify,
             settings_tx,
@@ -134,62 +159,61 @@ impl BridgeCore {
     }
 
     pub(crate) fn apply_settings(&self, settings: BridgeSettings) -> ApplyResult {
-        self.state
+        self.bridge_state
             .lock()
             .unwrap()
             .apply_settings(settings, &self.settings_tx)
     }
 
     pub(crate) fn reconnect(&self) -> bool {
-        if !self.state.lock().unwrap().reconnect() {
+        if !self.bridge_state.lock().unwrap().reconnect() {
             return false;
         }
         self.reconnect_notify.notify_one();
         true
     }
 
-    pub(crate) fn report_execution(&self, report: ExecutionReport) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .report_execution(report, &self.outbound_tx)
-    }
-
-    pub(crate) fn poll(&self, timeout: Duration) -> Option<ExecuteEvent> {
-        self.events_rx.lock().unwrap().recv_timeout(timeout).ok()
-    }
-
     pub(crate) fn connected(&self) -> bool {
-        self.state.lock().unwrap().connected()
+        self.bridge_state.lock().unwrap().connected()
     }
 
     pub(crate) fn busy(&self) -> bool {
-        self.state.lock().unwrap().busy()
+        self.bridge_state.lock().unwrap().busy()
     }
 
     pub(crate) fn stopped(&self) -> bool {
-        self.state.lock().unwrap().stopped()
+        self.bridge_state.lock().unwrap().stopped()
     }
 
     pub(crate) fn instance_id(&self) -> String {
-        self.state.lock().unwrap().instance_id().to_owned()
+        self.bridge_state.lock().unwrap().instance_id().to_owned()
     }
 
     pub(crate) fn status_json(&self) -> String {
-        serde_json::to_string(&self.state.lock().unwrap().status()).unwrap()
+        serde_json::to_string(&self.bridge_state.lock().unwrap().status()).unwrap()
     }
 
-    pub(crate) fn stop(&self) {
-        self.state.lock().unwrap().stop();
+    /// Ends the connection and cancels code that has not started. Returns whether
+    /// host code is no longer active, so destruction cannot outrun it.
+    pub(crate) fn stop(&self) -> bool {
+        self.bridge_state.lock().unwrap().stop();
         self.shutdown.cancel();
         if let Some(thread) = self.thread.lock().unwrap().take() {
             let _ = thread.join();
         }
+        self.host.cancel_unstarted();
+        !self.busy()
     }
 }
 
 impl Drop for BridgeCore {
     fn drop(&mut self) {
         self.stop();
+        self.host.revoke();
+        if let Some(dispatcher) = self.dispatcher.lock().unwrap().take() {
+            if dispatcher.thread().id() != thread::current().id() {
+                let _ = dispatcher.join();
+            }
+        }
     }
 }

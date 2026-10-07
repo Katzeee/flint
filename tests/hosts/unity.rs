@@ -16,13 +16,18 @@ pub fn verify_execution(app: &App, id: &str) -> Result<()> {
         "throw new InvalidOperationException(\"UNITY_EXPECTED_FAILURE\");",
     )?;
     assert_eq!(failure["status"], "failed", "{failure:?}");
+    assert_eq!(failure["error"], "execution_failed", "{failure:?}");
     assert!(failure["traceback"]
         .as_str()
         .unwrap()
         .contains("UNITY_EXPECTED_FAILURE"));
     let syntax = unity_execution(app, id, &workflow, "this is not valid C#;")?;
     assert_eq!(syntax["status"], "failed", "{syntax:?}");
-    assert_eq!(syntax["error"], "compile_error");
+    assert_eq!(syntax["error"], "preparation_failed", "{syntax:?}");
+    assert!(
+        syntax["traceback"].as_str().unwrap().contains("error CS"),
+        "{syntax:?}"
+    );
     Ok(())
 }
 

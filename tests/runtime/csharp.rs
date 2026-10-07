@@ -114,6 +114,27 @@ fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
         Ok(detail["status"] == "succeeded")
     })?;
     assert_eq!(detail["stdout"], "CSHARP_ZIP_OK\n");
+    let execution = app.execute(
+        instance["instance_id"].as_str().unwrap(),
+        &workflow,
+        "async",
+        0,
+    )?;
+    wait_until(Duration::from_secs(10), || {
+        detail = app.details(&workflow, &execution, 0)?;
+        Ok(detail["stdout"] == "BEGIN\0🙂\n")
+    })?;
+    assert_eq!(detail["status"], "running");
+    let release = PathBuf::from(format!("{}.release", stop.display()));
+    let cleaned = PathBuf::from(format!("{}.cleaned", release.display()));
+    assert!(!cleaned.exists());
+    fs::write(&release, b"release")?;
+    wait_until(Duration::from_secs(10), || {
+        detail = app.details(&workflow, &execution, 0)?;
+        Ok(detail["status"] == "succeeded")
+    })?;
+    assert_eq!(detail["stderr"], "异步完成\n");
+    assert!(cleaned.exists());
     fs::write(stop, b"stop")?;
     Ok(())
 }

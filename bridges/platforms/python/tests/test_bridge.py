@@ -1,47 +1,48 @@
-import threading
-from types import SimpleNamespace
-
+import pytest
 from flint_bridge.connection import bridge as bridge_module
+from flint_bridge.execution.capabilities import ExecutionCapabilities
 
 
-def test_stop_during_poll_rejects_undispatched_work_and_releases_resources(monkeypatch):
-    polling, stopped = threading.Event(), threading.Event()
-    reports, released, executed = [], [], []
+class Scheduler:
+    closed = False
 
+    def close(self):
+        self.closed = True
+
+
+def core(stopped):
     class Core:
-        busy = False
+        destroyed = False
 
-        def __init__(self, config):
+        def __init__(self, config, capabilities):
             pass
 
-        def poll(self, timeout):
-            if timeout:
-                polling.set()
-                assert stopped.wait(3)
-                return {"request_id": "pending"}
-            return None
-
         def stop(self):
-            stopped.set()
+            return stopped
 
-        def report_execution(self, report):
-            reports.append(report)
+        def destroy(self):
+            Core.destroyed = True
 
-        def close(self):
-            released.append("core")
+    return Core
 
+
+def test_failed_creation_closes_the_scheduler(monkeypatch):
+    class Failing:
+        def __init__(self, config, capabilities):
+            raise RuntimeError("creation failed")
+
+    monkeypatch.setattr(bridge_module, "NativeCore", Failing)
+    scheduler = Scheduler()
+    with pytest.raises(RuntimeError, match="creation failed"):
+        bridge_module.Bridge(ExecutionCapabilities(object(), scheduler), "test", "127.0.0.1", 6321, "test")
+    assert scheduler.closed
+
+
+@pytest.mark.parametrize("idle", [False, True])
+def test_resources_are_released_only_after_host_code_finishes(monkeypatch, idle):
+    Core = core(idle)
     monkeypatch.setattr(bridge_module, "NativeCore", Core)
-    runner = SimpleNamespace(close=lambda: released.append("runner"),
-                             execute=lambda *args: executed.append(args))
-    bridge = bridge_module.Bridge(runner, "test-host", "127.0.0.1", 6321, "test")
-    bridge.start()
-    try:
-        assert polling.wait(3)
-    finally:
-        finished = bridge.stop()
-    assert finished
-    assert executed == []
-    assert sorted(released) == ["core", "runner"]
-    assert len(reports) == 1
-    assert reports[0]["request_id"] == "pending"
-    assert reports[0]["succeeded"] is False
+    scheduler = Scheduler()
+    bridge = bridge_module.Bridge(ExecutionCapabilities(object(), scheduler), "test", "127.0.0.1", 6321, "test")
+    assert bridge.stop() is idle
+    assert Core.destroyed is idle and scheduler.closed is idle
