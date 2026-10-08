@@ -37,15 +37,6 @@ pub(crate) enum Stage {
     Running,
 }
 
-impl Stage {
-    pub(crate) fn accepts(self, step: Stage) -> bool {
-        matches!(
-            (self, step),
-            (Self::Preparing | Self::Awaiting, Self::Preparing) | (Self::Running, Self::Running)
-        )
-    }
-}
-
 pub(crate) struct Failure {
     pub(crate) traceback: Option<String>,
     pub(crate) error: Option<String>,
@@ -64,23 +55,18 @@ pub(crate) struct Execution {
     pub(crate) id: u64,
     pub(crate) request: ExecutionRequest,
     pub(crate) stage: Stage,
-    generation: u64,
+    outbound: async_mpsc::UnboundedSender<Envelope>,
     sequence: u64,
     stdout: String,
     stderr: String,
 }
 
-pub(crate) struct Outbound {
-    pub(crate) generation: u64,
-    pub(crate) envelope: Envelope,
-}
-
 impl Execution {
     pub(crate) fn new(
         id: u64,
-        generation: u64,
         request_id: String,
         request: HostExecuteRequest,
+        outbound: async_mpsc::UnboundedSender<Envelope>,
     ) -> Self {
         Self {
             id,
@@ -92,7 +78,7 @@ impl Execution {
                 filename: request.filename,
             },
             stage: Stage::Scheduled,
-            generation,
+            outbound,
             sequence: 0,
             stdout: String::new(),
             stderr: String::new(),
@@ -109,16 +95,11 @@ impl BridgeState {
 
     /// Reports the terminal result after any buffered output. A failure without
     /// its own error is classified by the stage that failed.
-    pub(crate) fn finish_execution(
-        &mut self,
-        id: u64,
-        result: Result<(), Failure>,
-        outbound: &async_mpsc::UnboundedSender<Outbound>,
-    ) -> bool {
+    pub(crate) fn finish_execution(&mut self, id: u64, result: Result<(), Failure>) -> bool {
         let Some(stage) = self.execution_mut(id).map(|execution| execution.stage) else {
             return false;
         };
-        self.flush_output(outbound);
+        self.flush_output();
         let execution = self.execution.take().unwrap();
         let (status, traceback, error) = match result {
             Ok(()) => (ExecutionStatus::Succeeded, None, None),
@@ -137,30 +118,22 @@ impl BridgeState {
                 }),
             ),
         };
-        outbound
-            .send(Outbound {
-                generation: execution.generation,
-                envelope: envelope(
-                    execution.request.request_id,
-                    Payload::ExecutionResult(ExecutionResult {
-                        execution_id: execution.request.execution_id,
-                        status: status as i32,
-                        traceback,
-                        error,
-                    }),
-                ),
-            })
+        execution
+            .outbound
+            .send(envelope(
+                execution.request.request_id,
+                Payload::ExecutionResult(ExecutionResult {
+                    execution_id: execution.request.execution_id,
+                    status: status as i32,
+                    traceback,
+                    error,
+                }),
+            ))
             .is_ok()
     }
 
     /// Small writes are combined here; the network runtime flushes them on its own schedule.
-    pub(crate) fn buffer_output(
-        &mut self,
-        id: u64,
-        stdout: &str,
-        stderr: &str,
-        outbound: &async_mpsc::UnboundedSender<Outbound>,
-    ) -> bool {
+    pub(crate) fn buffer_output(&mut self, id: u64, stdout: &str, stderr: &str) -> bool {
         if self.execution_mut(id).is_none() {
             return false;
         }
@@ -180,14 +153,14 @@ impl BridgeState {
                 buffer.push_str(&text[..end]);
                 text = &text[end..];
                 if end == 0 || execution.stdout.len() + execution.stderr.len() == OUTPUT_LIMIT {
-                    self.flush_output(outbound);
+                    self.flush_output();
                 }
             }
         }
         true
     }
 
-    pub(crate) fn flush_output(&mut self, outbound: &async_mpsc::UnboundedSender<Outbound>) {
+    pub(crate) fn flush_output(&mut self) {
         let Some(execution) = self.execution.as_mut() else {
             return;
         };
@@ -195,29 +168,26 @@ impl BridgeState {
             return;
         }
         execution.sequence += 1;
-        let _ = outbound.send(Outbound {
-            generation: execution.generation,
-            envelope: envelope(
-                execution.request.request_id.clone(),
-                Payload::ExecutionOutputUpdate(ExecutionOutputUpdate {
-                    workflow_id: execution.request.workflow_id.clone(),
-                    execution_id: execution.request.execution_id.clone(),
-                    sequence: execution.sequence,
-                    stdout_delta: std::mem::take(&mut execution.stdout),
-                    stderr_delta: std::mem::take(&mut execution.stderr),
-                }),
-            ),
-        });
+        let _ = execution.outbound.send(envelope(
+            execution.request.request_id.clone(),
+            Payload::ExecutionOutputUpdate(ExecutionOutputUpdate {
+                workflow_id: execution.request.workflow_id.clone(),
+                execution_id: execution.request.execution_id.clone(),
+                sequence: execution.sequence,
+                stdout_delta: std::mem::take(&mut execution.stdout),
+                stderr_delta: std::mem::take(&mut execution.stderr),
+            }),
+        ));
     }
 }
 
 pub(crate) async fn run_execution(
     mut wire: Wire,
-    generation: u64,
     state: Arc<Mutex<BridgeState>>,
     schedule: mpsc::Sender<u64>,
-    outbound: &mut async_mpsc::UnboundedReceiver<Outbound>,
 ) -> Result<Infallible, String> {
+    // Each session owns its receiver; executions retain only this session's sender.
+    let (outbound_tx, mut outbound_rx) = async_mpsc::unbounded_channel();
     loop {
         tokio::select! {
             incoming = read_envelope(&mut wire) => {
@@ -227,7 +197,7 @@ pub(crate) async fn run_execution(
                 };
                 let execution_id = request.execution_id.clone();
                 let admitted = state.lock().unwrap().begin_execution(
-                    generation, message.request_id.clone(), request,
+                    message.request_id.clone(), request, outbound_tx.clone(),
                 );
                 if let Some(id) = admitted {
                     schedule.send(id)
@@ -241,13 +211,9 @@ pub(crate) async fn run_execution(
                     }))).await.map_err(|error| error.to_string())?;
                 }
             }
-            outgoing = outbound.recv() => {
+            outgoing = outbound_rx.recv() => {
                 let outgoing = outgoing.ok_or("outbound channel closed")?;
-                // Host code may finish after reconnecting. Its reports belong
-                // only to the connection that originally accepted the request.
-                if outgoing.generation == generation {
-                    wire.send(outgoing.envelope).await.map_err(|error| error.to_string())?;
-                }
+                wire.send(outgoing).await.map_err(|error| error.to_string())?;
             }
         }
     }

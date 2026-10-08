@@ -2,10 +2,10 @@ use crate::{
     execution::Execution,
     settings::{ApplyResult, BridgeSettings, SettingsSnapshot},
 };
-use flint_contracts::protocol::HostExecuteRequest;
+use flint_contracts::protocol::{Envelope, HostExecuteRequest};
 use serde::Serialize;
 use std::sync::Arc;
-use tokio::sync::watch;
+use tokio::sync::{mpsc::UnboundedSender, watch};
 
 /// What the Bridge connection is doing now. A failure exists only inside the
 /// state it explains, so leaving that state is what clears it.
@@ -48,8 +48,7 @@ pub(crate) struct StatusSnapshot<'a> {
 pub(crate) struct BridgeState {
     settings_snapshot: Arc<SettingsSnapshot>,
     connection: Connection,
-    generation: u64,
-    executions: u64,
+    last_execution_id: u64,
     pub(crate) execution: Option<Execution>,
 }
 
@@ -60,8 +59,7 @@ impl BridgeState {
         let mut state = Self {
             settings_snapshot,
             connection: Connection::Disabled,
-            generation: 0,
-            executions: 0,
+            last_execution_id: 0,
             execution: None,
         };
         state.reconnect();
@@ -141,16 +139,15 @@ impl BridgeState {
         &mut self,
         settings_snapshot: &SettingsSnapshot,
         instance_id: String,
-    ) -> Result<u64, String> {
+    ) -> Result<(), String> {
         if self.stopped() {
             return Err("bridge stopped during registration".into());
         }
         if self.settings_snapshot.revision != settings_snapshot.revision {
             return Err("bridge settings changed during registration".into());
         }
-        self.generation += 1;
         self.connection = Connection::Connected { instance_id };
-        Ok(self.generation)
+        Ok(())
     }
 
     /// A session without an obstacle ended on request and starts over.
@@ -173,21 +170,21 @@ impl BridgeState {
 
     pub(crate) fn begin_execution(
         &mut self,
-        generation: u64,
         request_id: String,
         request: HostExecuteRequest,
+        outbound: UnboundedSender<Envelope>,
     ) -> Option<u64> {
-        if !self.connected() || self.generation != generation || self.busy() {
+        if !self.connected() || self.busy() {
             return None;
         }
-        self.executions += 1;
+        self.last_execution_id += 1;
         self.execution = Some(Execution::new(
-            self.executions,
-            generation,
+            self.last_execution_id,
             request_id,
             request,
+            outbound,
         ));
-        Some(self.executions)
+        Some(self.last_execution_id)
     }
 }
 

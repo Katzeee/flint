@@ -1,4 +1,5 @@
 use super::*;
+use flint_contracts::protocol::envelope::Payload;
 use tokio::sync::mpsc;
 
 fn settings(name: &str, enabled: bool) -> BridgeSettings {
@@ -61,7 +62,11 @@ fn settings_change_rejects_a_registration_waiting_to_commit() {
             "{case}"
         );
         assert!(state
-            .begin_execution(0, "obsolete-request".into(), HostExecuteRequest::default())
+            .begin_execution(
+                "obsolete-request".into(),
+                HostExecuteRequest::default(),
+                mpsc::unbounded_channel().0
+            )
             .is_none());
         assert!(latest.borrow().settings == *replacement, "{case}");
         assert!(state.settings_snapshot.settings == *replacement, "{case}");
@@ -102,15 +107,21 @@ fn old_session_cleanup_cannot_overwrite_new_settings_or_registration() {
 }
 
 #[test]
-fn current_session_failure_clears_connection_but_preserves_host_execution() {
+fn current_session_failure_keeps_execution_but_does_not_reroute_its_reports() {
     let snapshot = initial();
     let mut state = BridgeState::new(snapshot.clone());
-    let generation = state
-        .complete_registration(&snapshot, "current".into())
+    state
+        .complete_registration(&snapshot, "old".into())
         .unwrap();
+    let (old_outbound, old_received) = mpsc::unbounded_channel();
     let id = state
-        .begin_execution(generation, "request".into(), HostExecuteRequest::default())
+        .begin_execution(
+            "old-request".into(),
+            HostExecuteRequest::default(),
+            old_outbound,
+        )
         .unwrap();
+    assert!(state.buffer_output(id, "buffered before disconnect", ""));
     state.finish_session(&snapshot, Some(lost("connection lost")));
     assert_eq!(
         state.connection,
@@ -119,10 +130,57 @@ fn current_session_failure_clears_connection_but_preserves_host_execution() {
         }
     );
     assert!(state.busy());
-    let (outbound, mut received) = mpsc::unbounded_channel();
-    assert!(state.finish_execution(id, Ok(()), &outbound));
+    drop(old_received);
+
+    state
+        .complete_registration(&snapshot, "new".into())
+        .unwrap();
+    let (new_outbound, mut new_received) = mpsc::unbounded_channel();
+    assert!(state
+        .begin_execution(
+            "overlap".into(),
+            HostExecuteRequest::default(),
+            new_outbound.clone()
+        )
+        .is_none());
+    assert!(state.buffer_output(id, "late output", ""));
+    assert!(
+        !state.finish_execution(id, Ok(())),
+        "the old receiver is closed"
+    );
     assert!(!state.busy());
-    assert_eq!(received.try_recv().unwrap().generation, generation);
+    assert!(matches!(
+        new_received.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+
+    let current = state
+        .begin_execution(
+            "new-request".into(),
+            HostExecuteRequest::default(),
+            new_outbound,
+        )
+        .unwrap();
+    assert_ne!(current, id);
+    assert!(!state.buffer_output(id, "obsolete output", ""));
+    assert!(!state.finish_execution(id, Ok(())));
+    assert!(state.busy());
+    assert!(state.buffer_output(current, "new output", ""));
+    assert!(state.finish_execution(current, Ok(())));
+    assert!(!state.busy());
+    let output = new_received.try_recv().unwrap();
+    assert_eq!(output.request_id, "new-request");
+    let Some(Payload::ExecutionOutputUpdate(output)) = output.payload else {
+        panic!("expected the new execution's output");
+    };
+    assert_eq!(output.stdout_delta, "new output");
+    let result = new_received.try_recv().unwrap();
+    assert_eq!(result.request_id, "new-request");
+    assert!(matches!(result.payload, Some(Payload::ExecutionResult(_))));
+    assert!(matches!(
+        new_received.try_recv(),
+        Err(mpsc::error::TryRecvError::Disconnected)
+    ));
 }
 
 #[test]
@@ -130,11 +188,16 @@ fn stop_is_terminal_even_when_registration_or_session_cleanup_arrives_late() {
     let snapshot = initial();
     let mut state = BridgeState::new(snapshot.clone());
     let (updates, _) = watch::channel(snapshot.clone());
-    let generation = state
+    state
         .complete_registration(&snapshot, "current".into())
         .unwrap();
+    let (outbound, _received) = mpsc::unbounded_channel();
     let active = state
-        .begin_execution(generation, "active".into(), HostExecuteRequest::default())
+        .begin_execution(
+            "active".into(),
+            HostExecuteRequest::default(),
+            outbound.clone(),
+        )
         .unwrap();
     state.stop();
     assert!(state.busy());
@@ -151,10 +214,9 @@ fn stop_is_terminal_even_when_registration_or_session_cleanup_arrives_late() {
     assert!(state.stopped());
     assert!(state.instance_id().is_empty());
     assert!(state
-        .begin_execution(generation, "new".into(), HostExecuteRequest::default())
+        .begin_execution("new".into(), HostExecuteRequest::default(), outbound)
         .is_none());
-    let (outbound, _) = mpsc::unbounded_channel();
-    state.finish_execution(active, Ok(()), &outbound);
+    state.finish_execution(active, Ok(()));
     assert!(!state.busy());
     assert!(state.stopped());
 }

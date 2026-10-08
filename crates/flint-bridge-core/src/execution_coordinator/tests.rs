@@ -5,10 +5,10 @@ use crate::{
     settings::{BridgeSettings, SettingsSnapshot},
 };
 use flint_contracts::protocol::{
-    envelope::Payload, ExecutionResult, ExecutionStatus, HostExecuteRequest,
+    envelope::Payload, Envelope, ExecutionResult, ExecutionStatus, HostExecuteRequest,
 };
 use std::{ptr, sync::atomic::Ordering, time::Duration};
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 const WAIT: Duration = Duration::from_secs(3);
 
@@ -18,7 +18,8 @@ struct Fixture {
     state: Arc<Mutex<BridgeState>>,
     schedule: Option<mpsc::Sender<u64>>,
     dispatcher: Option<JoinHandle<()>>,
-    outputs: UnboundedReceiver<Outbound>,
+    outbound: UnboundedSender<Envelope>,
+    outputs: UnboundedReceiver<Envelope>,
 }
 
 impl Fixture {
@@ -42,7 +43,6 @@ impl Fixture {
         let (execution_coordinator, schedule, dispatcher) = ExecutionCoordinator::start(
             OwnedExecutionBinding::new(fake.execution_binding()),
             state.clone(),
-            outbound,
         )
         .unwrap();
         Self {
@@ -51,6 +51,7 @@ impl Fixture {
             state,
             schedule: Some(schedule),
             dispatcher: Some(dispatcher),
+            outbound,
             outputs,
         }
     }
@@ -61,12 +62,12 @@ impl Fixture {
             .lock()
             .unwrap()
             .begin_execution(
-                1,
                 "request".into(),
                 HostExecuteRequest {
                     code: "code".into(),
                     ..Default::default()
                 },
+                self.outbound.clone(),
             )
             .unwrap();
         self.schedule.as_ref().unwrap().send(id).unwrap();
@@ -88,7 +89,7 @@ impl Fixture {
     fn messages(&mut self) -> Vec<Payload> {
         let mut messages = vec![];
         while let Ok(message) = self.outputs.try_recv() {
-            messages.push(message.envelope.payload.unwrap());
+            messages.push(message.payload.unwrap());
         }
         messages
     }
@@ -136,15 +137,8 @@ fn preparation_completion_runs_the_value_and_reports_ordered_output() {
             *f.fake.prepare.lock().unwrap() = Mode::Hold;
         }
         f.submit();
+        f.ticket();
         if asynchronous {
-            let deadline = std::time::Instant::now() + WAIT;
-            while f.fake.held().is_none() {
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "{case}: preparation did not start"
-                );
-                f.fake.run_ticket(Duration::from_millis(1));
-            }
             assert_eq!(f.fake.calls(), ["prepare"], "{case}");
             assert!(f.busy(), "{case}");
             let step = f.fake.take_held().unwrap() as usize;
@@ -154,15 +148,15 @@ fn preparation_completion_runs_the_value_and_reports_ordered_output() {
                 flint_step_succeed(step, result_id);
             });
             crate::tests::join_thread(completion, "asynchronous preparation", WAIT);
-        }
-        let deadline = std::time::Instant::now() + WAIT;
-        while f.busy() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "{case}: execution did not finish"
+            assert_eq!(
+                f.fake.calls(),
+                ["prepare"],
+                "completion must wait for the host thread"
             );
-            f.fake.run_ticket(Duration::from_millis(1));
+            assert!(f.busy());
+            f.ticket();
         }
+        assert!(!f.busy(), "{case}: run must finish within this ticket");
         assert_eq!(
             f.fake.calls(),
             ["prepare".to_string(), format!("run {result_id}")],

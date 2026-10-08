@@ -12,7 +12,7 @@ use std::{
     thread,
     time::Duration,
 };
-use tokio::sync::{mpsc as async_mpsc, watch, Notify};
+use tokio::sync::{watch, Notify};
 use tokio_util::sync::CancellationToken;
 
 /// Why no Bridge core was created. Each kind has a stable code in the C ABI.
@@ -105,9 +105,8 @@ impl BridgeCore {
         });
         let state = Arc::new(Mutex::new(BridgeState::new(settings.clone())));
         let (settings_tx, settings_rx) = watch::channel(settings);
-        let (outbound_tx, outbound_rx) = async_mpsc::unbounded_channel();
         let (execution_coordinator, schedule, dispatcher) =
-            ExecutionCoordinator::start(execution_binding, state.clone(), outbound_tx.clone())
+            ExecutionCoordinator::start(execution_binding, state.clone())
                 .map_err(CreationError::System)?;
         let shutdown = CancellationToken::new();
         let reconnect_notify = Arc::new(Notify::new());
@@ -128,7 +127,7 @@ impl BridgeCore {
                             let mut timer = tokio::time::interval(Duration::from_millis(20));
                             loop {
                                 timer.tick().await;
-                                flush_state.lock().unwrap().flush_output(&outbound_tx);
+                                flush_state.lock().unwrap().flush_output();
                             }
                         } => {},
                         _ = connection::run(
@@ -136,7 +135,6 @@ impl BridgeCore {
                             settings_rx,
                             thread_state,
                             schedule,
-                            outbound_rx,
                             thread_shutdown,
                             thread_reconnect_notify,
                         ) => {},

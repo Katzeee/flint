@@ -1,7 +1,7 @@
 //! Coordinates execution through the host execution binding, never calling it
 //! from the network thread.
 use crate::{
-    execution::{Failure, Outbound, Stage, DROPPED, STOPPED},
+    execution::{Failure, Stage, DROPPED, STOPPED},
     execution_binding::{ExecutionBinding, OwnedExecutionBinding},
     state::BridgeState,
 };
@@ -10,12 +10,10 @@ use std::{
     sync::{mpsc, Arc, Mutex},
     thread::{self, JoinHandle},
 };
-use tokio::sync::mpsc::UnboundedSender;
 
 pub(crate) struct ExecutionCoordinator {
     execution_binding: Mutex<Option<Arc<OwnedExecutionBinding>>>,
     state: Arc<Mutex<BridgeState>>,
-    outbound: UnboundedSender<Outbound>,
     schedule: Mutex<Option<mpsc::Sender<u64>>>,
 }
 
@@ -29,8 +27,6 @@ pub struct Ticket {
 pub struct Step {
     execution_coordinator: Arc<ExecutionCoordinator>,
     execution_id: u64,
-    /// Preparing or Running when this call starts; does not track later transitions.
-    stage: Stage,
 }
 
 enum Action {
@@ -45,13 +41,11 @@ impl ExecutionCoordinator {
     pub(crate) fn start(
         execution_binding: OwnedExecutionBinding,
         state: Arc<Mutex<BridgeState>>,
-        outbound: UnboundedSender<Outbound>,
     ) -> Result<(Arc<Self>, mpsc::Sender<u64>, JoinHandle<()>), String> {
         let (schedule, scheduled) = mpsc::channel();
         let execution_coordinator = Arc::new(Self {
             execution_binding: Mutex::new(Some(Arc::new(execution_binding))),
             state,
-            outbound,
             schedule: Mutex::new(Some(schedule.clone())),
         });
         let dispatch_execution_coordinator = execution_coordinator.clone();
@@ -117,7 +111,7 @@ impl ExecutionCoordinator {
                 Some(Stage::Prepared { result_id }) => Some(result_id),
                 _ => return,
             };
-            state.finish_execution(execution_id, Err(Failure::new(error)), &self.outbound);
+            state.finish_execution(execution_id, Err(Failure::new(error)));
             discard
         };
         if let Some(result_id) = discard {
@@ -140,11 +134,10 @@ impl ExecutionCoordinator {
         }
     }
 
-    fn step(self: &Arc<Self>, execution_id: u64, stage: Stage) -> *mut Step {
+    fn step(self: &Arc<Self>, execution_id: u64) -> *mut Step {
         Box::into_raw(Box::new(Step {
             execution_coordinator: self.clone(),
             execution_id,
-            stage,
         }))
     }
 
@@ -176,7 +169,7 @@ impl ExecutionCoordinator {
             match action {
                 Action::Cancel => return self.cancel(execution_id, STOPPED),
                 Action::Prepare(request) => {
-                    let step = self.step(execution_id, Stage::Preparing);
+                    let step = self.step(execution_id);
                     let called = self.call(|execution_binding| unsafe {
                         (execution_binding.prepare)(
                             execution_binding.context,
@@ -186,11 +179,10 @@ impl ExecutionCoordinator {
                     });
                     if called.is_none() {
                         drop(unsafe { Box::from_raw(step) });
-                        self.state.lock().unwrap().finish_execution(
-                            execution_id,
-                            Err(Failure::new(STOPPED)),
-                            &self.outbound,
-                        );
+                        self.state
+                            .lock()
+                            .unwrap()
+                            .finish_execution(execution_id, Err(Failure::new(STOPPED)));
                         return;
                     }
                     let mut state = self.state.lock().unwrap();
@@ -206,17 +198,16 @@ impl ExecutionCoordinator {
                     }
                 }
                 Action::Run(result_id) => {
-                    let step = self.step(execution_id, Stage::Running);
+                    let step = self.step(execution_id);
                     let called = self.call(|execution_binding| unsafe {
                         (execution_binding.run)(execution_binding.context, result_id, step)
                     });
                     if called.is_none() {
                         drop(unsafe { Box::from_raw(step) });
-                        self.state.lock().unwrap().finish_execution(
-                            execution_id,
-                            Err(Failure::new(STOPPED)),
-                            &self.outbound,
-                        );
+                        self.state
+                            .lock()
+                            .unwrap()
+                            .finish_execution(execution_id, Err(Failure::new(STOPPED)));
                     }
                     return;
                 }
@@ -224,44 +215,28 @@ impl ExecutionCoordinator {
         }
     }
 
-    fn complete(&self, step: Step, outcome: Result<usize, Failure>) {
-        let (discard, schedule) = {
+    fn complete(&self, execution_id: u64, outcome: Result<usize, Failure>) {
+        let (stopped, resume) = {
             let mut state = self.state.lock().unwrap();
             let stopped = state.stopped();
-            let stage = state
-                .execution_mut(step.execution_id)
-                .map(|execution| execution.stage)
-                .filter(|stage| stage.accepts(step.stage));
-            match (stage, outcome) {
-                (Some(stage @ (Stage::Preparing | Stage::Awaiting)), Ok(result_id)) => {
-                    if stopped {
-                        state.finish_execution(
-                            step.execution_id,
-                            Err(Failure::new(STOPPED)),
-                            &self.outbound,
-                        );
-                        (Some(result_id), false)
-                    } else {
-                        state.execution_mut(step.execution_id).unwrap().stage =
-                            Stage::Prepared { result_id };
-                        (None, stage == Stage::Awaiting)
-                    }
+            let Some(execution) = state.execution_mut(execution_id) else {
+                return;
+            };
+            match (execution.stage, outcome) {
+                (stage @ (Stage::Preparing | Stage::Awaiting), Ok(result_id)) => {
+                    execution.stage = Stage::Prepared { result_id };
+                    (stopped, stage == Stage::Awaiting)
                 }
-                (None, Ok(result_id)) if step.stage == Stage::Preparing => (Some(result_id), false),
-                (Some(_), outcome) => {
-                    state.finish_execution(step.execution_id, outcome.map(|_| ()), &self.outbound);
-                    (None, false)
+                (_, outcome) => {
+                    state.finish_execution(execution_id, outcome.map(|_| ()));
+                    return;
                 }
-                (None, _) => (None, false),
             }
         };
-        if let Some(result_id) = discard {
-            self.call(|execution_binding| unsafe {
-                (execution_binding.discard)(execution_binding.context, result_id)
-            });
-        }
-        if schedule {
-            self.schedule(step.execution_id);
+        if stopped {
+            self.cancel(execution_id, STOPPED);
+        } else if resume {
+            self.schedule(execution_id);
         }
     }
 }
@@ -279,27 +254,21 @@ impl Ticket {
 
 impl Step {
     pub(crate) fn output(&self, stdout: &str, stderr: &str) -> bool {
-        let mut state = self.execution_coordinator.state.lock().unwrap();
-        let current = state
-            .execution_mut(self.execution_id)
-            .is_some_and(|execution| execution.stage.accepts(self.stage));
-        current
-            && state.buffer_output(
-                self.execution_id,
-                stdout,
-                stderr,
-                &self.execution_coordinator.outbound,
-            )
+        self.execution_coordinator
+            .state
+            .lock()
+            .unwrap()
+            .buffer_output(self.execution_id, stdout, stderr)
     }
 
     pub(crate) fn succeed(self, result_id: usize) {
-        let execution_coordinator = self.execution_coordinator.clone();
-        execution_coordinator.complete(self, Ok(result_id));
+        self.execution_coordinator
+            .complete(self.execution_id, Ok(result_id));
     }
 
     pub(crate) fn fail(self, traceback: Option<String>, error: Option<String>) {
-        let execution_coordinator = self.execution_coordinator.clone();
-        execution_coordinator.complete(self, Err(Failure { traceback, error }));
+        self.execution_coordinator
+            .complete(self.execution_id, Err(Failure { traceback, error }));
     }
 }
 
