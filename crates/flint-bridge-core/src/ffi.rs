@@ -2,7 +2,8 @@
 
 use crate::{
     core::CreationError,
-    host::{FlintHost, OwnedHost, Step, Ticket},
+    execution_binding::{ExecutionBinding, OwnedExecutionBinding},
+    execution_coordinator::{Step, Ticket},
     settings::{ApplyResult, BridgeOptions, BridgeSettings},
     BridgeCore,
 };
@@ -26,11 +27,11 @@ pub extern "C" fn flint_bridge_abi_version() -> u32 {
 
 /// Returns null on failure and sets `error_kind` to a nonzero
 /// [`CreationError`] code and `error_message` to its text. Either output may be
-/// null. The host registration is released on failure.
+/// null. The execution binding is released on failure.
 #[no_mangle]
 pub unsafe extern "C" fn flint_bridge_create(
     config_json: *const c_char,
-    host: *const FlintHost,
+    execution_binding: *const ExecutionBinding,
     error_kind: *mut u32,
     error_message: *mut *mut c_char,
 ) -> *mut BridgeCore {
@@ -41,9 +42,13 @@ pub unsafe extern "C" fn flint_bridge_create(
         *error_message = ptr::null_mut();
     }
     let result = (|| {
-        let Some(host) = host.as_ref().copied().map(OwnedHost::new) else {
+        let Some(execution_binding) = execution_binding
+            .as_ref()
+            .copied()
+            .map(OwnedExecutionBinding::new)
+        else {
             return Err(CreationError::InvalidConfiguration(
-                "the execution host is null".into(),
+                "the execution binding is null".into(),
             ));
         };
         if config_json.is_null() {
@@ -54,7 +59,7 @@ pub unsafe extern "C" fn flint_bridge_create(
         })?;
         let options = serde_json::from_str::<BridgeOptions>(text)
             .map_err(|error| CreationError::InvalidConfiguration(error.to_string()))?;
-        BridgeCore::new(options, host)
+        BridgeCore::new(options, execution_binding)
     })();
     match result {
         Ok(core) => Box::into_raw(Box::new(core)),
@@ -179,9 +184,9 @@ unsafe fn text<'a>(data: *const u8, len: usize) -> Option<&'a str> {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn flint_step_succeed(step: *mut Step, prepared: usize) {
+pub unsafe extern "C" fn flint_step_succeed(step: *mut Step, result_id: usize) {
     if !step.is_null() {
-        Box::from_raw(step).succeed(prepared);
+        Box::from_raw(step).succeed(result_id);
     }
 }
 

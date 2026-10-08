@@ -5,14 +5,16 @@ mod claim;
 mod connection;
 mod core;
 mod execution;
+mod execution_binding;
+mod execution_coordinator;
 mod ffi;
-mod host;
 mod settings;
 mod state;
 
 pub use core::BridgeCore;
+pub use execution_binding::ExecutionBinding;
+pub use execution_coordinator::{Step, Ticket};
 pub use ffi::*;
-pub use host::{FlintHost, Step, Ticket};
 
 #[cfg(test)]
 mod tests;

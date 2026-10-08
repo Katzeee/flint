@@ -25,29 +25,30 @@ typedef struct FlintStep FlintStep;
  * prepare and run each receive one step, to complete exactly once, before or
  * after returning and from any thread. Output is accepted until completion.
  * prepare receives the request JSON {"request_id","workflow_id","execution_id",
- * "code","filename"}, borrowed for the call, and succeeds with a prepared value
- * that the core passes to run or to discard; discard may run on any thread.
+ * "code","filename"}, borrowed for the call, and succeeds with an ID for its prepared
+ * result. The core passes this ID to run or to discard; discard may run on any thread.
  * A failure without an error is reported as preparation_failed or
  * execution_failed by the step that failed.
  *
  * release is called once, after the last running callback, when the core is
  * destroyed or creation fails. */
-typedef struct FlintHost {
+typedef struct FlintExecutionBinding {
     uintptr_t context;
     bool (*post)(uintptr_t context, FlintTicket *ticket);
     void (*prepare)(uintptr_t context, const char *request_json, FlintStep *step);
-    void (*run)(uintptr_t context, uintptr_t prepared, FlintStep *step);
-    void (*discard)(uintptr_t context, uintptr_t prepared);
+    void (*run)(uintptr_t context, uintptr_t result_id, FlintStep *step);
+    void (*discard)(uintptr_t context, uintptr_t result_id);
     void (*release)(uintptr_t context);
-} FlintHost;
+} FlintExecutionBinding;
 
 /* JSON text uses UTF-8. Returned strings must be released with
  * flint_bridge_string_free. */
 uint32_t flint_bridge_abi_version(void);
 /* Creation errors: 1 invalid configuration, 2 process claimed, 3 system failure.
  * Either output may be null. Free error_message with flint_bridge_string_free. */
-FlintBridgeCore *flint_bridge_create(const char *config_json, const FlintHost *host,
-                                     uint32_t *error_kind, char **error_message);
+FlintBridgeCore *flint_bridge_create(const char *config_json,
+                                    const FlintExecutionBinding *execution_binding,
+                                    uint32_t *error_kind, char **error_message);
 bool flint_bridge_connected(const FlintBridgeCore *core);
 bool flint_bridge_busy(const FlintBridgeCore *core);
 bool flint_bridge_stopped(const FlintBridgeCore *core);
@@ -72,7 +73,7 @@ void flint_ticket_drop(FlintTicket *ticket);
  * completion of the same step. */
 bool flint_step_output(const FlintStep *step, const uint8_t *stdout, size_t stdout_len,
                        const uint8_t *stderr, size_t stderr_len);
-void flint_step_succeed(FlintStep *step, uintptr_t prepared);
+void flint_step_succeed(FlintStep *step, uintptr_t result_id);
 void flint_step_fail(FlintStep *step, const char *traceback, const char *error);
 
 /* Creation options: {"host","address","port","name","runtime_version"}, with

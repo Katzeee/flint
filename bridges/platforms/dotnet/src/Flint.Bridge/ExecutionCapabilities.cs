@@ -6,13 +6,13 @@ namespace Flint.Bridge
 {
     /// <summary>
     /// Prepare turns a request into the value Run executes. Either Task may complete
-    /// later. A prepared value that is IDisposable is disposed after Run completes or
+    /// later. A prepared result that is IDisposable is disposed after Run completes or
     /// when the Bridge stops before running it.
     /// </summary>
     public interface IExecutor
     {
         Task<object> Prepare(ExecutionRequest request);
-        Task Run(object prepared, TextWriter stdout, TextWriter stderr);
+        Task Run(object preparedResult, TextWriter stdout, TextWriter stderr);
     }
 
     /// <summary>Runs callbacks on the host's execution thread; disposed after the Bridge is released.</summary>

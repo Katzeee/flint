@@ -11,8 +11,8 @@ class CodeExecutor:
     def prepare(self, request):
         return compile(request["code"], request.get("filename") or "<string>", "exec")
 
-    def run(self, prepared, out, err):
+    def run(self, prepared_result, out, err):
         stdout = ThreadScopedTextProxy(sys.stdout, out)
         stderr = ThreadScopedTextProxy(sys.stderr, err)
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            exec(prepared, self._ns, self._ns)
+            exec(prepared_result, self._ns, self._ns)

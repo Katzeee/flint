@@ -14,7 +14,7 @@ const WAIT: Duration = Duration::from_secs(3);
 
 struct Fixture {
     fake: Arc<Fake>,
-    host: Arc<Host>,
+    execution_coordinator: Arc<ExecutionCoordinator>,
     state: Arc<Mutex<BridgeState>>,
     schedule: Option<mpsc::Sender<u64>>,
     dispatcher: Option<JoinHandle<()>>,
@@ -39,11 +39,15 @@ impl Fixture {
         let state = Arc::new(Mutex::new(state));
         let (outbound, outputs) = tokio::sync::mpsc::unbounded_channel();
         let fake = Fake::new();
-        let (host, schedule, dispatcher) =
-            Host::start(OwnedHost::new(fake.callbacks()), state.clone(), outbound).unwrap();
+        let (execution_coordinator, schedule, dispatcher) = ExecutionCoordinator::start(
+            OwnedExecutionBinding::new(fake.execution_binding()),
+            state.clone(),
+            outbound,
+        )
+        .unwrap();
         Self {
             fake,
-            host,
+            execution_coordinator,
             state,
             schedule: Some(schedule),
             dispatcher: Some(dispatcher),
@@ -78,7 +82,7 @@ impl Fixture {
 
     fn stop(&self) {
         self.state.lock().unwrap().stop();
-        self.host.cancel_unstarted();
+        self.execution_coordinator.cancel_unstarted();
     }
 
     fn messages(&mut self) -> Vec<Payload> {
@@ -106,9 +110,13 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        self.host.revoke();
+        self.execution_coordinator.revoke();
         self.schedule.take();
-        crate::tests::join_thread(self.dispatcher.take().unwrap(), "host dispatcher", WAIT);
+        crate::tests::join_thread(
+            self.dispatcher.take().unwrap(),
+            "execution dispatcher",
+            WAIT,
+        );
     }
 }
 
@@ -119,7 +127,7 @@ fn failed(result: &ExecutionResult, error: &str) {
 
 #[test]
 fn preparation_completion_runs_the_value_and_reports_ordered_output() {
-    for (case, asynchronous, prepared, stdout) in [
+    for (case, asynchronous, result_id, stdout) in [
         ("synchronous", false, PREPARED, "prepared\nran\n"),
         ("asynchronous", true, 9, "preparing\nran\n"),
     ] {
@@ -143,7 +151,7 @@ fn preparation_completion_runs_the_value_and_reports_ordered_output() {
             let completion = thread::spawn(move || unsafe {
                 let step = step as *mut Step;
                 assert!(write(step, "preparing\n", ""));
-                flint_step_succeed(step, prepared);
+                flint_step_succeed(step, result_id);
             });
             crate::tests::join_thread(completion, "asynchronous preparation", WAIT);
         }
@@ -157,7 +165,7 @@ fn preparation_completion_runs_the_value_and_reports_ordered_output() {
         }
         assert_eq!(
             f.fake.calls(),
-            ["prepare".to_string(), format!("run {prepared}")],
+            ["prepare".to_string(), format!("run {result_id}")],
             "{case}"
         );
         assert_eq!(f.fake.take_request().unwrap()["code"], "code", "{case}");
@@ -272,10 +280,10 @@ fn output_is_bounded_ordered_and_flushed_before_the_result() {
 #[test]
 fn revocation_waits_for_the_running_callback_and_silences_later_work() {
     let mut f = Fixture::new();
-    let host = f.host.clone();
+    let execution_coordinator = f.execution_coordinator.clone();
     let fake = f.fake.clone();
     *f.fake.during_prepare.lock().unwrap() = Some(Box::new(move || {
-        host.revoke();
+        execution_coordinator.revoke();
         assert_eq!(fake.released.load(Ordering::SeqCst), 0);
     }));
     f.submit();
@@ -297,14 +305,14 @@ fn revocation_releases_only_after_every_concurrent_call_returns() {
     let (entered, entries) = mpsc::channel();
     let mut callers = vec![];
     for _ in 0..2 {
-        let host = f.host.clone();
+        let execution_coordinator = f.execution_coordinator.clone();
         let entered = entered.clone();
         let (resume, resumed) = mpsc::channel();
         let caller = thread::spawn(move || {
-            host.call(|callbacks| {
+            execution_coordinator.call(|execution_binding| {
                 entered.send(()).unwrap();
                 resumed.recv_timeout(WAIT).unwrap();
-                unsafe { (callbacks.discard)(callbacks.context, PREPARED) };
+                unsafe { (execution_binding.discard)(execution_binding.context, PREPARED) };
             })
         });
         callers.push((resume, caller));
@@ -313,9 +321,12 @@ fn revocation_releases_only_after_every_concurrent_call_returns() {
         entries.recv_timeout(WAIT).unwrap();
     }
 
-    f.host.revoke();
-    f.host.revoke();
-    assert!(f.host.call(|_| panic!("revoked call entered")).is_none());
+    f.execution_coordinator.revoke();
+    f.execution_coordinator.revoke();
+    assert!(f
+        .execution_coordinator
+        .call(|_| panic!("revoked call entered"))
+        .is_none());
     assert_eq!(f.fake.released.load(Ordering::SeqCst), 0);
 
     let (resume, caller) = callers.pop().unwrap();
@@ -331,7 +342,7 @@ fn revocation_releases_only_after_every_concurrent_call_returns() {
 }
 
 #[test]
-fn an_outstanding_step_does_not_retain_the_host_registration() {
+fn an_outstanding_step_does_not_retain_the_execution_binding() {
     let mut f = Fixture::new();
     *f.fake.run.lock().unwrap() = Mode::Hold;
     f.submit();
@@ -339,7 +350,7 @@ fn an_outstanding_step_does_not_retain_the_host_registration() {
     let step = f.fake.take_held().unwrap();
     assert!(f.busy());
 
-    f.host.revoke();
+    f.execution_coordinator.revoke();
     assert_eq!(f.fake.released.load(Ordering::SeqCst), 1);
     unsafe { flint_step_succeed(step, 0) };
     assert!(!f.busy());

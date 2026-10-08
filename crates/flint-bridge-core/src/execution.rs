@@ -31,7 +31,9 @@ pub(crate) enum Stage {
     Preparing,
     /// Preparation completion must schedule a new ticket to continue.
     Awaiting,
-    Prepared(usize),
+    Prepared {
+        result_id: usize,
+    },
     Running,
 }
 

@@ -1,9 +1,7 @@
 use super::*;
 use crate::claim::TestScope;
-use crate::host::{
-    fake::{write, Fake, Mode},
-    OwnedHost,
-};
+use crate::execution_binding::OwnedExecutionBinding;
+use crate::execution_coordinator::fake::{write, Fake, Mode};
 use crate::settings::ApplyResult;
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::{SinkExt, StreamExt};
@@ -53,9 +51,12 @@ impl Core {
         let fake = Fake::new();
         *fake.run.lock().unwrap() = Mode::Hold;
         let scope = TestScope::new();
-        let core =
-            BridgeCore::new_for_test(options, OwnedHost::new(fake.callbacks()), scope.name())
-                .unwrap();
+        let core = BridgeCore::new_for_test(
+            options,
+            OwnedExecutionBinding::new(fake.execution_binding()),
+            scope.name(),
+        )
+        .unwrap();
         Self {
             pointer: Box::into_raw(Box::new(core)),
             fake,

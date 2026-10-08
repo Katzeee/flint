@@ -12,14 +12,14 @@ def test_execution_does_not_capture_another_threads_output(monkeypatch):
     monkeypatch.setattr(sys, "stderr", original_err)
     ready, resume = threading.Event(), threading.Event()
     executor = CodeExecutor({"ready": ready, "resume": resume})
-    prepared = executor.prepare({"code":
+    prepared_result = executor.prepare({"code":
         "import sys\nready.set()\nassert resume.wait(3)\n"
         "print('execution output')\nprint('execution error', file=sys.stderr)"})
     failures = []
 
     def run():
         try:
-            executor.run(prepared, out, err)
+            executor.run(prepared_result, out, err)
         except BaseException as error:
             failures.append(error)
 

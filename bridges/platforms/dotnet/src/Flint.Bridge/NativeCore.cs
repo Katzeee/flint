@@ -57,7 +57,7 @@ namespace Flint.Bridge
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint AbiVersionFn();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate IntPtr CreateFn(IntPtr config, [In] ref ExecutionBinding.Host host, out uint errorKind, out IntPtr errorMessage);
+        private delegate IntPtr CreateFn(IntPtr config, [In] ref ExecutionBinding executionBinding, out uint errorKind, out IntPtr errorMessage);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         [return: MarshalAs(UnmanagedType.I1)]
         private delegate bool StatusFn(IntPtr handle);
@@ -111,11 +111,11 @@ namespace Flint.Bridge
                 _applySettings = Function<ApplySettingsFn>("flint_bridge_apply_settings");
                 _destroy = Function<HandleFn>("flint_bridge_destroy");
                 _stringFree = Function<StringFreeFn>("flint_bridge_string_free");
-                var host = new ExecutionBinding(this, capabilities).Callbacks;
+                var executionBinding = new ExecutionAdapter(this, capabilities).ExecutionBinding;
                 IntPtr config = Utf8(configJson);
                 uint errorKind;
                 IntPtr errorMessage;
-                try { _handle = _create(config, ref host, out errorKind, out errorMessage); }
+                try { _handle = _create(config, ref executionBinding, out errorKind, out errorMessage); }
                 finally { Marshal.FreeHGlobal(config); }
                 string message = TakeString(errorMessage);
                 if (_handle == IntPtr.Zero)

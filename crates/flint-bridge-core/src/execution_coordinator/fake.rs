@@ -1,5 +1,6 @@
 //! A host whose scheduling and completions each test controls.
-use super::{FlintHost, Step, Ticket};
+use super::{Step, Ticket};
+use crate::execution_binding::ExecutionBinding;
 use crate::ffi::{flint_step_fail, flint_step_output, flint_step_succeed, flint_ticket_run};
 use serde_json::Value;
 use std::{
@@ -50,8 +51,8 @@ impl Fake {
         })
     }
 
-    pub(crate) fn callbacks(self: &Arc<Self>) -> FlintHost {
-        FlintHost {
+    pub(crate) fn execution_binding(self: &Arc<Self>) -> ExecutionBinding {
+        ExecutionBinding {
             context: Arc::into_raw(self.clone()) as usize,
             post,
             prepare,
@@ -148,9 +149,9 @@ unsafe extern "C" fn prepare(context: usize, request: *const c_char, step: *mut 
     }
 }
 
-unsafe extern "C" fn run(context: usize, prepared: usize, step: *mut Step) {
+unsafe extern "C" fn run(context: usize, result_id: usize, step: *mut Step) {
     let fake = fake(context);
-    fake.calls.lock().unwrap().push(format!("run {prepared}"));
+    fake.calls.lock().unwrap().push(format!("run {result_id}"));
     write(step, "ran\n", "");
     let mode = *fake.run.lock().unwrap();
     match mode {
@@ -160,12 +161,12 @@ unsafe extern "C" fn run(context: usize, prepared: usize, step: *mut Step) {
     }
 }
 
-unsafe extern "C" fn discard(context: usize, prepared: usize) {
+unsafe extern "C" fn discard(context: usize, result_id: usize) {
     fake(context)
         .calls
         .lock()
         .unwrap()
-        .push(format!("discard {prepared}"));
+        .push(format!("discard {result_id}"));
 }
 
 unsafe extern "C" fn release(context: usize) {

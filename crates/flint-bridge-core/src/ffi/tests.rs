@@ -1,5 +1,5 @@
 use super::*;
-use crate::host::fake::Fake;
+use crate::execution_coordinator::fake::Fake;
 use serde_json::{json, Value};
 use std::sync::{atomic::Ordering, Arc};
 
@@ -14,11 +14,11 @@ type Failure = Option<(u32, String)>;
 
 unsafe fn creation_result(
     options: *const c_char,
-    host: *const FlintHost,
+    execution_binding: *const ExecutionBinding,
 ) -> (*mut BridgeCore, Failure) {
     let mut kind = u32::MAX;
     let mut error = ptr::null_mut();
-    let core = flint_bridge_create(options, host, &mut kind, &mut error);
+    let core = flint_bridge_create(options, execution_binding, &mut kind, &mut error);
     let failure = if error.is_null() {
         assert_eq!(kind, 0);
         None
@@ -32,7 +32,7 @@ unsafe fn creation_result(
 
 fn create(options: &str, fake: &Arc<Fake>) -> (*mut BridgeCore, Failure) {
     let options = CString::new(options).unwrap();
-    unsafe { creation_result(options.as_ptr(), &fake.callbacks()) }
+    unsafe { creation_result(options.as_ptr(), &fake.execution_binding()) }
 }
 
 #[test]
@@ -67,36 +67,37 @@ fn production_creation_enforces_the_process_claim_until_destruction() {
 }
 
 #[test]
-fn create_rejects_invalid_configuration_and_releases_the_host() {
+fn create_rejects_invalid_configuration_and_releases_the_execution_binding() {
     let fake = Fake::new();
     let mut released = 0;
     let mut assert_released = |case: &str| {
         released += 1;
         assert_eq!(fake.released.load(Ordering::SeqCst), released, "{case}");
     };
-    let (core, error) = unsafe { creation_result(ptr::null(), &fake.callbacks()) };
+    let (core, error) = unsafe { creation_result(ptr::null(), &fake.execution_binding()) };
     assert!(core.is_null());
     assert!(error.is_some_and(|(kind, message)| kind == 1 && !message.is_empty()));
     assert_released("null configuration");
     let (core, error) = unsafe { creation_result(c"{}".as_ptr(), ptr::null()) };
     assert!(core.is_null());
-    assert!(error.unwrap().1.contains("execution host is null"));
+    assert!(error.unwrap().1.contains("execution binding is null"));
     assert_eq!(
         fake.released.load(Ordering::SeqCst),
         1,
-        "null host has no registration to release"
+        "null execution binding has no registration to release"
     );
     assert!(unsafe {
         flint_bridge_create(
             ptr::null(),
-            &fake.callbacks(),
+            &fake.execution_binding(),
             ptr::null_mut(),
             ptr::null_mut(),
         )
     }
     .is_null());
     assert_released("null error outputs");
-    let (core, error) = unsafe { creation_result([255u8, 0].as_ptr().cast(), &fake.callbacks()) };
+    let (core, error) =
+        unsafe { creation_result([255u8, 0].as_ptr().cast(), &fake.execution_binding()) };
     assert!(core.is_null());
     assert!(error.unwrap().1.contains("not UTF-8"));
     assert_released("invalid UTF-8");

@@ -10,7 +10,7 @@ namespace Flint.Bridge.Tests
     internal sealed class IdleExecutor : IExecutor
     {
         public Task<object> Prepare(ExecutionRequest request) => throw new InvalidOperationException("Unexpected preparation");
-        public Task Run(object prepared, TextWriter stdout, TextWriter stderr) => throw new InvalidOperationException("Unexpected invocation");
+        public Task Run(object preparedResult, TextWriter stdout, TextWriter stderr) => throw new InvalidOperationException("Unexpected invocation");
     }
 
     [Collection("Native Bridge")]

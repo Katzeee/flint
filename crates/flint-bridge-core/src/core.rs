@@ -1,7 +1,8 @@
 use crate::{
     claim::{self, ClaimOutcome, ClaimOwner},
     connection,
-    host::{Host, OwnedHost},
+    execution_binding::OwnedExecutionBinding,
+    execution_coordinator::ExecutionCoordinator,
     settings::{ApplyResult, BridgeOptions, BridgeSettings, SettingsSnapshot},
     state::BridgeState,
 };
@@ -47,7 +48,7 @@ impl CreationError {
 
 pub struct BridgeCore {
     bridge_state: Arc<Mutex<BridgeState>>,
-    host: Arc<Host>,
+    execution_coordinator: Arc<ExecutionCoordinator>,
     dispatcher: Mutex<Option<thread::JoinHandle<()>>>,
     shutdown: CancellationToken,
     reconnect_notify: Arc<Notify>,
@@ -57,22 +58,27 @@ pub struct BridgeCore {
 }
 
 impl BridgeCore {
-    pub(crate) fn new(options: BridgeOptions, host: OwnedHost) -> Result<Self, CreationError> {
-        Self::start(options, host, claim::acquire)
+    pub(crate) fn new(
+        options: BridgeOptions,
+        execution_binding: OwnedExecutionBinding,
+    ) -> Result<Self, CreationError> {
+        Self::start(options, execution_binding, claim::acquire)
     }
 
     #[cfg(test)]
     pub(crate) fn new_for_test(
         options: BridgeOptions,
-        host: OwnedHost,
+        execution_binding: OwnedExecutionBinding,
         scope: &str,
     ) -> Result<Self, CreationError> {
-        Self::start(options, host, |owner| claim::acquire_for_test(scope, owner))
+        Self::start(options, execution_binding, |owner| {
+            claim::acquire_for_test(scope, owner)
+        })
     }
 
     fn start(
         options: BridgeOptions,
-        host: OwnedHost,
+        execution_binding: OwnedExecutionBinding,
         acquire: impl FnOnce(&ClaimOwner) -> io::Result<ClaimOutcome>,
     ) -> Result<Self, CreationError> {
         let (identity, settings) = options
@@ -100,8 +106,9 @@ impl BridgeCore {
         let state = Arc::new(Mutex::new(BridgeState::new(settings.clone())));
         let (settings_tx, settings_rx) = watch::channel(settings);
         let (outbound_tx, outbound_rx) = async_mpsc::unbounded_channel();
-        let (host, schedule, dispatcher) =
-            Host::start(host, state.clone(), outbound_tx.clone()).map_err(CreationError::System)?;
+        let (execution_coordinator, schedule, dispatcher) =
+            ExecutionCoordinator::start(execution_binding, state.clone(), outbound_tx.clone())
+                .map_err(CreationError::System)?;
         let shutdown = CancellationToken::new();
         let reconnect_notify = Arc::new(Notify::new());
         let thread_state = state.clone();
@@ -139,7 +146,7 @@ impl BridgeCore {
         let thread = match thread {
             Ok(thread) => thread,
             Err(error) => {
-                host.revoke();
+                execution_coordinator.revoke();
                 let _ = dispatcher.join();
                 return Err(CreationError::System(format!(
                     "Cannot start the Bridge thread: {error}"
@@ -148,7 +155,7 @@ impl BridgeCore {
         };
         Ok(Self {
             bridge_state: state,
-            host,
+            execution_coordinator,
             dispatcher: Mutex::new(Some(dispatcher)),
             shutdown,
             reconnect_notify,
@@ -201,7 +208,7 @@ impl BridgeCore {
         if let Some(thread) = self.thread.lock().unwrap().take() {
             let _ = thread.join();
         }
-        self.host.cancel_unstarted();
+        self.execution_coordinator.cancel_unstarted();
         !self.busy()
     }
 }
@@ -209,7 +216,7 @@ impl BridgeCore {
 impl Drop for BridgeCore {
     fn drop(&mut self) {
         self.stop();
-        self.host.revoke();
+        self.execution_coordinator.revoke();
         if let Some(dispatcher) = self.dispatcher.lock().unwrap().take() {
             if dispatcher.thread().id() != thread::current().id() {
                 let _ = dispatcher.join();

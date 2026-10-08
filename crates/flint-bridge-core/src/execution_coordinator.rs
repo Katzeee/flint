@@ -1,43 +1,19 @@
-//! The core's only calls into host code. None of them run on the network thread.
+//! Coordinates execution through the host execution binding, never calling it
+//! from the network thread.
 use crate::{
     execution::{Failure, Outbound, Stage, DROPPED, STOPPED},
+    execution_binding::{ExecutionBinding, OwnedExecutionBinding},
     state::BridgeState,
 };
 use std::{
-    ffi::{c_char, CString},
+    ffi::CString,
     sync::{mpsc, Arc, Mutex},
     thread::{self, JoinHandle},
 };
 use tokio::sync::mpsc::UnboundedSender;
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct FlintHost {
-    pub context: usize,
-    pub post: unsafe extern "C" fn(usize, *mut Ticket) -> bool,
-    pub prepare: unsafe extern "C" fn(usize, *const c_char, *mut Step),
-    pub run: unsafe extern "C" fn(usize, usize, *mut Step),
-    pub discard: unsafe extern "C" fn(usize, usize),
-    pub release: unsafe extern "C" fn(usize),
-}
-
-/// Owns the host registration and releases it when its last caller is done.
-pub(crate) struct OwnedHost(FlintHost);
-
-impl OwnedHost {
-    pub(crate) fn new(host: FlintHost) -> Self {
-        Self(host)
-    }
-}
-
-impl Drop for OwnedHost {
-    fn drop(&mut self) {
-        unsafe { (self.0.release)(self.0.context) }
-    }
-}
-
-pub(crate) struct Host {
-    callbacks: Mutex<Option<Arc<OwnedHost>>>,
+pub(crate) struct ExecutionCoordinator {
+    execution_binding: Mutex<Option<Arc<OwnedExecutionBinding>>>,
     state: Arc<Mutex<BridgeState>>,
     outbound: UnboundedSender<Outbound>,
     schedule: Mutex<Option<mpsc::Sender<u64>>>,
@@ -45,14 +21,14 @@ pub(crate) struct Host {
 
 /// A one-shot request to continue an execution on the host's thread.
 pub struct Ticket {
-    host: Arc<Host>,
-    execution: u64,
+    execution_coordinator: Arc<ExecutionCoordinator>,
+    execution_id: u64,
 }
 
 /// One completion owed by the host for a prepare or run call.
 pub struct Step {
-    host: Arc<Host>,
-    execution: u64,
+    execution_coordinator: Arc<ExecutionCoordinator>,
+    execution_id: u64,
     /// Preparing or Running when this call starts; does not track later transitions.
     stage: Stage,
 }
@@ -63,81 +39,91 @@ enum Action {
     Cancel,
 }
 
-impl Host {
-    /// Returns the host and the sender the network runtime uses to schedule
+impl ExecutionCoordinator {
+    /// Returns the execution coordinator and the sender the network runtime uses to schedule
     /// admitted executions. The dispatcher thread ends after both senders close.
     pub(crate) fn start(
-        host: OwnedHost,
+        execution_binding: OwnedExecutionBinding,
         state: Arc<Mutex<BridgeState>>,
         outbound: UnboundedSender<Outbound>,
     ) -> Result<(Arc<Self>, mpsc::Sender<u64>, JoinHandle<()>), String> {
         let (schedule, scheduled) = mpsc::channel();
-        let host = Arc::new(Self {
-            callbacks: Mutex::new(Some(Arc::new(host))),
+        let execution_coordinator = Arc::new(Self {
+            execution_binding: Mutex::new(Some(Arc::new(execution_binding))),
             state,
             outbound,
             schedule: Mutex::new(Some(schedule.clone())),
         });
-        let dispatcher = host.clone();
+        let dispatch_execution_coordinator = execution_coordinator.clone();
         let thread = thread::Builder::new()
             .name("flint-execution-dispatch".into())
             .spawn(move || {
-                for id in scheduled {
-                    dispatcher.post(id);
+                for execution_id in scheduled {
+                    dispatch_execution_coordinator.post(execution_id);
                 }
             })
             .map_err(|error| {
-                host.revoke();
+                execution_coordinator.revoke();
                 format!("Cannot start the execution dispatcher: {error}")
             })?;
-        Ok((host, schedule, thread))
+        Ok((execution_coordinator, schedule, thread))
     }
 
-    fn call<R>(&self, call: impl FnOnce(&FlintHost) -> R) -> Option<R> {
-        let host = self.callbacks.lock().unwrap().as_ref()?.clone();
-        Some(call(&host.0))
+    fn call<R>(&self, call: impl FnOnce(&ExecutionBinding) -> R) -> Option<R> {
+        let execution_binding = self.execution_binding.lock().unwrap().as_ref()?.clone();
+        Some(call(&execution_binding.0))
     }
 
     /// Rejects new calls; release follows the last call already admitted.
     pub(crate) fn revoke(&self) {
         self.schedule.lock().unwrap().take();
-        let host = self.callbacks.lock().unwrap().take();
+        let execution_binding = self.execution_binding.lock().unwrap().take();
         // Release may call back into the core, so drop outside the lock.
-        drop(host);
+        drop(execution_binding);
     }
 
-    fn schedule(&self, id: u64) {
+    fn schedule(&self, execution_id: u64) {
         if let Some(schedule) = self.schedule.lock().unwrap().as_ref() {
-            let _ = schedule.send(id);
+            let _ = schedule.send(execution_id);
         }
     }
 
-    fn post(self: &Arc<Self>, id: u64) {
+    fn post(self: &Arc<Self>, execution_id: u64) {
         let ticket = Box::into_raw(Box::new(Ticket {
-            host: self.clone(),
-            execution: id,
+            execution_coordinator: self.clone(),
+            execution_id,
         }));
-        let posted = self.call(|host| unsafe { (host.post)(host.context, ticket) });
+        let posted = self.call(|execution_binding| unsafe {
+            (execution_binding.post)(execution_binding.context, ticket)
+        });
         if posted != Some(true) {
             drop(unsafe { Box::from_raw(ticket) });
-            self.cancel(id, if posted.is_none() { STOPPED } else { DROPPED });
+            self.cancel(
+                execution_id,
+                if posted.is_none() { STOPPED } else { DROPPED },
+            );
         }
     }
 
-    /// Ends an execution whose code has not started, returning its prepared value.
-    fn cancel(&self, id: u64, error: &str) {
-        let prepared = {
+    /// Ends an execution whose code has not started and discards its prepared result.
+    fn cancel(&self, execution_id: u64, error: &str) {
+        let discard = {
             let mut state = self.state.lock().unwrap();
-            let prepared = match state.execution_mut(id).map(|execution| execution.stage) {
+            let discard = match state
+                .execution_mut(execution_id)
+                .map(|execution| execution.stage)
+            {
                 Some(Stage::Scheduled) => None,
-                Some(Stage::Prepared(prepared)) => Some(prepared),
+                Some(Stage::Prepared { result_id }) => Some(result_id),
                 _ => return,
             };
-            state.finish_execution(id, Err(Failure::new(error)), &self.outbound);
-            prepared
+            state.finish_execution(execution_id, Err(Failure::new(error)), &self.outbound);
+            discard
         };
-        if let Some(prepared) = prepared {
-            self.call(|host| unsafe { (host.discard)(host.context, prepared) });
+        if let Some(result_id) = discard {
+            self.call(|execution_binding| unsafe {
+                (execution_binding.discard)(execution_binding.context, result_id)
+            });
         }
     }
 
@@ -149,30 +135,30 @@ impl Host {
             .execution
             .as_ref()
             .map(|execution| execution.id);
-        if let Some(id) = active {
-            self.cancel(id, STOPPED);
+        if let Some(execution_id) = active {
+            self.cancel(execution_id, STOPPED);
         }
     }
 
-    fn step(self: &Arc<Self>, id: u64, stage: Stage) -> *mut Step {
+    fn step(self: &Arc<Self>, execution_id: u64, stage: Stage) -> *mut Step {
         Box::into_raw(Box::new(Step {
-            host: self.clone(),
-            execution: id,
+            execution_coordinator: self.clone(),
+            execution_id,
             stage,
         }))
     }
 
-    fn advance(self: &Arc<Self>, id: u64) {
+    fn advance(self: &Arc<Self>, execution_id: u64) {
         loop {
             let action = {
                 let mut state = self.state.lock().unwrap();
                 let stopped = state.stopped();
-                let Some(execution) = state.execution_mut(id) else {
+                let Some(execution) = state.execution_mut(execution_id) else {
                     return;
                 };
                 let stage = execution.stage;
                 match stage {
-                    Stage::Scheduled | Stage::Prepared(_) if stopped => Action::Cancel,
+                    Stage::Scheduled | Stage::Prepared { .. } if stopped => Action::Cancel,
                     Stage::Scheduled => {
                         execution.stage = Stage::Preparing;
                         Action::Prepare(
@@ -180,32 +166,36 @@ impl Host {
                                 .expect("JSON escapes NUL"),
                         )
                     }
-                    Stage::Prepared(prepared) => {
+                    Stage::Prepared { result_id } => {
                         execution.stage = Stage::Running;
-                        Action::Run(prepared)
+                        Action::Run(result_id)
                     }
                     _ => return,
                 }
             };
             match action {
-                Action::Cancel => return self.cancel(id, STOPPED),
+                Action::Cancel => return self.cancel(execution_id, STOPPED),
                 Action::Prepare(request) => {
-                    let step = self.step(id, Stage::Preparing);
-                    let called = self.call(|host| unsafe {
-                        (host.prepare)(host.context, request.as_ptr(), step)
+                    let step = self.step(execution_id, Stage::Preparing);
+                    let called = self.call(|execution_binding| unsafe {
+                        (execution_binding.prepare)(
+                            execution_binding.context,
+                            request.as_ptr(),
+                            step,
+                        )
                     });
                     if called.is_none() {
                         drop(unsafe { Box::from_raw(step) });
                         self.state.lock().unwrap().finish_execution(
-                            id,
+                            execution_id,
                             Err(Failure::new(STOPPED)),
                             &self.outbound,
                         );
                         return;
                     }
                     let mut state = self.state.lock().unwrap();
-                    match state.execution_mut(id) {
-                        Some(execution) if matches!(execution.stage, Stage::Prepared(_)) => {}
+                    match state.execution_mut(execution_id) {
+                        Some(execution) if matches!(execution.stage, Stage::Prepared { .. }) => {}
                         Some(execution) => {
                             if execution.stage == Stage::Preparing {
                                 execution.stage = Stage::Awaiting;
@@ -215,14 +205,15 @@ impl Host {
                         None => return,
                     }
                 }
-                Action::Run(prepared) => {
-                    let step = self.step(id, Stage::Running);
-                    let called =
-                        self.call(|host| unsafe { (host.run)(host.context, prepared, step) });
+                Action::Run(result_id) => {
+                    let step = self.step(execution_id, Stage::Running);
+                    let called = self.call(|execution_binding| unsafe {
+                        (execution_binding.run)(execution_binding.context, result_id, step)
+                    });
                     if called.is_none() {
                         drop(unsafe { Box::from_raw(step) });
                         self.state.lock().unwrap().finish_execution(
-                            id,
+                            execution_id,
                             Err(Failure::new(STOPPED)),
                             &self.outbound,
                         );
@@ -238,68 +229,77 @@ impl Host {
             let mut state = self.state.lock().unwrap();
             let stopped = state.stopped();
             let stage = state
-                .execution_mut(step.execution)
+                .execution_mut(step.execution_id)
                 .map(|execution| execution.stage)
                 .filter(|stage| stage.accepts(step.stage));
             match (stage, outcome) {
-                (Some(stage @ (Stage::Preparing | Stage::Awaiting)), Ok(prepared)) => {
+                (Some(stage @ (Stage::Preparing | Stage::Awaiting)), Ok(result_id)) => {
                     if stopped {
                         state.finish_execution(
-                            step.execution,
+                            step.execution_id,
                             Err(Failure::new(STOPPED)),
                             &self.outbound,
                         );
-                        (Some(prepared), false)
+                        (Some(result_id), false)
                     } else {
-                        state.execution_mut(step.execution).unwrap().stage =
-                            Stage::Prepared(prepared);
+                        state.execution_mut(step.execution_id).unwrap().stage =
+                            Stage::Prepared { result_id };
                         (None, stage == Stage::Awaiting)
                     }
                 }
-                (None, Ok(prepared)) if step.stage == Stage::Preparing => (Some(prepared), false),
+                (None, Ok(result_id)) if step.stage == Stage::Preparing => (Some(result_id), false),
                 (Some(_), outcome) => {
-                    state.finish_execution(step.execution, outcome.map(|_| ()), &self.outbound);
+                    state.finish_execution(step.execution_id, outcome.map(|_| ()), &self.outbound);
                     (None, false)
                 }
                 (None, _) => (None, false),
             }
         };
-        if let Some(prepared) = discard {
-            self.call(|host| unsafe { (host.discard)(host.context, prepared) });
+        if let Some(result_id) = discard {
+            self.call(|execution_binding| unsafe {
+                (execution_binding.discard)(execution_binding.context, result_id)
+            });
         }
         if schedule {
-            self.schedule(step.execution);
+            self.schedule(step.execution_id);
         }
     }
 }
 
 impl Ticket {
     pub(crate) fn run(self) {
-        self.host.advance(self.execution);
+        self.execution_coordinator.advance(self.execution_id);
     }
 
     pub(crate) fn drop_unrun(self) {
-        self.host.cancel(self.execution, DROPPED);
+        self.execution_coordinator
+            .cancel(self.execution_id, DROPPED);
     }
 }
 
 impl Step {
     pub(crate) fn output(&self, stdout: &str, stderr: &str) -> bool {
-        let mut state = self.host.state.lock().unwrap();
+        let mut state = self.execution_coordinator.state.lock().unwrap();
         let current = state
-            .execution_mut(self.execution)
+            .execution_mut(self.execution_id)
             .is_some_and(|execution| execution.stage.accepts(self.stage));
-        current && state.buffer_output(self.execution, stdout, stderr, &self.host.outbound)
+        current
+            && state.buffer_output(
+                self.execution_id,
+                stdout,
+                stderr,
+                &self.execution_coordinator.outbound,
+            )
     }
 
-    pub(crate) fn succeed(self, prepared: usize) {
-        let host = self.host.clone();
-        host.complete(self, Ok(prepared));
+    pub(crate) fn succeed(self, result_id: usize) {
+        let execution_coordinator = self.execution_coordinator.clone();
+        execution_coordinator.complete(self, Ok(result_id));
     }
 
     pub(crate) fn fail(self, traceback: Option<String>, error: Option<String>) {
-        let host = self.host.clone();
-        host.complete(self, Err(Failure { traceback, error }));
+        let execution_coordinator = self.execution_coordinator.clone();
+        execution_coordinator.complete(self, Err(Failure { traceback, error }));
     }
 }
 

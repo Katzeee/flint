@@ -34,6 +34,20 @@ The shared native component of a Bridge that owns its connection, registration, 
 **Execution capabilities**:
 The host-specific part of execution that a host adapter supplies to the Bridge core: a scheduler that runs the core's callbacks on the thread where the host executes code, and an executor that prepares and runs submitted code in the host runtime. When and whether each step happens, and how its outcome is reported, belong to the core.
 
+**Execution coordinator**:
+The part of the Bridge core that coordinates scheduling, preparation, invocation, cancellation, and completion of an execution through its execution binding.
+_Avoid_: Host for this core component.
+
+**Execution binding**:
+The host-supplied ABI structure containing the context and functions the Bridge core uses to schedule, prepare, run, and discard work, and to release the binding.
+_Avoid_: Host, callbacks for the binding as a whole.
+
+**Execution adapter**:
+The platform component that connects an execution binding to the host's executor and scheduler, translating language values, asynchronous completions, and object lifetimes.
+
+**Prepared result**:
+The host-runtime value produced by preparing an execution request and supplied to its run step. It carries the code or resources the executor needs to run that request.
+
 **Bridge manager**:
 The platform component that creates, reuses, configures, and releases a host's Bridge using the host's execution capabilities. It manages Bridge resources; connection policy belongs to the Bridge core.
 

@@ -78,9 +78,9 @@ namespace Flint.Unity
             }
         }
 
-        public Task Run(object prepared, TextWriter stdout, TextWriter stderr)
+        public Task Run(object preparedResult, TextWriter stdout, TextWriter stderr)
         {
-            var program = (Program)prepared;
+            var program = (Program)preparedResult;
             var scope = new object();
             var unsubscribe = ReflectionApi.Subscribe(UnityRuntime.Application, null, "logMessageReceivedThreaded", arguments => {
                 if (logScope.Value != scope) return;
