@@ -1,6 +1,7 @@
 //! Local application windows are shared by CLI and desktop callers, independently of Bridges.
 #[cfg(not(windows))]
 use anyhow::bail;
+use crate::HostError;
 use anyhow::{Context, Result};
 
 #[cfg(all(test, windows))]
@@ -29,19 +30,20 @@ pub enum WindowPreview {
 static CAPTURE_SLOTS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Semaphore>> =
     std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Semaphore::new(2)));
 
-pub async fn host_info(pid: u32, include_preview: bool) -> Result<HostInfo> {
+pub async fn host_info(pid: u32, include_preview: bool) -> Result<HostInfo, HostError> {
     let mut info = tokio::task::spawn_blocking(move || {
-        Ok::<_, anyhow::Error>(HostInfo {
+        Ok::<_, HostError>(HostInfo {
             candidate: local_candidate(pid)?,
             window: window_info(pid),
             preview: None,
         })
     })
-    .await??;
+    .await
+    .context("host lookup stopped")??;
     if include_preview {
         info.preview = Some(match capture_preview(pid).await {
             Ok(png) => WindowPreview::Png(png),
-            Err(error) => WindowPreview::Unavailable(error.to_string()),
+            Err(error) => WindowPreview::Unavailable(format!("{error:#}")),
         });
     }
     Ok(info)
@@ -51,22 +53,22 @@ async fn capture_preview(pid: u32) -> Result<Vec<u8>> {
     let permit = CAPTURE_SLOTS
         .clone()
         .try_acquire_owned()
-        .map_err(|_| anyhow::anyhow!("Window previews are busy"))?;
+        .map_err(|_| anyhow::anyhow!("window previews are busy"))?;
     let capture = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         capture(pid)
     });
     tokio::time::timeout(std::time::Duration::from_secs(3), capture)
         .await
-        .map_err(|_| anyhow::anyhow!("Window preview timed out"))??
+        .map_err(|_| anyhow::anyhow!("window preview timed out"))??
 }
 
-pub fn focus_application(pid: u32) -> Result<()> {
-    focus(local_candidate(pid)?.pid)
+pub fn focus_application(pid: u32) -> Result<(), HostError> {
+    Ok(focus(local_candidate(pid)?.pid)?)
 }
 
-fn local_candidate(pid: u32) -> Result<crate::HostCandidate> {
-    crate::candidate(pid).with_context(|| format!("No supported local host process with PID {pid}"))
+fn local_candidate(pid: u32) -> Result<crate::HostCandidate, HostError> {
+    crate::candidate(pid).ok_or(HostError::NotAHost(pid))
 }
 
 #[cfg(not(windows))]
@@ -76,11 +78,11 @@ fn window_info(_pid: u32) -> Option<WindowInfo> {
 
 #[cfg(not(windows))]
 fn capture(_pid: u32) -> Result<Vec<u8>> {
-    bail!("Window previews are unavailable on this platform")
+    bail!("window previews are unavailable on this platform")
 }
 #[cfg(not(windows))]
 fn focus(_pid: u32) -> Result<()> {
-    bail!("Window switching is unavailable on this platform")
+    bail!("window switching is unavailable on this platform")
 }
 
 #[cfg(windows)]
@@ -142,7 +144,7 @@ mod platform {
         unsafe {
             EnumWindows(Some(visit), &mut search as *mut Search as LPARAM);
         }
-        ensure!(!search.hwnd.is_null(), "No application window is available");
+        ensure!(!search.hwnd.is_null(), "no application window is available");
         Ok(search.hwnd)
     }
 
@@ -154,7 +156,7 @@ mod platform {
             }
             ensure!(
                 SetForegroundWindow(hwnd) != 0,
-                "Windows did not allow this application to take focus"
+                "windows did not allow this application to take focus"
             );
         }
         Ok(())
@@ -203,12 +205,12 @@ mod platform {
     pub fn capture(pid: u32) -> Result<Vec<u8>> {
         let hwnd = find(pid)?;
         unsafe {
-            ensure!(IsIconic(hwnd) == 0, "Window is minimized");
-            ensure!(IsHungAppWindow(hwnd) == 0, "Application is not responding");
+            ensure!(IsIconic(hwnd) == 0, "window is minimized");
+            ensure!(IsHungAppWindow(hwnd) == 0, "application is not responding");
             let mut rect = RECT::default();
             ensure!(
                 GetWindowRect(hwnd, &mut rect) != 0,
-                "Window bounds are unavailable"
+                "window bounds are unavailable"
             );
             let width = rect.right - rect.left;
             let height = rect.bottom - rect.top;
@@ -218,7 +220,7 @@ mod platform {
                     && width <= 8192
                     && height <= 8192
                     && i64::from(width) * i64::from(height) <= 32_000_000,
-                "Window size is not supported for preview"
+                "window size is not supported for preview"
             );
             let mut canvas = Canvas {
                 window: hwnd,
@@ -227,9 +229,9 @@ mod platform {
                 bitmap: null_mut(),
                 previous: null_mut(),
             };
-            ensure!(!canvas.source.is_null(), "Window surface is unavailable");
+            ensure!(!canvas.source.is_null(), "window surface is unavailable");
             canvas.dc = CreateCompatibleDC(canvas.source);
-            ensure!(!canvas.dc.is_null(), "Could not allocate preview surface");
+            ensure!(!canvas.dc.is_null(), "could not allocate preview surface");
             let info = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -253,14 +255,14 @@ mod platform {
             );
             ensure!(
                 !canvas.bitmap.is_null() && !bits.is_null(),
-                "Could not allocate preview bitmap"
+                "could not allocate preview bitmap"
             );
             canvas.previous = SelectObject(canvas.dc, canvas.bitmap);
             std::ptr::write_bytes(bits as *mut u8, 0, width as usize * height as usize * 4);
             // Capture this window only; never fall back to a screen crop containing other windows.
             ensure!(
                 PrintWindow(hwnd, canvas.dc, PW_RENDERFULLCONTENT) != 0,
-                "Application did not provide a window preview"
+                "application did not provide a window preview"
             );
             let source =
                 std::slice::from_raw_parts(bits as *const u8, width as usize * height as usize * 4);
@@ -279,7 +281,7 @@ mod platform {
                 }
             }
             if rgb.iter().all(|value| *value == 0) {
-                bail!("Application did not provide visible preview content");
+                bail!("application did not provide visible preview content");
             }
             let mut png = Vec::new();
             {
@@ -289,7 +291,7 @@ mod platform {
                 encoder
                     .write_header()?
                     .write_image_data(&rgb)
-                    .context("Could not encode window preview")?;
+                    .context("could not encode window preview")?;
             }
             Ok(png)
         }

@@ -83,8 +83,8 @@ class ExecutionAdapter:
     def _call(self, step, invoke, done):
         try:
             result = invoke()
-        except BaseException:
-            self._fail(step, traceback.format_exc())
+        except BaseException as error:
+            self._fail(step, error, traceback.format_exc())
             return
         if isinstance(result, Future):
             result.add_done_callback(lambda future: self._settle(step, future, done))
@@ -95,9 +95,10 @@ class ExecutionAdapter:
         try:
             value = future.result()
         except BaseException as error:
-            self._fail(step, "".join(traceback.format_exception(type(error), error, error.__traceback__)))
+            self._fail(step, error, "".join(traceback.format_exception(type(error), error, error.__traceback__)))
             return
         done(value)
 
-    def _fail(self, step, trace):
-        self._bridge_api.flint_step_fail(step, trace.encode("utf-8", "replace"), None)
+    def _fail(self, step, error, trace):
+        self._bridge_api.flint_step_fail(step, None, str(error).encode("utf-8", "replace"),
+                                        trace.encode("utf-8", "replace"))

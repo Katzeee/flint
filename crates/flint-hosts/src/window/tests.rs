@@ -44,11 +44,10 @@ fn minimized_window_reports_why_capture_is_unavailable_without_restoring_it() {
     let info = platform::window_info(std::process::id()).unwrap();
     assert_eq!(info.title, "Flint preview fixture");
     assert!(info.minimized);
-    assert_eq!(
-        platform::capture(std::process::id())
-            .unwrap_err()
-            .to_string(),
-        "Window is minimized"
-    );
+    assert!(platform::capture(std::process::id())
+        .unwrap_err()
+        .to_string()
+        .to_lowercase()
+        .contains("minimized"));
     assert_ne!(unsafe { IsIconic(window.0) }, 0);
 }

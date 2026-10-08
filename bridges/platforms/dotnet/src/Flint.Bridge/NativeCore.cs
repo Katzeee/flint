@@ -98,7 +98,7 @@ namespace Flint.Bridge
             }
             try
             {
-                if (Function<AbiVersionFn>("flint_bridge_abi_version")() != 7)
+                if (Function<AbiVersionFn>("flint_bridge_abi_version")() != 8)
                     throw new BridgeCreationException(BridgeCreationErrorKind.AbiMismatch, "Unsupported native Bridge ABI");
                 _create = Function<CreateFn>("flint_bridge_create");
                 _stop = Function<StatusFn>("flint_bridge_stop");

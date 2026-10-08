@@ -2,6 +2,7 @@ mod attach;
 mod bridge_export;
 mod cli;
 mod desktop;
+mod failure;
 mod hosts;
 
 fn main() {

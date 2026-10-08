@@ -3,6 +3,7 @@ use crate::{
     settings::{BridgeSettings, Identity, SettingsSnapshot},
     state::{BridgeState, Obstacle, ObstacleKind},
 };
+use anyhow::{Context, Result};
 use flint_contracts::protocol::timing::{HEARTBEAT_ACK_TIMEOUT, HEARTBEAT_INTERVAL};
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
@@ -17,32 +18,32 @@ use uuid::Uuid;
 
 type Wire = flint_contracts::protocol::framing::Wire<TcpStream>;
 
-async fn connect(settings: &BridgeSettings) -> Result<Wire, String> {
+async fn connect(settings: &BridgeSettings) -> Result<Wire> {
     let stream = tokio::time::timeout(
         Duration::from_secs(10),
         TcpStream::connect((settings.address.as_str(), settings.port)),
     )
     .await
-    .map_err(|_| "connection timed out".to_string())?
-    .map_err(|error| error.to_string())?;
+    .context("connection timed out")??;
     Ok(framed(stream))
 }
 
-async fn ack(wire: &mut Wire, request_id: &str) -> Result<InstanceAck, String> {
+async fn ack(wire: &mut Wire, request_id: &str) -> Result<InstanceAck> {
     let response = tokio::time::timeout(Duration::from_secs(10), read_envelope(wire))
         .await
-        .map_err(|_| "response timed out".to_string())?
-        .map_err(|error| error.to_string())?;
-    if response.request_id != request_id {
-        return Err("handshake request ID mismatch".into());
-    }
+        .context("response timed out")??;
+    anyhow::ensure!(
+        response.request_id == request_id,
+        "handshake request ID mismatch"
+    );
     match response.payload {
-        Some(Payload::InstanceAck(ack)) if ack.success => Ok(ack),
-        _ => Err("bridge handshake rejected".into()),
+        Some(Payload::InstanceAck(ack)) => Ok(ack),
+        Some(Payload::Failure(failure)) => Err(failure.into()),
+        _ => anyhow::bail!("unexpected handshake response"),
     }
 }
 
-async fn run_heartbeat(mut wire: Wire, instance_id: String) -> Result<Infallible, String> {
+async fn run_heartbeat(mut wire: Wire, instance_id: String) -> Result<Infallible> {
     loop {
         let request_id = Uuid::new_v4().simple().to_string();
         wire.send(envelope(
@@ -51,17 +52,19 @@ async fn run_heartbeat(mut wire: Wire, instance_id: String) -> Result<Infallible
                 instance_id: instance_id.clone(),
             }),
         ))
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
         tokio::time::timeout(HEARTBEAT_ACK_TIMEOUT, ack(&mut wire, &request_id))
             .await
-            .map_err(|_| "heartbeat acknowledgement timed out".to_string())??;
+            .context("heartbeat acknowledgement timed out")??;
         tokio::time::sleep(HEARTBEAT_INTERVAL).await;
     }
 }
 
-fn obstacle(kind: ObstacleKind) -> impl FnOnce(String) -> Obstacle {
-    move |message| Obstacle { kind, message }
+fn obstacle<E: Into<anyhow::Error>>(kind: ObstacleKind) -> impl FnOnce(E) -> Obstacle {
+    move |error| Obstacle {
+        kind,
+        message: format!("{:#}", error.into()),
+    }
 }
 
 /// Runs one connection session until it fails; only the caller ends it otherwise.
@@ -71,7 +74,7 @@ async fn run_session(
     bridge_id: &str,
     state: Arc<Mutex<BridgeState>>,
     schedule: mpsc::Sender<u64>,
-) -> Result<Infallible, Obstacle> {
+) -> std::result::Result<Infallible, Obstacle> {
     let mut heartbeat_wire = connect(&settings_snapshot.settings)
         .await
         .map_err(obstacle(ObstacleKind::Unreachable))?;
@@ -99,7 +102,7 @@ async fn register(
     settings_snapshot: &SettingsSnapshot,
     bridge_id: &str,
     heartbeat_wire: &mut Wire,
-) -> Result<(Wire, String), String> {
+) -> Result<(Wire, String)> {
     let request_id = Uuid::new_v4().simple().to_string();
     heartbeat_wire
         .send(envelope(
@@ -114,11 +117,10 @@ async fn register(
                 bridge_version: env!("CARGO_PKG_VERSION").into(),
             }),
         ))
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     let registered = ack(heartbeat_wire, &request_id).await?;
     if registered.instance_id.is_empty() || registered.session_token.is_empty() {
-        return Err("incomplete instance registration".into());
+        anyhow::bail!("incomplete instance registration");
     }
     let mut execution_wire = connect(&settings_snapshot.settings).await?;
     let request_id = Uuid::new_v4().simple().to_string();
@@ -131,8 +133,7 @@ async fn register(
                 session_token: registered.session_token,
             }),
         ))
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     ack(&mut execution_wire, &request_id).await?;
     Ok((execution_wire, registered.instance_id))
 }

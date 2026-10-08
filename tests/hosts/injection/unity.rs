@@ -104,7 +104,6 @@ public static class FlintReload
             &["--pid", &pid.to_string(), "--host-kind", "unity"],
             0,
         )?;
-        anyhow::ensure!(attached["attached"] == true, "attach failed: {attached}");
         Ok(attached["instance_id"].as_str().unwrap().to_string())
     };
     let first = attach().context("initial Unity attach")?;
@@ -141,7 +140,7 @@ public static class FlintReload
         1,
     )?;
     anyhow::ensure!(
-        refused["message"]
+        refused["error"]["message"]
             .as_str()
             .is_some_and(|message| message.contains("Invalid Bridge connection settings")),
         "unexpected attach result: {refused}"

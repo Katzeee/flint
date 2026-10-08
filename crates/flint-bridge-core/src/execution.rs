@@ -1,4 +1,5 @@
 use crate::state::BridgeState;
+use anyhow::Context;
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use serde::Serialize;
@@ -8,10 +9,6 @@ use tokio::{net::TcpStream, sync::mpsc as async_mpsc};
 
 type Wire = flint_contracts::protocol::framing::Wire<TcpStream>;
 
-pub(crate) const STOPPED: &str = "Bridge stopped before host execution";
-pub(crate) const DROPPED: &str = "Host dropped the execution before it started";
-const PREPARATION_FAILED: &str = "preparation_failed";
-const EXECUTION_FAILED: &str = "execution_failed";
 const OUTPUT_LIMIT: usize = 64 * 1024;
 
 #[derive(Serialize)]
@@ -37,16 +34,51 @@ pub(crate) enum Stage {
     Running,
 }
 
-pub(crate) struct Failure {
-    pub(crate) traceback: Option<String>,
-    pub(crate) error: Option<String>,
+impl Stage {
+    fn failure_code(self) -> FailureCode {
+        if self == Self::Running {
+            FailureCode::ExecutionFailed
+        } else {
+            FailureCode::PreparationFailed
+        }
+    }
 }
 
-impl Failure {
-    pub(crate) fn new(error: &str) -> Self {
-        Self {
-            traceback: None,
-            error: Some(error.into()),
+/// An execution outcome reported as protocol data rather than a Rust error.
+pub(crate) enum ExecutionFailure {
+    Stopped,
+    SchedulingRejected,
+    /// Absent values take the defaults of the stage that failed.
+    Host {
+        code: Option<String>,
+        message: Option<String>,
+        traceback: Option<String>,
+    },
+}
+
+impl ExecutionFailure {
+    fn into_result(self, execution_id: String, stage: Stage) -> ExecutionResult {
+        let failed = |error, traceback| ExecutionResult {
+            execution_id,
+            status: ExecutionStatus::Failed as i32,
+            traceback,
+            error: Some(error),
+        };
+        match self {
+            Self::Stopped => failed(Failure::new(FailureCode::BridgeStopped), None),
+            Self::SchedulingRejected => failed(Failure::new(FailureCode::SchedulingRejected), None),
+            Self::Host {
+                code,
+                message,
+                traceback,
+            } => {
+                let default = stage.failure_code();
+                let error = Failure {
+                    code: code.unwrap_or_else(|| default.as_str().into()),
+                    message: message.unwrap_or_else(|| default.description().into()),
+                };
+                failed(error, traceback)
+            }
         }
     }
 }
@@ -93,41 +125,32 @@ impl BridgeState {
             .filter(|execution| execution.id == id)
     }
 
-    /// Reports the terminal result after any buffered output. A failure without
-    /// its own error is classified by the stage that failed.
-    pub(crate) fn finish_execution(&mut self, id: u64, result: Result<(), Failure>) -> bool {
+    /// Reports the terminal result after buffered output.
+    pub(crate) fn finish_execution(
+        &mut self,
+        id: u64,
+        result: Result<(), ExecutionFailure>,
+    ) -> bool {
         let Some(stage) = self.execution_mut(id).map(|execution| execution.stage) else {
             return false;
         };
         self.flush_output();
         let execution = self.execution.take().unwrap();
-        let (status, traceback, error) = match result {
-            Ok(()) => (ExecutionStatus::Succeeded, None, None),
-            Err(failure) => (
-                ExecutionStatus::Failed,
-                failure.traceback,
-                failure.error.or_else(|| {
-                    Some(
-                        if stage == Stage::Running {
-                            EXECUTION_FAILED
-                        } else {
-                            PREPARATION_FAILED
-                        }
-                        .into(),
-                    )
-                }),
-            ),
+        let execution_id = execution.request.execution_id;
+        let result = match result {
+            Ok(()) => ExecutionResult {
+                execution_id,
+                status: ExecutionStatus::Succeeded as i32,
+                traceback: None,
+                error: None,
+            },
+            Err(failure) => failure.into_result(execution_id, stage),
         };
         execution
             .outbound
             .send(envelope(
                 execution.request.request_id,
-                Payload::ExecutionResult(ExecutionResult {
-                    execution_id: execution.request.execution_id,
-                    status: status as i32,
-                    traceback,
-                    error,
-                }),
+                Payload::ExecutionResult(result),
             ))
             .is_ok()
     }
@@ -185,15 +208,15 @@ pub(crate) async fn run_execution(
     mut wire: Wire,
     state: Arc<Mutex<BridgeState>>,
     schedule: mpsc::Sender<u64>,
-) -> Result<Infallible, String> {
+) -> anyhow::Result<Infallible> {
     // Each session owns its receiver; executions retain only this session's sender.
     let (outbound_tx, mut outbound_rx) = async_mpsc::unbounded_channel();
     loop {
         tokio::select! {
             incoming = read_envelope(&mut wire) => {
-                let message = incoming.map_err(|error| error.to_string())?;
+                let message = incoming?;
                 let Some(Payload::HostExecuteRequest(request)) = message.payload else {
-                    return Err("unexpected execution message".into());
+                    anyhow::bail!("unexpected execution message");
                 };
                 let execution_id = request.execution_id.clone();
                 let admitted = state.lock().unwrap().begin_execution(
@@ -201,19 +224,19 @@ pub(crate) async fn run_execution(
                 );
                 if let Some(id) = admitted {
                     schedule.send(id)
-                        .map_err(|_| "execution dispatcher stopped".to_string())?;
+                        .context("execution dispatcher stopped")?;
                 } else {
                     wire.send(envelope(message.request_id, Payload::ExecutionResult(ExecutionResult {
                         execution_id,
                         status: ExecutionStatus::Failed as i32,
                         traceback: None,
-                        error: Some("instance_busy".into()),
-                    }))).await.map_err(|error| error.to_string())?;
+                        error: Some(Failure::new(FailureCode::InstanceBusy)),
+                    }))).await?;
                 }
             }
             outgoing = outbound_rx.recv() => {
-                let outgoing = outgoing.ok_or("outbound channel closed")?;
-                wire.send(outgoing).await.map_err(|error| error.to_string())?;
+                let outgoing = outgoing.context("outbound channel closed")?;
+                wire.send(outgoing).await?;
             }
         }
     }

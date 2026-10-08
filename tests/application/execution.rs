@@ -12,14 +12,16 @@ fn execution_errors_are_recorded_without_terminating_host() -> Result<()> {
     let execution = app.execute(id, &workflow, "raise ValueError('EXPECTED')", 1)?;
     let details = app.details(&workflow, &execution, 1)?;
     assert_eq!(details["status"], "failed");
-    assert_eq!(details["error"], "execution_failed");
+    assert_eq!(details["error"]["code"], "execution_failed");
+    assert_eq!(details["error"]["message"], "EXPECTED");
+    assert_eq!(execution["error"], details["error"]);
     assert!(details["traceback"]
         .as_str()
         .unwrap()
         .contains("ValueError: EXPECTED"));
     let execution = app.execute(id, &workflow, "if :", 1)?;
     let details = app.details(&workflow, &execution, 1)?;
-    assert_eq!(details["error"], "preparation_failed");
+    assert_eq!(details["error"]["code"], "preparation_failed");
     assert!(details["traceback"]
         .as_str()
         .unwrap()
@@ -50,9 +52,9 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
             .unwrap()
             .contains("BEGIN"))
     })?;
-    assert_eq!(app.call("stop", &[], 1)?["error_code"], "backend_busy");
+    assert_eq!(app.call("stop", &[], 1)?["error"]["code"], "backend_busy");
     assert_eq!(
-        app.execute(id, &workflow, "print('must not run')", 1)?["error_code"],
+        app.execute(id, &workflow, "print('must not run')", 1)?["error"]["code"],
         "instance_busy"
     );
     fs::write(&release, b"release")?;
@@ -65,5 +67,38 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
     );
     let next = app.execute(id, &workflow, "print('NEXT')", 0)?;
     assert_eq!(next["status"], "succeeded");
+    Ok(())
+}
+
+#[test]
+fn execution_lookup_distinguishes_missing_records_from_storage_failures() -> Result<()> {
+    let app = App::new();
+    app.call("start", &[], 0)?;
+    let lookup = |workflow: &str| {
+        app.call(
+            "execution",
+            &["--workflow-id", workflow, "--execution-id", "0001"],
+            1,
+        )
+    };
+    assert_eq!(lookup("missing")?["error"]["code"], "workflow_not_found");
+    assert_eq!(lookup("../outside")?["error"]["code"], "invalid_arguments");
+    let workflow = app.workflow("empty")?;
+    assert_eq!(lookup(&workflow)?["error"]["code"], "execution_not_found");
+    let folder = app.directory.join("workflows");
+    fs::write(folder.join("corrupt.json"), "not json")?;
+    // A directory is deterministically unreadable as a record, without changing OS permissions.
+    fs::create_dir(folder.join("unreadable.json"))?;
+    for record in ["corrupt", "unreadable"] {
+        let failure = &lookup(record)?["error"];
+        assert_eq!(failure["code"], "workflow_unreadable", "{failure}");
+        assert!(
+            failure["message"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("{record}.json")),
+            "{failure}"
+        );
+    }
     Ok(())
 }

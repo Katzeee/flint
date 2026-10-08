@@ -139,12 +139,12 @@ impl BridgeState {
         &mut self,
         settings_snapshot: &SettingsSnapshot,
         instance_id: String,
-    ) -> Result<(), String> {
+    ) -> anyhow::Result<()> {
         if self.stopped() {
-            return Err("bridge stopped during registration".into());
+            anyhow::bail!("bridge stopped during registration");
         }
         if self.settings_snapshot.revision != settings_snapshot.revision {
-            return Err("bridge settings changed during registration".into());
+            anyhow::bail!("bridge settings changed during registration");
         }
         self.connection = Connection::Connected { instance_id };
         Ok(())

@@ -163,10 +163,8 @@ fn accepted(request_id: String) -> Envelope {
     envelope(
         request_id,
         Payload::InstanceAck(InstanceAck {
-            success: true,
             instance_id: "instance-1".into(),
             session_token: "token".into(),
-            ..Default::default()
         }),
     )
 }
@@ -421,7 +419,10 @@ fn reconnect_does_not_forward_previous_executions_to_the_new_channel() {
         panic!("expected a refusal for the overlapping execution");
     };
     assert_eq!(result.status, ExecutionStatus::Failed as i32);
-    assert_eq!(result.error.as_deref(), Some("instance_busy"));
+    assert_eq!(
+        result.error.as_ref().map(|failure| failure.code.as_str()),
+        Some("instance_busy")
+    );
     assert!(core.busy());
 
     assert!(core.write("late", ""));
@@ -440,6 +441,66 @@ fn reconnect_does_not_forward_previous_executions_to_the_new_channel() {
         panic!("expected the new execution result");
     };
     assert_eq!(result.status, ExecutionStatus::Succeeded as i32);
+}
+
+#[test]
+fn a_refused_registration_reports_the_backend_reason() {
+    struct RefusingBackend {
+        shutdown: CancellationToken,
+        thread: Option<thread::JoinHandle<()>>,
+    }
+    impl Drop for RefusingBackend {
+        fn drop(&mut self) {
+            self.shutdown.cancel();
+            if let Some(thread) = self.thread.take() {
+                join_thread(thread, "refusing backend", WAIT);
+            }
+        }
+    }
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let shutdown = CancellationToken::new();
+    let cancelled = shutdown.clone();
+    let backend = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+            tokio::select! {
+                _ = cancelled.cancelled() => {},
+                _ = async {
+                    loop {
+                        let (socket, _) = listener.accept().await.unwrap();
+                        let mut wire = framed(socket);
+                        let Some(Ok(register)) = wire.next().await else {
+                            continue;
+                        };
+                        let refusal = Failure::with_message(FailureCode::RegistrationRejected, "检测原因");
+                        let _ = wire
+                            .send(envelope(register.request_id, Payload::Failure(refusal)))
+                            .await;
+                    }
+                } => {},
+            }
+        });
+    });
+    let _backend = RefusingBackend {
+        shutdown,
+        thread: Some(backend),
+    };
+    let core = Core::new(port);
+    wait_until(|| core.status()["connection"]["state"] == "retrying");
+    let obstacle = &core.status()["connection"]["obstacle"];
+    assert_eq!(obstacle["kind"], "registration");
+    let message = obstacle["message"].as_str().unwrap();
+    assert!(
+        message.contains("registration_rejected") && message.contains("检测原因"),
+        "{message}"
+    );
+    drop(core);
 }
 
 #[test]

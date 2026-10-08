@@ -162,7 +162,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
             }
             if (command === "focus_application") return;
             if (command === "attach")
-              return { attached: true, pid: args.pid, host: args.hostKind, instance_id: "maya-1", execution_ready: true };
+              return { pid: args.pid, host: args.hostKind, instance_id: "maya-1", execution_ready: true };
             if (command === "desktop_info")
               return {
                 version: "0.1.0",
@@ -173,7 +173,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
               };
             if (command === "stop_backend") {
               if (!window.__allowStop)
-                throw new Error("Executions are still active");
+                throw { code: "backend_busy", message: "executions are still active" };
               return;
             }
             throw new Error(`Unexpected command: ${command}`);
@@ -326,7 +326,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       .getByRole("button", { name: "Stop backend", exact: true })
       .click();
     await page
-      .getByText("Executions are still active", { exact: true })
+      .getByText("executions are still active", { exact: true })
       .waitFor();
     await page.getByRole("alertdialog").waitFor({ state: "hidden" });
     await page.evaluate(() => {

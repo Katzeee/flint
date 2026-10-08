@@ -8,6 +8,15 @@ mod window;
 pub use attach::{attach, attach_error, AttachRequest, Runtime};
 pub use window::{focus_application, host_info, HostInfo, WindowInfo, WindowPreview};
 
+
+#[derive(Debug, thiserror::Error)]
+pub enum HostError {
+    #[error("process {0} is not a recognized host")]
+    NotAHost(u32),
+    #[error(transparent)]
+    Platform(#[from] anyhow::Error),
+}
+
 #[derive(Serialize)]
 pub struct HostCandidate {
     pub pid: u32,

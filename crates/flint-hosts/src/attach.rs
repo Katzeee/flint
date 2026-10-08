@@ -126,7 +126,7 @@ mod platform {
     use super::*;
 
     pub fn inject(_pid: u32, _bootstrap: &std::path::Path) -> Result<()> {
-        anyhow::bail!("Attach is only supported on Windows")
+        anyhow::bail!("attach is only supported on Windows")
     }
 }
 
@@ -170,7 +170,7 @@ mod platform {
             | PROCESS_VM_WRITE
             | PROCESS_VM_READ;
         let process = OpenProcess(access, 0, pid);
-        anyhow::ensure!(!process.is_null(), "Cannot open process {pid} for attach");
+        anyhow::ensure!(!process.is_null(), "cannot open process {pid} for attach");
         let process = Handle(process);
 
         // The bootstrap is x64; refuse a 32-bit (WOW64) target rather than
@@ -179,11 +179,11 @@ mod platform {
         let mut native_machine = 0u16;
         anyhow::ensure!(
             IsWow64Process2(process.0, &mut process_machine, &mut native_machine) != 0,
-            "Cannot determine the architecture of process {pid}"
+            "cannot determine the architecture of process {pid}"
         );
         anyhow::ensure!(
             process_machine == 0,
-            "Attach supports 64-bit hosts only; process {pid} is 32-bit"
+            "attach supports 64-bit hosts only; process {pid} is 32-bit"
         );
 
         let path = wide(bootstrap.as_os_str());
@@ -195,7 +195,7 @@ mod platform {
             MEM_COMMIT | MEM_RESERVE,
             PAGE_READWRITE,
         );
-        anyhow::ensure!(!remote.is_null(), "Cannot allocate memory in process {pid}");
+        anyhow::ensure!(!remote.is_null(), "cannot allocate memory in process {pid}");
         let remote = RemoteMemory {
             process: process.0,
             address: remote,
@@ -208,19 +208,19 @@ mod platform {
                 bytes,
                 std::ptr::null_mut(),
             ) != 0,
-            "Cannot write the bootstrap path into process {pid}"
+            "cannot write the bootstrap path into process {pid}"
         );
 
         // kernel32 loads at the same base in every process of a session, so the
         // local LoadLibraryW address is valid in the target.
         let kernel32 = GetModuleHandleW(wide("kernel32.dll".as_ref()).as_ptr());
-        anyhow::ensure!(!kernel32.is_null(), "Cannot locate kernel32");
+        anyhow::ensure!(!kernel32.is_null(), "cannot locate kernel32");
         let load_library = GetProcAddress(kernel32, c"LoadLibraryW".as_ptr().cast());
         let start: LPTHREAD_START_ROUTINE = Some(std::mem::transmute::<
             _,
             unsafe extern "system" fn(*mut core::ffi::c_void) -> u32,
         >(
-            load_library.ok_or_else(|| anyhow::anyhow!("Cannot locate LoadLibraryW"))?,
+            load_library.ok_or_else(|| anyhow::anyhow!("cannot locate LoadLibraryW"))?,
         ));
 
         let thread = CreateRemoteThread(
@@ -234,23 +234,23 @@ mod platform {
         );
         anyhow::ensure!(
             !thread.is_null(),
-            "Cannot start the loader thread in process {pid}"
+            "cannot start the loader thread in process {pid}"
         );
         let thread = Handle(thread);
 
         // 30s covers a busy host; the loader itself is quick once scheduled.
         anyhow::ensure!(
             WaitForSingleObject(thread.0, 30_000) == WAIT_OBJECT_0,
-            "The loader thread in process {pid} did not finish"
+            "the loader thread in process {pid} did not finish"
         );
         let mut exit = 0u32;
         anyhow::ensure!(
             GetExitCodeThread(thread.0, &mut exit) != 0,
-            "Cannot read the loader result from process {pid}"
+            "cannot read the loader result from process {pid}"
         );
         // LoadLibraryW returns the module handle, truncated to 32 bits here; zero
         // means the bootstrap failed to load.
-        anyhow::ensure!(exit != 0, "The host rejected the Bridge bootstrap");
+        anyhow::ensure!(exit != 0, "the host rejected the Bridge bootstrap");
         Ok(())
     }
 

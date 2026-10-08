@@ -6,6 +6,7 @@ use crate::{
     settings::{ApplyResult, BridgeOptions, BridgeSettings, SettingsSnapshot},
     state::BridgeState,
 };
+use anyhow::Context;
 use std::{
     io,
     sync::{Arc, Mutex},
@@ -15,35 +16,22 @@ use std::{
 use tokio::sync::{watch, Notify};
 use tokio_util::sync::CancellationToken;
 
-/// Why no Bridge core was created. Each kind has a stable code in the C ABI.
-#[derive(Debug, PartialEq)]
+/// Why no Bridge core was created; each variant is one creation category of the C ABI.
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum CreationError {
-    InvalidConfiguration(String),
+    #[error("invalid Bridge configuration")]
+    InvalidConfiguration(#[source] anyhow::Error),
+    #[error("another Bridge already owns this process{}", claimed_by(.0))]
     Claimed(Option<ClaimOwner>),
-    System(String),
+    #[error(transparent)]
+    System(anyhow::Error),
 }
 
-impl CreationError {
-    pub(crate) fn code(&self) -> u32 {
-        match self {
-            Self::InvalidConfiguration(_) => 1,
-            Self::Claimed(_) => 2,
-            Self::System(_) => 3,
-        }
-    }
-
-    pub(crate) fn message(&self) -> String {
-        match self {
-            Self::InvalidConfiguration(message) => {
-                format!("Invalid Bridge configuration: {message}")
-            }
-            Self::Claimed(Some(owner)) => {
-                format!("Another Bridge already owns this process: {owner}")
-            }
-            Self::Claimed(None) => "Another Bridge already owns this process".into(),
-            Self::System(message) => message.clone(),
-        }
-    }
+fn claimed_by(owner: &Option<ClaimOwner>) -> String {
+    owner
+        .as_ref()
+        .map(|owner| format!(": {owner}"))
+        .unwrap_or_default()
 }
 
 pub struct BridgeCore {
@@ -90,14 +78,12 @@ impl BridgeCore {
             bridge_version: env!("CARGO_PKG_VERSION").into(),
         };
         // Acquire before starting the thread so a second Bridge cannot register.
-        let claim = match acquire(&owner) {
-            Ok(ClaimOutcome::Acquired(claim)) => claim,
-            Ok(ClaimOutcome::Occupied(owner)) => return Err(CreationError::Claimed(owner)),
-            Err(error) => {
-                return Err(CreationError::System(format!(
-                    "Cannot claim the process: {error}"
-                )))
-            }
+        let claim = match acquire(&owner)
+            .context("cannot claim the process")
+            .map_err(CreationError::System)?
+        {
+            ClaimOutcome::Acquired(claim) => claim,
+            ClaimOutcome::Occupied(owner) => return Err(CreationError::Claimed(owner)),
         };
         let settings = Arc::new(SettingsSnapshot {
             revision: 0,
@@ -107,6 +93,7 @@ impl BridgeCore {
         let (settings_tx, settings_rx) = watch::channel(settings);
         let (execution_coordinator, schedule, dispatcher) =
             ExecutionCoordinator::start(execution_binding, state.clone())
+                .context("cannot start the execution dispatcher")
                 .map_err(CreationError::System)?;
         let shutdown = CancellationToken::new();
         let reconnect_notify = Arc::new(Notify::new());
@@ -146,9 +133,9 @@ impl BridgeCore {
             Err(error) => {
                 execution_coordinator.revoke();
                 let _ = dispatcher.join();
-                return Err(CreationError::System(format!(
-                    "Cannot start the Bridge thread: {error}"
-                )));
+                return Err(CreationError::System(
+                    anyhow::Error::new(error).context("cannot start the Bridge thread"),
+                ));
             }
         };
         Ok(Self {

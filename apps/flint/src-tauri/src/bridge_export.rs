@@ -74,7 +74,7 @@ impl BridgeExport {
             }
             Self::Unity { output } => {
                 #[cfg(not(all(windows, target_arch = "x86_64")))]
-                anyhow::bail!("Unity export is available only on Windows x64");
+                anyhow::bail!("unity export is available only on Windows x64");
                 #[cfg(all(windows, target_arch = "x86_64"))]
                 {
                     (
@@ -87,7 +87,7 @@ impl BridgeExport {
         };
         ensure!(
             output.extension().is_some_and(|value| value == extension),
-            "Expected a .{extension} output file"
+            "expected a .{extension} output file"
         );
         std::fs::write(output, bytes)?;
         Ok(serde_json::json!({"path":output,"version":env!("CARGO_PKG_VERSION")}))

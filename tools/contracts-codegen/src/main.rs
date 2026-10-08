@@ -1,10 +1,9 @@
+use anyhow::{Context, Result};
 use std::{
-    error::Error,
     fs, io,
     path::{Path, PathBuf},
     process::Command,
 };
-type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 fn files_under(root: &Path, directory: &Path) -> io::Result<Vec<PathBuf>> {
     let entries = match fs::read_dir(directory) {
@@ -39,7 +38,10 @@ fn synchronize(generated: &Path, destination: &Path, check: bool) -> Result<()> 
         if managed(&existing) && !emitted.contains(&existing) {
             let path = destination.join(existing);
             if check {
-                return Err(format!("Obsolete generated file: {}", path.display()).into());
+                return Err(anyhow::anyhow!(
+                    "Obsolete generated file: {}",
+                    path.display()
+                ));
             }
             fs::remove_file(path)?;
         }
@@ -49,9 +51,12 @@ fn synchronize(generated: &Path, destination: &Path, check: bool) -> Result<()> 
         let content = fs::read_to_string(generated.join(relative))?;
         if check {
             let current = fs::read_to_string(&target)
-                .map_err(|e| format!("Cannot read generated file {}: {e}", target.display()))?;
+                .with_context(|| format!("cannot read generated file {}", target.display()))?;
             if current.replace("\r\n", "\n") != content.replace("\r\n", "\n") {
-                return Err(format!("Stale generated file: {}", target.display()).into());
+                return Err(anyhow::anyhow!(
+                    "Stale generated file: {}",
+                    target.display()
+                ));
             }
         } else {
             fs::create_dir_all(target.parent().unwrap())?;
@@ -100,21 +105,25 @@ fn generate_protocol(root: &Path, temporary: &Path, check: bool) -> Result<()> {
     let version = Command::new(&protoc)
         .arg("--version")
         .output()
-        .map_err(|e| {
+        .with_context(|| {
             format!(
-                "Cannot run {}: {e}. Provide protoc 24.4 on PATH or through PROTOC.",
+                "cannot run {}; provide protoc 24.4 on PATH or through PROTOC",
                 protoc.display()
             )
         })?;
     if !version.status.success()
         || String::from_utf8_lossy(&version.stdout).trim() != "libprotoc 24.4"
     {
-        return Err("Protocol generation requires protoc 24.4".into());
+        anyhow::bail!("protocol generation requires protoc 24.4");
     }
     let generated = temporary.join("rust");
     fs::create_dir_all(&generated)?;
     std::env::set_var("PROTOC", &protoc);
     prost_build::Config::new()
+        .type_attribute(
+            ".flint_protocol.v1.Failure",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
         .out_dir(&generated)
         .compile_protos(
             &[protocol.join("flint_protocol/v1/envelope.proto")],
@@ -135,7 +144,9 @@ fn main() -> Result<()> {
         return Ok(());
     }
     if !(args.is_empty() || args == ["--check"]) {
-        return Err("Expected no arguments (generate), or --check".into());
+        return Err(anyhow::anyhow!(
+            "expected no arguments (generate), or --check"
+        ));
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")

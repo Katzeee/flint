@@ -154,7 +154,7 @@ function ExecutionPage({
             <Callout.Root tone="danger">
               <Callout.Body>
                 <Callout.Title>Execution failed</Callout.Title>
-                <Callout.Text>{execution.error}</Callout.Text>
+                <Callout.Text>{execution.error.message}</Callout.Text>
               </Callout.Body>
             </Callout.Root>
           ) : null}

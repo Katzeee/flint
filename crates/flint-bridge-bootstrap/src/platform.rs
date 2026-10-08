@@ -15,6 +15,7 @@ use windows_sys::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows_sys::Win32::System::Threading::{CreateThread, GetCurrentProcess, GetCurrentProcessId};
 
 use crate::AttachConfig;
+use anyhow::{Context, Result};
 
 static MODULE: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
 
@@ -48,7 +49,7 @@ unsafe extern "system" fn worker(_parameter: *mut core::ffi::c_void) -> u32 {
 /// Start the Bridge inside a CPython host by running a short bootstrap on the
 /// interpreter, which loads the Bridge package and calls `flint_bridge.attach`.
 /// That call finishes on its own thread and reports failure to `error_path`.
-pub fn attach_cpython(config: &AttachConfig, error_path: &std::path::Path) -> Result<(), String> {
+pub fn attach_cpython(config: &AttachConfig, error_path: &std::path::Path) -> Result<()> {
     unsafe {
         // Injecting this library just changed the module list, so an immediate
         // enumeration can miss the interpreter; retry until it is found and
@@ -64,7 +65,7 @@ pub fn attach_cpython(config: &AttachConfig, error_path: &std::path::Path) -> Re
                 }
             }
             if std::time::Instant::now() >= deadline {
-                return Err(format!(
+                return Err(anyhow::anyhow!(
                     "no initialized CPython runtime is loaded in the host; modules seen: {}",
                     list_modules().join(", ")
                 ));
@@ -79,24 +80,26 @@ pub fn attach_cpython(config: &AttachConfig, error_path: &std::path::Path) -> Re
             transmute(export(python, b"PyRun_SimpleString\0")?);
 
         let source = CString::new(crate::python_bootstrap(config, error_path))
-            .map_err(|_| "attach bootstrap contains a NUL byte".to_string())?;
+            .context("attach bootstrap contains a NUL byte")?;
         // The bootstrap only schedules a daemon thread, so it returns promptly
         // and does not hold the GIL while the connection is established.
         let gil = ensure();
         let code = run_string(source.as_ptr());
         release(gil);
         if code != 0 {
-            return Err("the host CPython runtime rejected the attach bootstrap".into());
+            return Err(anyhow::anyhow!(
+                "the host CPython runtime rejected the attach bootstrap"
+            ));
         }
         Ok(())
     }
 }
 
 /// Resolve an export by null-terminated name, returning its address.
-unsafe fn export(module: HMODULE, name: &[u8]) -> Result<*const (), String> {
+unsafe fn export(module: HMODULE, name: &[u8]) -> Result<*const ()> {
     match GetProcAddress(module, name.as_ptr()) {
         Some(address) => Ok(address as *const ()),
-        None => Err(format!(
+        None => Err(anyhow::anyhow!(
             "host runtime is missing {}",
             String::from_utf8_lossy(&name[..name.len() - 1])
         )),
@@ -181,7 +184,7 @@ unsafe extern "C" fn find_child_domain(domain: *mut c_void, user_data: *mut c_vo
 
 /// Start the Bridge inside a managed host by loading the attach assembly and
 /// invoking its entry on the runtime.
-pub fn attach_dotnet(config: &AttachConfig) -> Result<(), String> {
+pub fn attach_dotnet(config: &AttachConfig) -> Result<()> {
     unsafe {
         // Injection just changed the module list; give the loader a moment.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
@@ -190,7 +193,7 @@ pub fn attach_dotnet(config: &AttachConfig) -> Result<(), String> {
                 break mono;
             }
             if std::time::Instant::now() >= deadline {
-                return Err(format!(
+                return Err(anyhow::anyhow!(
                     "no supported managed runtime is loaded (Mono expected; CoreCLR attach is \
                      not yet implemented and IL2CPP cannot be attached); modules seen: {}",
                     list_modules().join(", ")
@@ -232,7 +235,7 @@ unsafe fn find_mono() -> Option<HMODULE> {
     None
 }
 
-unsafe fn attach_mono(mono: HMODULE, config: &AttachConfig) -> Result<(), String> {
+unsafe fn attach_mono(mono: HMODULE, config: &AttachConfig) -> Result<()> {
     let get_root_domain: unsafe extern "C" fn() -> *mut c_void =
         transmute(export(mono, b"mono_get_root_domain\0")?);
     let thread_attach: unsafe extern "C" fn(*mut c_void) -> *mut c_void =
@@ -268,7 +271,7 @@ unsafe fn attach_mono(mono: HMODULE, config: &AttachConfig) -> Result<(), String
 
     let root = get_root_domain();
     if root.is_null() {
-        return Err("Mono root domain is unavailable".into());
+        return Err(anyhow::anyhow!("Mono root domain is unavailable"));
     }
     thread_attach(root);
 
@@ -286,25 +289,29 @@ unsafe fn attach_mono(mono: HMODULE, config: &AttachConfig) -> Result<(), String
     domain_set(domain, 0);
     thread_attach(domain);
 
-    let payload = CString::new(config.payload.as_str()).map_err(|_| "assembly path has a NUL")?;
+    let payload = CString::new(config.payload.as_str()).context("assembly path has a NUL")?;
     let assembly = assembly_open(domain, payload.as_ptr());
     if assembly.is_null() {
-        return Err("could not open the attach assembly".into());
+        return Err(anyhow::anyhow!("could not open the attach assembly"));
     }
     let image = get_image(assembly);
     if image.is_null() {
-        return Err("attach assembly has no image".into());
+        return Err(anyhow::anyhow!("attach assembly has no image"));
     }
     let namespace = CString::new("Flint.Unity").unwrap();
     let class_name = CString::new("Attach").unwrap();
     let class = class_from_name(image, namespace.as_ptr(), class_name.as_ptr());
     if class.is_null() {
-        return Err("Flint.Unity.Attach was not found in the assembly".into());
+        return Err(anyhow::anyhow!(
+            "Flint.Unity.Attach was not found in the assembly"
+        ));
     }
     let method_name = CString::new("Initialize").unwrap();
     let method = method_from_name(class, method_name.as_ptr(), 1);
     if method.is_null() {
-        return Err("Flint.Unity.Attach.Initialize(string) was not found".into());
+        return Err(anyhow::anyhow!(
+            "Flint.Unity.Attach.Initialize(string) was not found"
+        ));
     }
 
     // The entry parses newline-delimited fields: address, port, name, core path.
@@ -315,20 +322,22 @@ unsafe fn attach_mono(mono: HMODULE, config: &AttachConfig) -> Result<(), String
         config.name,
         config.core_path.as_deref().unwrap_or("")
     );
-    let argument = CString::new(argument).map_err(|_| "attach argument has a NUL")?;
+    let argument = CString::new(argument).context("attach argument has a NUL")?;
     let managed = string_new(domain, argument.as_ptr());
     let mut arguments: [*mut c_void; 1] = [managed];
     let mut exception: *mut c_void = null_mut();
     let failure = runtime_invoke(method, null_mut(), arguments.as_mut_ptr(), &mut exception);
     if !exception.is_null() {
-        return Err("the managed attach entry threw an exception".into());
+        return Err(anyhow::anyhow!(
+            "the managed attach entry threw an exception"
+        ));
     }
     // The entry returns null on success, or why it could not start the Bridge.
     if !failure.is_null() {
         let utf8 = string_to_utf8(failure);
         let message = CStr::from_ptr(utf8).to_string_lossy().into_owned();
         mono_free(utf8.cast());
-        return Err(message);
+        return Err(anyhow::anyhow!(message));
     }
     Ok(())
 }

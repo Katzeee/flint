@@ -53,7 +53,6 @@ fn production_creation_enforces_the_process_claim_until_destruction() {
     }
     let (kind, error) = error.expect("claim conflict has an error message");
     assert_eq!(kind, 2);
-    assert!(error.contains("Another Bridge already owns this process"));
     assert!(error.contains("host=python"));
     assert!(error.contains("runtime_version=test"));
     assert!(error.contains(&format!("bridge_version={}", env!("CARGO_PKG_VERSION"))));

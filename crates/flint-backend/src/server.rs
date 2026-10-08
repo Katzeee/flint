@@ -1,4 +1,4 @@
-use crate::store::{now, Store};
+use crate::store::{now, Store, StoreError, Workflow, WorkflowSummary};
 use anyhow::{Context, Result};
 use flint_config::Config;
 use flint_contracts::protocol::timing::HEARTBEAT_IDLE_TIMEOUT;
@@ -24,11 +24,31 @@ const FIRST_MESSAGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 type Wire = flint_contracts::protocol::framing::Wire<TcpStream>;
 
-fn failure(code: ErrorCode, message: impl Into<String>) -> Payload {
-    Payload::ProtocolError(ProtocolError {
-        code: code as i32,
-        message: message.into(),
-    })
+#[derive(Debug, thiserror::Error)]
+pub enum BindError {
+    #[error("another backend owns this runtime")]
+    Locked,
+    #[error(transparent)]
+    Startup(#[from] anyhow::Error),
+}
+
+impl From<BindError> for Failure {
+    fn from(error: BindError) -> Self {
+        match error {
+            BindError::Locked => Failure::new(FailureCode::BackendLocked),
+            BindError::Startup(error) => Failure::caused_by(FailureCode::InternalError, error.as_ref()),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("executions are still active")]
+pub struct BackendBusy;
+
+impl From<BackendBusy> for Failure {
+    fn from(_: BackendBusy) -> Self {
+        Failure::new(FailureCode::BackendBusy)
+    }
 }
 
 struct Session {
@@ -65,10 +85,10 @@ struct Shared {
 #[derive(Clone)]
 pub struct BackendHandle(Arc<Shared>);
 impl BackendHandle {
-    pub fn workflows(&self) -> Result<Vec<crate::store::WorkflowSummary>> {
+    pub fn workflows(&self) -> Result<Vec<WorkflowSummary>, StoreError> {
         self.0.store.list()
     }
-    pub fn workflow(&self, id: &str) -> Result<crate::store::Workflow> {
+    pub fn workflow(&self, id: &str) -> Result<Workflow, StoreError> {
         self.0.store.load(id)
     }
     pub fn config(&self) -> &Config {
@@ -94,13 +114,26 @@ impl BackendHandle {
             bridge_port: self.0.config.bridge_port.into(),
         }
     }
-    pub fn request_stop(&self) -> Result<()> {
-        let mut state = self.0.state.lock().unwrap();
-        anyhow::ensure!(state.jobs.is_empty(), "Executions are still active");
-        state.stopping = true;
+    pub fn request_stop(&self) -> Result<(), BackendBusy> {
+        self.begin_stop()?;
         self.0.shutdown.cancel();
         Ok(())
     }
+    /// Refuses new work; the caller ends the service once it has replied.
+    fn begin_stop(&self) -> Result<(), BackendBusy> {
+        let mut state = self.0.state.lock().unwrap();
+        if !state.jobs.is_empty() {
+            return Err(BackendBusy);
+        }
+        state.stopping = true;
+        Ok(())
+    }
+}
+
+async fn listen(address: &str, port: u16) -> Result<TcpListener> {
+    TcpListener::bind((address, port))
+        .await
+        .with_context(|| format!("cannot listen on {address}:{port}"))
 }
 
 pub struct Backend {
@@ -110,11 +143,14 @@ pub struct Backend {
     _lease: std::fs::File,
 }
 impl Backend {
-    pub async fn bind(config: Config) -> Result<Self> {
-        let lease = config.running_lease()?;
-        let control = TcpListener::bind((config.address.as_str(), config.control_port)).await?;
-        let bridge = TcpListener::bind((config.address.as_str(), config.bridge_port)).await?;
-        let store = Store::open(config.workflows_dir())?;
+    pub async fn bind(config: Config) -> Result<Self, BindError> {
+        let lease = config
+            .running_lease()
+            .context("cannot claim the backend runtime")?
+            .ok_or(BindError::Locked)?;
+        let control = listen(&config.address, config.control_port).await?;
+        let bridge = listen(&config.address, config.bridge_port).await?;
+        let store = Store::open(config.workflows_dir()).context("cannot open the workflow store")?;
         let shared = Shared {
             config,
             state: Mutex::new(State::default()),
@@ -140,11 +176,11 @@ impl Backend {
                 _ = self.handle.0.shutdown.cancelled() => break,
                 accepted = self.control.accept() => {
                     let (socket, _) = accepted?; let backend = self.handle.clone();
-                    tasks.spawn(async move { if let Err(e) = control::connection(backend, socket).await { eprintln!("control connection: {e}"); } });
+                    tasks.spawn(async move { if let Err(e) = control::connection(backend, socket).await { eprintln!("control connection: {e:#}"); } });
                 }
                 accepted = self.bridge.accept() => {
                     let (socket, _) = accepted?; let backend = self.handle.clone();
-                    tasks.spawn(async move { if let Err(e) = bridge::connection(backend, socket).await { eprintln!("bridge connection: {e}"); } });
+                    tasks.spawn(async move { if let Err(e) = bridge::connection(backend, socket).await { eprintln!("bridge connection: {e:#}"); } });
                 }
                 _ = sweep.tick() => {
                     let expired: Vec<_> = self.handle.0.state.lock().unwrap().sessions.iter()
@@ -197,7 +233,7 @@ fn finish(backend: &BackendHandle, request: &str, result: ExecutionResult) {
                 execution_id: job.execution.clone(),
                 status: ExecutionStatus::Failed as i32,
                 traceback: None,
-                error: Some(format!("Could not persist result: {e}")),
+                error: Some(Failure::caused_by(FailureCode::ResultPersistenceFailed, &e)),
             },
         };
         let _ = job.result.send(result);
@@ -224,7 +260,7 @@ fn disconnect(backend: &BackendHandle, instance: &str) {
                 execution_id,
                 status: ExecutionStatus::Failed as i32,
                 traceback: None,
-                error: Some("Host disconnected; execution outcome is unknown".into()),
+                error: Some(Failure::new(FailureCode::ExecutionDisconnected)),
             },
         );
     }

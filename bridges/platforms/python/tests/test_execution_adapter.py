@@ -29,8 +29,8 @@ class BridgeApi:
     def flint_step_succeed(self, step, result_id):
         self.events.append(("succeed", step, result_id))
 
-    def flint_step_fail(self, step, trace, error):
-        self.events.append(("fail", step, trace.decode(), error))
+    def flint_step_fail(self, step, code, message, trace):
+        self.events.append(("fail", step, trace.decode(), code, message.decode()))
 
 
 class Scheduler:
@@ -128,6 +128,7 @@ def test_futures_complete_steps_later_from_another_thread(bound):
     running.set_exception(ValueError("EXPECTED"))
     assert bridge_api.events[-1][:2] == ("fail", 2)
     assert "ValueError: EXPECTED" in bridge_api.events[-1][2]
+    assert bridge_api.events[-1][3:] == (None, "EXPECTED")
 
 
 def test_failures_carry_tracebacks(bound):
@@ -146,6 +147,7 @@ def test_failures_carry_tracebacks(bound):
     bridge_api, execution_adapter, execution_binding = bound(Executor())
     execution_binding.prepare(execution_binding.context, request("bad"), 1)
     assert bridge_api.events[0][:2] == ("fail", 1) and "SyntaxError: EXPECTED" in bridge_api.events[0][2]
+    assert bridge_api.events[0][3:] == (None, "EXPECTED")
     execution_binding.prepare(execution_binding.context, request(), 2)
     execution_binding.run(execution_binding.context, bridge_api.events[1][2], 3)
     assert bridge_api.events[2][:2] == ("fail", 3) and "SystemExit" in bridge_api.events[2][2]

@@ -84,7 +84,6 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
                 fs::read_to_string(app.directory.join("target.stderr")).unwrap_or_default();
             anyhow::anyhow!("{error}\ntarget stderr: {stderr}")
         })?;
-    anyhow::ensure!(attached["attached"] == true, "attach failed: {attached}");
     anyhow::ensure!(
         attached["pid"].as_u64() == Some(pid as u64),
         "wrong pid: {attached}"
@@ -181,10 +180,13 @@ fn attach_reports_why_the_injected_bridge_could_not_start() -> Result<()> {
         ],
         1,
     )?;
-    anyhow::ensure!(failed["attached"] == false, "attach succeeded: {failed}");
-    let message = failed["message"].as_str().unwrap_or_default();
     anyhow::ensure!(
-        message.contains("Another Bridge already owns this process")
+        failed["error"]["code"] == "attach_failed",
+        "unexpected attach result: {failed}"
+    );
+    let message = failed["error"]["message"].as_str().unwrap_or_default();
+    anyhow::ensure!(
+        message.contains("another Bridge already owns this process")
             && message.contains("runtime_version=holder"),
         "unexpected attach failure: {failed}"
     );

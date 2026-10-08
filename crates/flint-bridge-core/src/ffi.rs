@@ -7,6 +7,7 @@ use crate::{
     settings::{ApplyResult, BridgeOptions, BridgeSettings},
     BridgeCore,
 };
+use anyhow::Context;
 use std::{
     ffi::{c_char, CStr, CString},
     ptr,
@@ -20,13 +21,45 @@ unsafe fn input(value: *const c_char) -> Option<String> {
     }
 }
 
+/// A blank string from a host carries no value.
+unsafe fn present(value: *const c_char) -> Option<String> {
+    input(value).filter(|value| !value.trim().is_empty())
+}
+
+unsafe fn options(config_json: *const c_char) -> anyhow::Result<BridgeOptions> {
+    anyhow::ensure!(!config_json.is_null(), "it is null");
+    let text = CStr::from_ptr(config_json)
+        .to_str()
+        .context("it is not UTF-8")?;
+    Ok(serde_json::from_str(text)?)
+}
+
+/// Creation categories in the C ABI, independent of Rust's source-error variants.
+#[derive(Clone, Copy)]
+#[repr(u32)]
+pub enum CreationErrorKind {
+    InvalidConfiguration = 1,
+    Claimed = 2,
+    System = 3,
+}
+
+impl From<&CreationError> for CreationErrorKind {
+    fn from(error: &CreationError) -> Self {
+        match error {
+            CreationError::InvalidConfiguration(_) => Self::InvalidConfiguration,
+            CreationError::Claimed(_) => Self::Claimed,
+            CreationError::System(_) => Self::System,
+        }
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn flint_bridge_abi_version() -> u32 {
-    7
+    8
 }
 
 /// Returns null on failure and sets `error_kind` to a nonzero
-/// [`CreationError`] code and `error_message` to its text. Either output may be
+/// [`CreationErrorKind`] code and `error_message` to its text. Either output may be
 /// null. The execution binding is released on failure.
 #[no_mangle]
 pub unsafe extern "C" fn flint_bridge_create(
@@ -47,28 +80,22 @@ pub unsafe extern "C" fn flint_bridge_create(
             .copied()
             .map(OwnedExecutionBinding::new)
         else {
-            return Err(CreationError::InvalidConfiguration(
-                "the execution binding is null".into(),
-            ));
+            return Err(CreationError::InvalidConfiguration(anyhow::anyhow!(
+                "the execution binding is null"
+            )));
         };
-        if config_json.is_null() {
-            return Err(CreationError::InvalidConfiguration("it is null".into()));
-        }
-        let text = CStr::from_ptr(config_json).to_str().map_err(|error| {
-            CreationError::InvalidConfiguration(format!("it is not UTF-8: {error}"))
-        })?;
-        let options = serde_json::from_str::<BridgeOptions>(text)
-            .map_err(|error| CreationError::InvalidConfiguration(error.to_string()))?;
+        let options = options(config_json).map_err(CreationError::InvalidConfiguration)?;
         BridgeCore::new(options, execution_binding)
     })();
     match result {
         Ok(core) => Box::into_raw(Box::new(core)),
         Err(error) => {
             if !error_kind.is_null() {
-                *error_kind = error.code();
+                *error_kind = CreationErrorKind::from(&error) as u32;
             }
             if !error_message.is_null() {
-                *error_message = CString::new(error.message().replace('\0', "\\0"))
+                let message = format!("{:#}", anyhow::Error::new(error));
+                *error_message = CString::new(message.replace('\0', "\\0"))
                     .expect("error text has no NUL bytes")
                     .into_raw();
             }
@@ -178,10 +205,11 @@ pub extern "C" fn flint_step_succeed(step: usize, result_id: usize) {
 #[no_mangle]
 pub unsafe extern "C" fn flint_step_fail(
     step: usize,
+    code: *const c_char,
+    message: *const c_char,
     traceback: *const c_char,
-    error: *const c_char,
 ) {
-    Step::fail(step, input(traceback), input(error));
+    Step::fail(step, present(code), present(message), input(traceback));
 }
 
 #[no_mangle]

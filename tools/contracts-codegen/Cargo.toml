@@ -5,6 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 flint-contracts.workspace = true
 strum.workspace = true
 prost-build.workspace = true

@@ -23,7 +23,7 @@ fn concurrent_cli_calls_share_one_backend() -> Result<()> {
     let duplicate = run(&mut app.command("serve"), Duration::from_secs(10), None)?;
     assert!(!duplicate.status.success());
     assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&duplicate.stdout)?["error_code"],
+        serde_json::from_str::<serde_json::Value>(&duplicate.stdout)?["error"]["code"],
         "backend_locked"
     );
     assert_eq!(app.call("status", &[], 0)?["pid"], responses[0]["pid"]);
@@ -47,7 +47,7 @@ fn input_loading_and_host_discovery_do_not_start_backend() -> Result<()> {
                 "missing.py"
             ],
             1
-        )?["error_code"],
+        )?["error"]["code"],
         "command_failed"
     );
     let output = checked(

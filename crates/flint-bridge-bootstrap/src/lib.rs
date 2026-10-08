@@ -16,6 +16,7 @@ mod platform;
 
 use std::path::{Path, PathBuf};
 
+use anyhow::Result;
 use serde::Deserialize;
 
 /// Written by the injector to `<temp>/flint-bridge/attach/<pid>.json`, read once
@@ -62,15 +63,15 @@ fn run(pid: u32) {
     let _ = std::fs::remove_file(&path);
     let result = match serde_json::from_str::<AttachConfig>(&text) {
         Ok(config) => start(&config, &error_path(pid)),
-        Err(error) => Err(format!("invalid attach config: {error}")),
+        Err(error) => Err(anyhow::anyhow!("invalid attach config: {error}")),
     };
     if let Err(error) = result {
-        let _ = std::fs::write(error_path(pid), error);
+        let _ = std::fs::write(error_path(pid), format!("{error:#}"));
     }
 }
 
 /// `error_path` is where a runtime that finishes asynchronously reports failure.
-fn start(config: &AttachConfig, error_path: &Path) -> Result<(), String> {
+fn start(config: &AttachConfig, error_path: &Path) -> Result<()> {
     match config.runtime.as_str() {
         #[cfg(windows)]
         "cpython" => platform::attach_cpython(config, error_path),
@@ -79,10 +80,10 @@ fn start(config: &AttachConfig, error_path: &Path) -> Result<(), String> {
         #[cfg(not(windows))]
         "cpython" | "dotnet" => {
             let _ = error_path;
-            Err("attach is only implemented on Windows".into())
+            Err(anyhow::anyhow!("attach is only implemented on Windows"))
         }
-        "mono" => Err("unknown attach runtime: mono (use dotnet)".into()),
-        other => Err(format!("unknown attach runtime: {other}")),
+        "mono" => Err(anyhow::anyhow!("unknown attach runtime: mono (use dotnet)")),
+        other => Err(anyhow::anyhow!("unknown attach runtime: {other}")),
     }
 }
 

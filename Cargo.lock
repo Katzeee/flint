@@ -475,6 +475,7 @@ dependencies = [
 name = "contracts-codegen"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "flint-contracts",
  "prost-build",
  "strum",
@@ -1007,12 +1008,14 @@ dependencies = [
  "flint-contracts",
  "flint-control-client",
  "flint-hosts",
+ "futures-util",
  "serde_json",
  "strum",
  "tauri",
  "tauri-build",
  "tauri-plugin-decoration",
  "tempfile",
+ "thiserror 2.0.20",
  "tokio",
  "wait-timeout",
 ]
@@ -1029,6 +1032,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.20",
  "tokio",
  "tokio-util",
  "uuid",
@@ -1038,6 +1042,7 @@ dependencies = [
 name = "flint-bridge-bootstrap"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "serde",
  "serde_json",
  "tempfile",
@@ -1049,11 +1054,13 @@ dependencies = [
 name = "flint-bridge-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "flint-contracts",
  "fs2",
  "futures-util",
  "serde",
  "serde_json",
+ "thiserror 2.0.20",
  "tokio",
  "tokio-util",
  "uuid",
@@ -1075,6 +1082,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "prost",
+ "serde",
  "serde_with",
  "strum",
  "tokio",
@@ -1105,6 +1113,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
+ "thiserror 2.0.20",
  "tokio",
  "windows-sys 0.61.2",
 ]
@@ -5079,6 +5088,9 @@ dependencies = [
 [[package]]
 name = "xtask"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
 
 [[package]]
 name = "yoke"

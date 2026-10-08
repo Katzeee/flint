@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use fs2::FileExt;
 use std::{
     fs::{File, OpenOptions},
+    io,
     path::PathBuf,
 };
 
@@ -21,7 +22,7 @@ impl Config {
         #[cfg(not(feature = "test-runtime"))]
         let (root, control_port, bridge_port) = (
             dirs::data_local_dir()
-                .context("Cannot locate the user's local data directory")?
+                .context("cannot locate the user's local data directory")?
                 .join("flint"),
             6322,
             6321,
@@ -47,7 +48,7 @@ impl Config {
         self.state_dir.join("workflows")
     }
 
-    pub fn lock_file(&self, name: &str) -> std::io::Result<File> {
+    pub fn lock_file(&self, name: &str) -> io::Result<File> {
         std::fs::create_dir_all(self.runtime_dir())?;
         OpenOptions::new()
             .read(true)
@@ -57,19 +58,25 @@ impl Config {
             .open(self.runtime_dir().join(format!("{name}.lock")))
     }
 
-    pub fn running_lease(&self) -> Result<File> {
+    /// Claims the backend runtime, or returns `None` while another backend holds it.
+    pub fn running_lease(&self) -> io::Result<Option<File>> {
         let file = self.lock_file("running")?;
-        file.try_lock_exclusive().map_err(|e| {
-            anyhow::anyhow!("backend_locked: cannot claim the backend runtime: {e}")
-        })?;
-        Ok(file)
+        match file.try_lock_exclusive() {
+            Ok(()) => Ok(Some(file)),
+            Err(error) if lock_contended(&error) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
+}
+
+pub fn lock_contended(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::WouldBlock || cfg!(windows) && error.raw_os_error() == Some(33)
 }
 
 #[cfg(feature = "test-runtime")]
 fn test_runtime() -> Result<(PathBuf, u16, u16)> {
     let root = PathBuf::from(
-        std::env::var_os("FLINT_TEST_ROOT").context("Test build requires FLINT_TEST_ROOT")?,
+        std::env::var_os("FLINT_TEST_ROOT").context("test build requires FLINT_TEST_ROOT")?,
     );
     anyhow::ensure!(
         root.is_absolute() && root.is_dir(),
@@ -77,11 +84,11 @@ fn test_runtime() -> Result<(PathBuf, u16, u16)> {
     );
     let port = |name| -> Result<u16> {
         let port = std::env::var(name)
-            .with_context(|| format!("Test build requires {name}"))?
+            .with_context(|| format!("test build requires {name}"))?
             .parse::<u16>()?;
         anyhow::ensure!(
             port != 0 && port != 6321 && port != 6322,
-            "Invalid isolated test port: {name}"
+            "invalid isolated test port: {name}"
         );
         Ok(port)
     };
@@ -89,7 +96,7 @@ fn test_runtime() -> Result<(PathBuf, u16, u16)> {
     let bridge_port = port("FLINT_TEST_BRIDGE_PORT")?;
     anyhow::ensure!(
         control_port != bridge_port,
-        "Test endpoints must use different ports"
+        "test endpoints must use different ports"
     );
     Ok((root, control_port, bridge_port))
 }

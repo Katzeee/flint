@@ -5,7 +5,7 @@ use flint_backend::Backend;
 use flint_config::Config;
 use flint_contracts::host::HostKind;
 use flint_contracts::protocol::{envelope::Payload, *};
-use flint_control_client::{payload_json, request, status_json, Lifecycle, RemoteError};
+use flint_control_client::{payload_json, request, status_json, Lifecycle};
 use std::{io::Read, path::PathBuf};
 use strum::IntoEnumIterator;
 
@@ -112,11 +112,11 @@ enum BridgeCommand {
 }
 
 fn seconds(value: &str) -> std::result::Result<f64, String> {
-    let number: f64 = value.parse().map_err(|_| "Expected positive seconds")?;
+    let number: f64 = value.parse().map_err(|_| "expected positive seconds")?;
     if number.is_finite() && number > 0.0 {
         Ok(number)
     } else {
-        Err("Expected positive finite seconds".into())
+        Err("expected positive finite seconds".into())
     }
 }
 #[derive(Args, Clone)]
@@ -173,7 +173,7 @@ pub fn run() -> i32 {
             } else {
                 println!(
                     "{}",
-                    serde_json::json!({"error_code":"invalid_arguments", "message":e.to_string()})
+                    serde_json::json!({"error": Failure::with_message(FailureCode::InvalidArguments, e.to_string())})
                 );
             }
             return code;
@@ -196,24 +196,13 @@ pub fn run() -> i32 {
         }
         Ok(None) => 0,
         Err(e) => {
-            let remote = e.downcast_ref::<RemoteError>();
-            let code = remote.map_or(
-                if e.to_string().contains("backend_locked") {
-                    "backend_locked"
-                } else {
-                    "command_failed"
-                },
-                |e| e.code.as_str(),
-            );
+            let failure = crate::failure::from_error(e);
             if json {
-                println!(
-                    "{}",
-                    serde_json::json!({"error_code":code,"message":e.to_string()})
-                );
+                println!("{}", serde_json::json!({"error": failure}));
             } else {
-                eprintln!("{e:#}");
+                eprintln!("{failure}");
             }
-            if code == "interrupted" {
+            if failure.is(FailureCode::Interrupted) {
                 130
             } else {
                 1
@@ -303,7 +292,7 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
     }
     runtime.block_on(async {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => Err(RemoteError { code:"interrupted".into(), message:"Stopped waiting; submitted host code may still be running".into() }.into()),
+            _ = tokio::signal::ctrl_c() => Err(Failure::new(FailureCode::Interrupted).into()),
             result = async {
                 let lifecycle = Lifecycle { config:config.clone(), no_tray:options.no_tray };
                 let value = match command {
@@ -311,14 +300,7 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
                     Command::Stop(_) => lifecycle.stop().await?,
                     Command::Restart(_) => status_json(lifecycle.restart().await?),
                     Command::Attach(args) => {
-                        let host = match args.host_kind {
-                            Some(kind) => kind,
-                            None => flint_hosts::candidate(args.pid)
-                                .ok_or_else(|| anyhow::anyhow!(
-                                    "Process {} is not a recognized host; pass --host-kind", args.pid))?
-                                .host,
-                        };
-                        crate::attach::validate_host(host)?;
+                        let host = crate::attach::resolve(args.pid, args.host_kind)?;
                         let name = args.name.clone().unwrap_or_else(|| host.to_string());
                         lifecycle.ensure().await?;
                         crate::attach::inject(&config, args.pid, host, &name)?;
@@ -327,7 +309,7 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
                         // requested name, or for the injected side to report why it
                         // could not. Matching the name skips the instance a re-pointed
                         // Bridge is replacing.
-                        let deadline = tokio::time::Instant::now()
+                        let deadline = std::time::Instant::now()
                             + std::time::Duration::from_secs_f64(options.timeout);
                         loop {
                             let response = request(&config,
@@ -338,19 +320,11 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
                                     instance["pid"].as_u64() == Some(args.pid as u64)
                                         && instance["instance_name"] == name.as_str()));
                             if let Some(instance) = found {
-                                break serde_json::json!({"attached": true, "pid": args.pid, "host": host,
+                                break serde_json::json!({"pid": args.pid, "host": host,
                                     "instance_id": instance["instance_id"],
                                     "execution_ready": instance["execution_ready"]});
                             }
-                            if let Some(message) = flint_hosts::attach_error(args.pid) {
-                                break serde_json::json!({"status": "failed", "attached": false,
-                                    "pid": args.pid, "host": host, "message": message});
-                            }
-                            if tokio::time::Instant::now() >= deadline {
-                                break serde_json::json!({"status": "failed", "attached": false,
-                                    "pid": args.pid, "host": host,
-                                    "message": "The injected Bridge did not register before the timeout"});
-                            }
+                            crate::attach::pending(args.pid, deadline)?;
                             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         }
                     }

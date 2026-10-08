@@ -114,6 +114,21 @@ fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
         Ok(detail["status"] == "succeeded")
     })?;
     assert_eq!(detail["stdout"], "CSHARP_ZIP_OK\n");
+    let failed = app.execute(
+        instance["instance_id"].as_str().unwrap(),
+        &workflow,
+        "unsupported",
+        1,
+    )?;
+    let failure = app.details(&workflow, &failed, 1)?;
+    assert_eq!(failure["status"], "failed");
+    assert_eq!(failure["error"]["code"], "execution_failed");
+    assert_eq!(failure["error"]["message"], "unsupported_test_command");
+    assert!(failure["traceback"]
+        .as_str()
+        .unwrap()
+        .contains("InvalidOperationException: unsupported_test_command"));
+    assert_eq!(failed["error"], failure["error"]);
     let execution = app.execute(
         instance["instance_id"].as_str().unwrap(),
         &workflow,

@@ -1,6 +1,8 @@
 use flint_backend::{Backend, BackendHandle};
 use flint_contracts::host::HostKind;
+use flint_contracts::protocol::{Failure, FailureCode};
 use flint_control_client::{instance_json, status_json};
+use std::time::{Duration, Instant};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -8,32 +10,37 @@ use tauri::{
 };
 use tauri_plugin_decoration::WebviewWindowExt;
 
-#[tauri::command]
-async fn host_info(pid: u32, preview: bool) -> Result<serde_json::Value, String> {
-    flint_hosts::host_info(pid, preview)
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, Failure> + Send + 'static,
+) -> Result<T, Failure> {
+    tauri::async_runtime::spawn_blocking(work)
         .await
-        .map(crate::hosts::host_info_json)
-        .map_err(|e| e.to_string())
+        .unwrap_or_else(|error| Err(Failure::caused_by(FailureCode::InternalError, &error)))
 }
 
 #[tauri::command]
-async fn focus_application(pid: u32) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || flint_hosts::focus_application(pid))
+async fn host_info(pid: u32, preview: bool) -> Result<serde_json::Value, Failure> {
+    flint_hosts::host_info(pid, preview)
         .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())
+        .map(crate::hosts::host_info_json)
+        .map_err(crate::failure::host)
+}
+
+#[tauri::command]
+async fn focus_application(pid: u32) -> Result<(), Failure> {
+    blocking(move || flint_hosts::focus_application(pid).map_err(crate::failure::host)).await
 }
 
 // A failed activation restores the native frame before it resolves, so either mode leaves a usable window.
 #[tauri::command]
 async fn activate_title_bar(window: tauri::WebviewWindow) -> &'static str {
     if let Err(error) = window.activate_decoration().await {
-        eprintln!("Custom title bar unavailable: {error}");
+        eprintln!("custom title bar unavailable: {error}");
         return "native";
     }
     #[cfg(target_os = "macos")]
     if let Err(error) = window.set_traffic_lights_inset(16.0, 12.0).await {
-        eprintln!("Custom title bar unavailable: {error}");
+        eprintln!("custom title bar unavailable: {error}");
         let _ = window.restore_decoration().await;
         return "native";
     }
@@ -45,33 +52,23 @@ fn snapshot(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
     serde_json::json!({"backend":status_json(state.status()),"instances":state.instances().into_iter().map(instance_json).collect::<Vec<_>>()})
 }
 #[tauri::command]
-async fn candidates() -> Result<serde_json::Value, String> {
-    tauri::async_runtime::spawn_blocking(|| serde_json::json!({"hosts": flint_hosts::discover()}))
-        .await
-        .map_err(|error| error.to_string())
+async fn candidates() -> Result<serde_json::Value, Failure> {
+    blocking(|| Ok(serde_json::json!({"hosts": flint_hosts::discover()}))).await
 }
 #[tauri::command]
 async fn attach(
     state: tauri::State<'_, BackendHandle>,
     pid: u32,
     host_kind: Option<HostKind>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, Failure> {
     let backend = state.inner().clone();
-    let config = backend.config().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let host = match host_kind {
-            Some(kind) => kind,
-            None => {
-                flint_hosts::candidate(pid)
-                    .ok_or_else(|| format!("Process {pid} is not a recognized host"))?
-                    .host
-            }
-        };
+    blocking(move || {
+        let host = crate::attach::resolve(pid, host_kind)?;
         let name: &str = host.into();
-        crate::attach::inject(&config, pid, host, name).map_err(|error| error.to_string())?;
+        crate::attach::inject(backend.config(), pid, host, name)?;
         // The injected Bridge connects to this in-process backend; wait for it,
         // or for the injected side to report why it could not.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             if let Some(instance) = backend
                 .instances()
@@ -79,51 +76,30 @@ async fn attach(
                 .find(|item| item.pid == pid && item.instance_name == name)
             {
                 return Ok(serde_json::json!({
-                    "attached": true,
                     "pid": pid,
                     "host": host,
                     "instance_id": instance.instance_id,
                     "execution_ready": instance.execution_ready,
                 }));
             }
-            if let Some(message) = flint_hosts::attach_error(pid) {
-                return Err(message);
-            }
-            if std::time::Instant::now() >= deadline {
-                return Err("The injected Bridge did not register before the timeout".to_string());
-            }
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            crate::attach::pending(pid, deadline)?;
+            std::thread::sleep(Duration::from_millis(200));
         }
     })
     .await
-    .map_err(|error| error.to_string())?
 }
 #[tauri::command]
-async fn workflows(state: tauri::State<'_, BackendHandle>) -> Result<serde_json::Value, String> {
+async fn workflows(state: tauri::State<'_, BackendHandle>) -> Result<serde_json::Value, Failure> {
     let backend = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        backend
-            .workflows()
-            .map(|items| serde_json::json!(items))
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    blocking(move || Ok(serde_json::json!(backend.workflows()?))).await
 }
 #[tauri::command]
 async fn workflow(
     state: tauri::State<'_, BackendHandle>,
     id: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, Failure> {
     let backend = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        backend
-            .workflow(&id)
-            .map(|item| serde_json::json!(item))
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    blocking(move || Ok(serde_json::json!(backend.workflow(&id)?))).await
 }
 #[tauri::command]
 fn desktop_info(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
@@ -137,8 +113,8 @@ fn desktop_info(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
     })
 }
 #[tauri::command]
-fn stop_backend(state: tauri::State<'_, BackendHandle>) -> Result<(), String> {
-    state.request_stop().map_err(|e| e.to_string())
+fn stop_backend(state: tauri::State<'_, BackendHandle>) -> Result<(), Failure> {
+    Ok(state.request_stop()?)
 }
 
 pub fn run(backend: Backend, runtime: tokio::runtime::Runtime) -> anyhow::Result<()> {
@@ -172,7 +148,7 @@ pub fn run(backend: Backend, runtime: tokio::runtime::Runtime) -> anyhow::Result
             let service = backend.take().unwrap();
             runtime.spawn(async move {
                 let status = service.run().await;
-                if let Err(ref error) = status { eprintln!("Backend stopped: {error:#}"); }
+                if let Err(ref error) = status { eprintln!("backend stopped: {error:#}"); }
                 task_app.exit(if status.is_ok(){0}else{1});
             });
             let watch_app = app_handle.clone();
@@ -182,7 +158,7 @@ pub fn run(backend: Backend, runtime: tokio::runtime::Runtime) -> anyhow::Result
                     tokio::select! {
                         _=shutdown.cancelled()=>break,
                         _=notifications.notified()=>if let Some(window)=watch_app.get_webview_window("main") { let _=window.show(); let _=window.set_focus(); },
-                        _=tokio::time::sleep(std::time::Duration::from_secs(1))=>{
+                        _=tokio::time::sleep(Duration::from_secs(1))=>{
                             if let Some(tray)=watch_app.tray_by_id("flint") { let _=tray.set_tooltip(Some(format!("flint · {} connected hosts",state.instances().len()))); }
                         }
                     }

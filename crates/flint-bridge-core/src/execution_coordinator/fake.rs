@@ -142,7 +142,12 @@ unsafe extern "C" fn prepare(context: usize, request: *const c_char, step: usize
             flint_step_succeed(step, PREPARED);
         }
         Mode::Hold => *fake.held.lock().unwrap() = Some(step),
-        Mode::Fail => flint_step_fail(step, c"prepare trace".as_ptr(), ptr::null()),
+        Mode::Fail => flint_step_fail(
+            step,
+            ptr::null(),
+            c"prepare message".as_ptr(),
+            c"prepare trace".as_ptr(),
+        ),
     }
 }
 
@@ -154,7 +159,7 @@ unsafe extern "C" fn run(context: usize, result_id: usize, step: usize) {
     match mode {
         Mode::Complete => flint_step_succeed(step, 0),
         Mode::Hold => *fake.held.lock().unwrap() = Some(step),
-        Mode::Fail => flint_step_fail(step, ptr::null(), ptr::null()),
+        Mode::Fail => flint_step_fail(step, ptr::null(), ptr::null(), ptr::null()),
     }
 }
 

@@ -20,10 +20,9 @@ message RegisterExecutionChannel {
   string session_token = 3;
 }
 message Heartbeat { string instance_id = 1; }
+// Accepts a registration or heartbeat. A rejection is a Failure payload instead.
 message InstanceAck {
-  bool success = 1;
-  optional ErrorCode error = 2;
-  string message = 3;
+  reserved 1 to 3;
   string instance_id = 4;
   // Returned on registration to bind the execution connection to this session.
   string session_token = 5;

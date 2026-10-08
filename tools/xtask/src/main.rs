@@ -1,13 +1,12 @@
 use std::{
     env,
-    error::Error,
     ffi::OsStr,
     io,
     path::{Path, PathBuf},
     process::{Command, ExitCode},
 };
 
-type Result<T> = std::result::Result<T, Box<dyn Error>>;
+use anyhow::{Context, Result};
 
 struct Suite {
     name: &'static str,
@@ -63,7 +62,7 @@ fn build(root: &Path, args: &[String]) -> Result<()> {
     let release = match args {
         [] => false,
         [flag] if flag == "--release" => true,
-        _ => return Err(usage().into()),
+        _ => return Err(anyhow::anyhow!(usage())),
     };
     prepare(root)?;
     let mut args = vec!["build", "--locked", "--package", "flint"];
@@ -219,15 +218,15 @@ fn execute(directory: &Path, program: &str, args: &[&str], envs: &[(&str, &OsStr
         .current_dir(directory)
         .status()
         .map_err(|error| match error.kind() {
-            io::ErrorKind::NotFound => {
-                format!("`{program}` is not on PATH; see docs/development.md").into()
-            }
-            _ => Box::<dyn Error>::from(error),
+            io::ErrorKind::NotFound => anyhow::Error::new(error).context(format!(
+                "`{program}` is not on PATH; see docs/development.md"
+            )),
+            _ => anyhow::Error::from(error),
         })?;
     if status.success() {
         Ok(())
     } else {
-        Err(format!("{program} exited with {status}").into())
+        Err(anyhow::anyhow!("{program} exited with {status}"))
     }
 }
 
@@ -249,14 +248,14 @@ fn test(root: &Path, names: &[String]) -> Result<()> {
                 SUITES
                     .iter()
                     .find(|suite| suite.name == name)
-                    .ok_or_else(|| format!("Unknown suite `{name}`\n{}", usage()))
+                    .ok_or_else(|| anyhow::anyhow!("unknown suite `{name}`\n{}", usage()))
             })
             .collect::<std::result::Result<_, _>>()?
     };
     prepare(root)?;
     for suite in selected {
         println!("[{}]", suite.name);
-        (suite.run)(root).map_err(|error| format!("[{}] {error}", suite.name))?;
+        (suite.run)(root).with_context(|| format!("[{}]", suite.name))?;
     }
     Ok(())
 }
@@ -268,7 +267,7 @@ fn dispatch(args: &[String]) -> Result<()> {
     match args.split_first() {
         Some((command, args)) if command == "build" => build(&root, args),
         Some((command, names)) if command == "test" => test(&root, names),
-        _ => Err(usage().into()),
+        _ => Err(anyhow::anyhow!(usage())),
     }
 }
 
@@ -277,7 +276,7 @@ fn main() -> ExitCode {
     match dispatch(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{error}");
+            eprintln!("{error:#}");
             ExitCode::FAILURE
         }
     }

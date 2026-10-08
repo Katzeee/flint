@@ -1,5 +1,10 @@
 import type { HostKind } from "./generated/host.js";
 
+export type Failure = Readonly<{
+  code: string;
+  message: string;
+}>;
+
 export type BackendStatus = Readonly<{
   ready: boolean;
   pid: number;
@@ -45,7 +50,7 @@ export type Execution = Readonly<{
   started_at: string;
   finished_at: string | null;
   traceback: string | null;
-  error: string | null;
+  error: Failure | null;
 }>;
 
 export type Workflow = Readonly<{
@@ -79,15 +84,36 @@ declare global {
   }
 }
 
-function invoke<T>(
+export class FailureError extends Error {
+  readonly code: string;
+
+  constructor({ code, message }: Failure) {
+    super(message);
+    this.name = "FailureError";
+    this.code = code;
+  }
+}
+
+function isFailure(value: unknown): value is Failure {
+  return typeof value === "object" && value !== null &&
+    "code" in value && typeof value.code === "string" &&
+    "message" in value && typeof value.message === "string";
+}
+
+// Commands reject with a serialized Failure; callers receive it as an Error.
+async function invoke<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
   const api = window.__TAURI__?.core;
   if (api === undefined) {
-    return Promise.reject(new Error("The Flint desktop bridge is unavailable"));
+    throw new Error("The Flint desktop bridge is unavailable");
   }
-  return api.invoke<T>(command, args);
+  try {
+    return await api.invoke<T>(command, args);
+  } catch (error) {
+    throw isFailure(error) ? new FailureError(error) : error;
+  }
 }
 
 export function readWorkflows(): Promise<readonly WorkflowSummary[]> {
@@ -119,7 +145,6 @@ export function focusApplication(pid: number): Promise<void> {
 }
 
 export type AttachResult = Readonly<{
-  attached: boolean;
   pid: number;
   host: HostKind;
   instance_id: string;

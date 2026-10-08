@@ -11,6 +11,7 @@ custom-protocol = ["tauri/custom-protocol"]
 test-runtime = ["flint-config/test-runtime"]
 
 [dependencies]
+thiserror.workspace = true
 flint-backend.workspace = true
 flint-config.workspace = true
 flint-control-client.workspace = true
@@ -29,6 +30,7 @@ base64 = "0.22"
 tauri-build.workspace = true
 
 [dev-dependencies]
+futures-util = { workspace = true, features = ["sink"] }
 tempfile.workspace = true
 wait-timeout.workspace = true
 

@@ -29,7 +29,7 @@ typedef struct FlintStep FlintStep;
  * prepare receives the request JSON {"request_id","workflow_id","execution_id",
  * "code","filename"}, borrowed for the call, and succeeds with an ID for its prepared
  * result. The core passes this ID to run or to discard; discard may run on any thread.
- * A failure without an error is reported as preparation_failed or
+ * A failure without a code is reported as preparation_failed or
  * execution_failed by the step that failed.
  *
  * release is called once, after the last running callback, when the core is
@@ -46,7 +46,12 @@ typedef struct FlintExecutionBinding {
 /* JSON text uses UTF-8. Returned strings must be released with
  * flint_bridge_string_free. */
 uint32_t flint_bridge_abi_version(void);
-/* Creation errors: 1 invalid configuration, 2 process claimed, 3 system failure.
+typedef enum FlintCreationErrorKind {
+    FLINT_CREATION_INVALID_CONFIGURATION = 1,
+    FLINT_CREATION_CLAIMED = 2,
+    FLINT_CREATION_SYSTEM = 3
+} FlintCreationErrorKind;
+/* Creation failures report a FlintCreationErrorKind through error_kind.
  * Either output may be null. Free error_message with flint_bridge_string_free. */
 FlintBridgeCore *flint_bridge_create(const char *config_json,
                                     const FlintExecutionBinding *execution_binding,
@@ -75,7 +80,10 @@ void flint_step_run(FlintStep *step);
 bool flint_step_output(FlintStep *step, const uint8_t *stdout, size_t stdout_len,
                        const uint8_t *stderr, size_t stderr_len);
 void flint_step_succeed(FlintStep *step, uintptr_t result_id);
-void flint_step_fail(FlintStep *step, const char *traceback, const char *error);
+/* Strings are borrowed for the call and may be null. A null or blank code or
+ * message uses the failed stage's default. Unknown codes pass through unchanged.
+ * message is diagnostic text; traceback carries the host's stack trace. */
+void flint_step_fail(FlintStep *step, const char *code, const char *message, const char *traceback);
 
 /* Creation options: {"host","address","port","name","runtime_version"}, with
  * optional "enabled" (default true). A host process owns at most one Bridge:

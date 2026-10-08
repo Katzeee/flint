@@ -13,7 +13,7 @@ namespace Flint.Bridge
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)]
         private delegate bool OutputFn(IntPtr step, IntPtr stdout, UIntPtr stdoutLength, IntPtr stderr, UIntPtr stderrLength);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void SucceedFn(IntPtr step, IntPtr resultId);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void FailFn(IntPtr step, IntPtr traceback, IntPtr error);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void FailFn(IntPtr step, IntPtr code, IntPtr message, IntPtr traceback);
 
         private readonly IExecutor executor;
         private readonly IExecutionScheduler scheduler;
@@ -109,8 +109,9 @@ namespace Flint.Bridge
         private void Fail(IntPtr step, Exception failure)
         {
             var trace = NativeCore.Utf8(failure.ToString());
-            try { fail(step, trace, IntPtr.Zero); }
-            finally { Marshal.FreeHGlobal(trace); }
+            var message = NativeCore.Utf8(failure.Message);
+            try { fail(step, IntPtr.Zero, message, trace); }
+            finally { Marshal.FreeHGlobal(message); Marshal.FreeHGlobal(trace); }
         }
 
         private void Write(IntPtr step, string text, bool stderr)

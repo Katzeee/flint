@@ -54,7 +54,7 @@ message GetExecutionResponse {
   string started_at = 8;
   optional string finished_at = 9;
   optional string traceback = 10;
-  optional string error = 11;
+  Failure error = 11;
   optional string updated_at = 12;
   optional string code = 13;
 }

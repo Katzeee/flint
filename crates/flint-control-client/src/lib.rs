@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use flint_config::Config;
+use flint_config::{lock_contended, Config};
 use flint_contracts::protocol::{envelope::Payload, *};
 use fs2::FileExt;
 use futures_util::SinkExt;
@@ -12,58 +12,39 @@ use std::{
 use tokio::{net::TcpStream, time::Instant};
 use uuid::Uuid;
 
-#[derive(Debug)]
-pub struct RemoteError {
-    pub code: String,
-    pub message: String,
-}
-impl std::fmt::Display for RemoteError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.code, self.message)
-    }
-}
-impl std::error::Error for RemoteError {}
-
+/// A failure the backend answers with propagates as the `Failure` itself.
 pub async fn request(config: &Config, payload: Payload) -> Result<Payload> {
     request_until(
-        config,
+        (config.address.as_str(), config.control_port),
         payload,
         Instant::now() + Duration::from_secs_f64(config.timeout),
     )
     .await
 }
-async fn request_until(config: &Config, payload: Payload, deadline: Instant) -> Result<Payload> {
+async fn request_until(
+    endpoint: (&str, u16),
+    payload: Payload,
+    deadline: Instant,
+) -> Result<Payload> {
     tokio::time::timeout_at(deadline, async {
-        let socket = TcpStream::connect((config.address.as_str(), config.control_port)).await?;
+        let socket = TcpStream::connect(endpoint).await?;
         let mut wire = framed(socket);
         let id = Uuid::new_v4().simple().to_string();
         wire.send(envelope(id.clone(), payload)).await?;
         let response = read_envelope(&mut wire)
             .await
-            .context("Backend closed before replying")?;
+            .context("backend closed before replying")?;
         anyhow::ensure!(
             response.request_id == id,
-            "Response request identity mismatch"
+            "response request identity mismatch"
         );
-        let payload = response.payload.context("Missing response payload")?;
-        if let Payload::ProtocolError(error) = payload {
-            let code = ErrorCode::try_from(error.code)
-                .map(|e| {
-                    e.as_str_name()
-                        .trim_start_matches("ERROR_CODE_")
-                        .to_lowercase()
-                })
-                .unwrap_or_else(|_| "protocol_error".into());
-            return Err(RemoteError {
-                code,
-                message: error.message,
-            }
-            .into());
+        match response.payload.context("missing response payload")? {
+            Payload::Failure(failure) => Err(failure.into()),
+            payload => Ok(payload),
         }
-        Ok(payload)
     })
     .await
-    .context("Backend request timed out")?
+    .context("backend request timed out")?
 }
 pub struct Lifecycle {
     pub config: Config,
@@ -81,17 +62,18 @@ impl Lifecycle {
         }
     }
     fn lease_available(&self) -> Result<bool> {
-        let file = self.config.lock_file("running")?;
-        match file.try_lock_exclusive() {
-            Ok(()) => Ok(true),
-            Err(e) if lock_contended(&e) => Ok(false),
-            Err(e) => Err(e.into()),
-        }
+        Ok(self.config.running_lease()?.is_some())
     }
     async fn probe(&self, deadline: Instant) -> Result<Option<PingResponse>> {
-        match request_until(&self.config, Payload::PingRequest(PingRequest {}), deadline).await {
+        match request_until(
+            (self.config.address.as_str(), self.config.control_port),
+            Payload::PingRequest(PingRequest {}),
+            deadline,
+        )
+        .await
+        {
             Ok(Payload::PingResponse(ping)) => Ok(Some(ping)),
-            Ok(_) => anyhow::bail!("Unexpected ping response"),
+            Ok(_) => anyhow::bail!("unexpected ping response"),
             Err(e)
                 if e.downcast_ref::<io::Error>()
                     .map_or(false, |e| e.kind() == io::ErrorKind::ConnectionRefused) =>
@@ -154,7 +136,7 @@ impl Lifecycle {
             if let Some(child) = child.as_mut() {
                 anyhow::ensure!(
                     child.try_wait()?.is_none(),
-                    "Backend startup failed; see backend.log"
+                    "backend startup failed; see backend.log"
                 );
             }
             pause(deadline).await?;
@@ -176,7 +158,7 @@ impl Lifecycle {
             pause(deadline).await?;
         };
         let response = request_until(
-            &self.config,
+            (self.config.address.as_str(), self.config.control_port),
             Payload::StopBackendRequest(StopBackendRequest {}),
             deadline,
         )
@@ -186,7 +168,7 @@ impl Lifecycle {
                 response,
                 Payload::StopBackendResponse(StopBackendResponse { stopping: true })
             ),
-            "Invalid shutdown acknowledgement"
+            "invalid shutdown acknowledgement"
         );
         loop {
             match self.probe(deadline).await {
@@ -214,14 +196,10 @@ impl Lifecycle {
     }
 }
 async fn pause(deadline: Instant) -> Result<()> {
-    anyhow::ensure!(Instant::now() < deadline, "Backend lifecycle timed out");
+    anyhow::ensure!(Instant::now() < deadline, "backend lifecycle timed out");
     tokio::time::sleep_until((Instant::now() + Duration::from_millis(50)).min(deadline)).await;
     Ok(())
 }
-fn lock_contended(error: &io::Error) -> bool {
-    error.kind() == io::ErrorKind::WouldBlock || cfg!(windows) && error.raw_os_error() == Some(33)
-}
-
 pub fn status_json(p: PingResponse) -> serde_json::Value {
     serde_json::json!({"ready": p.ready, "pid": p.pid, "bridge_address": p.bridge_address, "bridge_port": p.bridge_port})
 }
@@ -250,7 +228,7 @@ pub fn payload_json(p: Payload) -> Result<serde_json::Value> {
                 out["traceback"] = t.into();
             }
             if let Some(e) = p.error {
-                out["error"] = e.into();
+                out["error"] = serde_json::to_value(e)?;
             }
             out
         }
@@ -265,6 +243,6 @@ pub fn payload_json(p: Payload) -> Result<serde_json::Value> {
             out
         }
         Payload::ShowWindowResponse(p) => json!({"accepted": p.accepted}),
-        _ => anyhow::bail!("Unexpected response"),
+        _ => anyhow::bail!("unexpected response"),
     })
 }

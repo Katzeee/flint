@@ -17,7 +17,7 @@ fn default_enabled() -> bool {
 }
 
 impl BridgeOptions {
-    pub(crate) fn into_parts(self) -> Result<(Identity, BridgeSettings), String> {
+    pub(crate) fn into_parts(self) -> anyhow::Result<(Identity, BridgeSettings)> {
         let settings = BridgeSettings {
             address: self.address,
             port: self.port,
@@ -25,10 +25,10 @@ impl BridgeOptions {
             enabled: self.enabled,
         };
         if self.host.trim().is_empty() {
-            return Err("the host is empty".into());
+            anyhow::bail!("the host is empty");
         }
         if !settings.valid() {
-            return Err("the address and instance name must be set and the port nonzero".into());
+            anyhow::bail!("the address and instance name must be set and the port nonzero");
         }
         Ok((
             Identity {

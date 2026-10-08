@@ -127,7 +127,10 @@ impl Drop for Fixture {
 
 fn failed(result: &ExecutionResult, error: &str) {
     assert_eq!(result.status, ExecutionStatus::Failed as i32);
-    assert_eq!(result.error.as_deref(), Some(error));
+    assert_eq!(
+        result.error.as_ref().map(|failure| failure.code.as_str()),
+        Some(error)
+    );
 }
 
 #[test]
@@ -186,6 +189,7 @@ fn failures_are_classified_by_the_step_that_failed() {
     let result = f.result();
     failed(&result, "preparation_failed");
     assert_eq!(result.traceback.as_deref(), Some("prepare trace"));
+    assert_eq!(result.error.as_ref().unwrap().message, "prepare message");
     assert_eq!(f.fake.calls(), ["prepare"]);
 
     *f.fake.prepare.lock().unwrap() = Mode::Complete;
@@ -198,8 +202,26 @@ fn failures_are_classified_by_the_step_that_failed() {
     f.submit();
     f.run_posted();
     let step = f.fake.take_held().unwrap();
-    unsafe { flint_step_fail(step, ptr::null(), c"host_error".as_ptr()) };
-    failed(&f.result(), "host_error");
+    unsafe { flint_step_fail(step, c" ".as_ptr(), c"".as_ptr(), ptr::null()) };
+    let result = f.result();
+    failed(&result, "execution_failed");
+    assert!(!result.error.unwrap().message.trim().is_empty());
+
+    f.submit();
+    f.run_posted();
+    let step = f.fake.take_held().unwrap();
+    unsafe {
+        flint_step_fail(
+            step,
+            c"host.custom_failure".as_ptr(),
+            c"custom message".as_ptr(),
+            c"custom traceback".as_ptr(),
+        )
+    };
+    let result = f.result();
+    failed(&result, "host.custom_failure");
+    assert_eq!(result.error.unwrap().message, "custom message");
+    assert_eq!(result.traceback.as_deref(), Some("custom traceback"));
 }
 
 #[test]
@@ -209,7 +231,7 @@ fn stopping_before_the_posted_step_runs_cancels_without_calling_the_host() {
     let step = f.fake.take_posted(WAIT).unwrap();
     f.stop();
     assert!(!f.busy());
-    failed(&f.result(), STOPPED);
+    failed(&f.result(), "bridge_stopped");
     flint_step_run(step);
     assert!(f.fake.calls().is_empty());
 }
@@ -224,7 +246,7 @@ fn stopping_during_preparation_discards_its_value_instead_of_running() {
     assert!(f.busy(), "started preparation must finish first");
     flint_step_succeed(f.fake.take_held().unwrap(), 5);
     assert!(!f.busy());
-    failed(&f.result(), STOPPED);
+    failed(&f.result(), "bridge_stopped");
     assert_eq!(f.fake.calls(), ["prepare", "discard 5"]);
 }
 
@@ -242,7 +264,7 @@ fn a_host_that_cannot_schedule_fails_the_execution() {
             f.fake.refuse.store(true, Ordering::SeqCst);
             f.submit();
         }
-        failed(&f.result(), DROPPED);
+        failed(&f.result(), "scheduling_rejected");
         assert!(!f.busy(), "{case}");
         // The result is queued before discard; wait for the dispatcher to finish cleanup.
         f.finish_dispatcher();
@@ -308,7 +330,7 @@ fn destroying_a_core_releases_lost_steps_and_preserves_its_replacement() {
         assert!(!write(lost, "late output", ""), "{case}");
         flint_step_run(lost);
         flint_step_succeed(lost, PREPARED);
-        unsafe { flint_step_fail(lost, ptr::null(), c"late failure".as_ptr()) };
+        unsafe { flint_step_fail(lost, ptr::null(), c"late failure".as_ptr(), ptr::null()) };
         assert!(
             replacement.busy(),
             "{case}: stale step ended the new execution"
@@ -346,7 +368,14 @@ fn a_completed_preparation_step_cannot_affect_the_running_execution() {
 
     assert!(!write(completed, "late preparation output", ""));
     flint_step_succeed(completed, PREPARED);
-    unsafe { flint_step_fail(completed, ptr::null(), c"late failure".as_ptr()) };
+    unsafe {
+        flint_step_fail(
+            completed,
+            ptr::null(),
+            c"late failure".as_ptr(),
+            ptr::null(),
+        )
+    };
     flint_step_run(completed);
     assert!(f.busy(), "the running step still owns completion");
     assert_eq!(
@@ -409,10 +438,10 @@ fn revocation_waits_for_the_running_callback_and_silences_later_work() {
     f.fake.during_prepare.lock().unwrap().take();
     assert_eq!(f.fake.released.load(Ordering::SeqCst), 1);
     assert_eq!(f.fake.calls(), ["prepare"]);
-    failed(&f.result(), STOPPED);
+    failed(&f.result(), "bridge_stopped");
 
     f.submit();
-    failed(&f.result(), STOPPED);
+    failed(&f.result(), "bridge_stopped");
     assert_eq!(f.fake.calls(), ["prepare"]);
     assert_eq!(f.fake.released.load(Ordering::SeqCst), 1);
 }

@@ -5,6 +5,7 @@ import "flint_protocol/v1/control.proto";
 import "flint_protocol/v1/host.proto";
 
 // Each frame carries one envelope. Responses and output updates echo request_id.
+// Any request may be answered with a Failure payload instead of its response.
 message Envelope {
   uint32 protocol_version = 1;
   string request_id = 2;
@@ -20,7 +21,7 @@ message Envelope {
     ExecuteRequest execute_request = 18;
     GetExecutionRequest get_execution_request = 19;
     GetExecutionResponse get_execution_response = 20;
-    ProtocolError protocol_error = 21;
+    Failure failure = 21;
     ShowWindowRequest show_window_request = 22;
     ShowWindowResponse show_window_response = 23;
     RegisterInstance register_instance = 30;

@@ -1,4 +1,5 @@
-use super::Store;
+use super::{Store, StoreError};
+use flint_contracts::protocol::{Failure, FailureCode};
 
 fn record(store: &Store, workflow: &str, code: &str, request_id: &str) -> String {
     store
@@ -24,15 +25,79 @@ fn restart_preserves_completed_records_and_marks_interrupted_outcomes_unknown() 
             e.stdout = "1\n".into();
         })
         .unwrap();
+    let failed = record(&store, &workflow, "host_failure()", "request-failed");
+    store
+        .update(&workflow, &failed, |entry| {
+            entry.status = "failed".into();
+            entry.error = Some(Failure {
+                code: "custom.host_error".into(),
+                message: "具体原因".into(),
+            });
+            entry.traceback = Some("host stack".into());
+        })
+        .unwrap();
     let running = record(&store, &workflow, "running()", "request2");
     drop(store);
     let store = Store::open(directory.path().into()).unwrap();
     let restored = store.execution(&workflow, &execution).unwrap();
     assert_eq!(restored.status, "succeeded");
     assert_eq!(restored.stdout, "1\n");
+    let failed = store.execution(&workflow, &failed).unwrap();
+    assert_eq!(failed.status, "failed");
+    assert_eq!(failed.error.as_ref().unwrap().code, "custom.host_error");
+    assert_eq!(failed.error.unwrap().message, "具体原因");
+    assert_eq!(failed.traceback.as_deref(), Some("host stack"));
     let interrupted = store.execution(&workflow, &running).unwrap();
     assert_eq!(interrupted.status, "failed");
-    assert!(interrupted.error.unwrap().contains("unknown"));
+    assert!(interrupted
+        .error
+        .unwrap()
+        .is(FailureCode::ExecutionInterrupted));
+}
+
+#[test]
+fn an_unreadable_record_fails_only_the_operations_that_need_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Store::open(directory.path().into()).unwrap();
+    let readable = store.create("Readable".into(), "".into()).unwrap();
+    drop(store);
+    let records = [
+        ("corrupt", "not json"),
+        (
+            "older",
+            r#"{"schema_version":1,"execs":[{"error":"text"}]}"#,
+        ),
+    ];
+    for (id, bytes) in records {
+        std::fs::write(directory.path().join(format!("{id}.json")), bytes).unwrap();
+    }
+
+    let store = Store::open(directory.path().into()).unwrap();
+    let listed: Vec<_> = store
+        .list()
+        .unwrap()
+        .into_iter()
+        .map(|summary| summary.workflow_id)
+        .collect();
+    assert_eq!(listed, [readable]);
+    for (id, _) in records {
+        let error = store.load(id).unwrap_err();
+        let StoreError::Unreadable { source, .. } = &error else {
+            panic!("{id}: {error:?}");
+        };
+        if id == "corrupt" {
+            assert!(source.is::<serde_json::Error>(), "{source:?}");
+        }
+        let failure = Failure::from(error);
+        assert!(failure.is(FailureCode::WorkflowUnreadable));
+        assert!(failure.message.contains(&format!("{id}.json")), "{failure}");
+        if id == "older" {
+            assert!(
+                failure.message.contains("unsupported schema version 1"),
+                "{failure}"
+            );
+        }
+    }
 }
 
 #[test]

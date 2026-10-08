@@ -1,7 +1,7 @@
 //! Coordinates execution through the host execution binding, never calling it
 //! from the network thread.
 use crate::{
-    execution::{Failure, Stage, DROPPED, STOPPED},
+    execution::{ExecutionFailure, Stage},
     execution_binding::{ExecutionBinding, OwnedExecutionBinding},
     state::BridgeState,
 };
@@ -58,7 +58,7 @@ impl ExecutionCoordinator {
     pub(crate) fn start(
         execution_binding: OwnedExecutionBinding,
         state: Arc<Mutex<BridgeState>>,
-    ) -> Result<(Arc<Self>, mpsc::Sender<u64>, JoinHandle<()>), String> {
+    ) -> Result<(Arc<Self>, mpsc::Sender<u64>, JoinHandle<()>), std::io::Error> {
         let (schedule, scheduled) = mpsc::channel();
         let execution_coordinator = Arc::new(Self {
             execution_binding: Mutex::new(Some(Arc::new(execution_binding))),
@@ -75,7 +75,7 @@ impl ExecutionCoordinator {
             })
             .map_err(|error| {
                 execution_coordinator.revoke();
-                format!("Cannot start the execution dispatcher: {error}")
+                error
             })?;
         Ok((execution_coordinator, schedule, thread))
     }
@@ -124,13 +124,17 @@ impl ExecutionCoordinator {
             Step::take(step);
             self.cancel(
                 execution_id,
-                if posted.is_none() { STOPPED } else { DROPPED },
+                if posted.is_none() {
+                    ExecutionFailure::Stopped
+                } else {
+                    ExecutionFailure::SchedulingRejected
+                },
             );
         }
     }
 
     /// Ends an execution whose code has not started and discards its prepared result.
-    fn cancel(&self, execution_id: u64, error: &str) {
+    fn cancel(&self, execution_id: u64, error: ExecutionFailure) {
         let discard = {
             let mut state = self.state.lock().unwrap();
             let discard = match state
@@ -141,7 +145,7 @@ impl ExecutionCoordinator {
                 Some(Stage::Prepared { result_id }) => Some(result_id),
                 _ => return,
             };
-            state.finish_execution(execution_id, Err(Failure::new(error)));
+            state.finish_execution(execution_id, Err(error));
             discard
         };
         if let Some(result_id) = discard {
@@ -160,7 +164,7 @@ impl ExecutionCoordinator {
             .as_ref()
             .map(|execution| execution.id);
         if let Some(execution_id) = active {
-            self.cancel(execution_id, STOPPED);
+            self.cancel(execution_id, ExecutionFailure::Stopped);
         }
     }
 
@@ -190,7 +194,7 @@ impl ExecutionCoordinator {
                 }
             };
             match action {
-                Action::Cancel => return self.cancel(execution_id, STOPPED),
+                Action::Cancel => return self.cancel(execution_id, ExecutionFailure::Stopped),
                 Action::Prepare(request) => {
                     let step = self.issue(execution_id);
                     let called = self.call(|execution_binding| unsafe {
@@ -205,7 +209,7 @@ impl ExecutionCoordinator {
                         self.state
                             .lock()
                             .unwrap()
-                            .finish_execution(execution_id, Err(Failure::new(STOPPED)));
+                            .finish_execution(execution_id, Err(ExecutionFailure::Stopped));
                         return;
                     }
                     let mut state = self.state.lock().unwrap();
@@ -230,7 +234,7 @@ impl ExecutionCoordinator {
                         self.state
                             .lock()
                             .unwrap()
-                            .finish_execution(execution_id, Err(Failure::new(STOPPED)));
+                            .finish_execution(execution_id, Err(ExecutionFailure::Stopped));
                     }
                     return;
                 }
@@ -238,7 +242,7 @@ impl ExecutionCoordinator {
         }
     }
 
-    fn complete(&self, execution_id: u64, outcome: Result<usize, Failure>) {
+    fn complete(&self, execution_id: u64, outcome: Result<usize, ExecutionFailure>) {
         let (stopped, resume) = {
             let mut state = self.state.lock().unwrap();
             let stopped = state.stopped();
@@ -257,7 +261,7 @@ impl ExecutionCoordinator {
             }
         };
         if stopped {
-            self.cancel(execution_id, STOPPED);
+            self.cancel(execution_id, ExecutionFailure::Stopped);
         } else if resume {
             self.schedule(execution_id);
         }
@@ -296,10 +300,21 @@ impl Step {
         }
     }
 
-    pub(crate) fn fail(step: usize, traceback: Option<String>, error: Option<String>) {
+    pub(crate) fn fail(
+        step: usize,
+        code: Option<String>,
+        message: Option<String>,
+        traceback: Option<String>,
+    ) {
         if let Some(step) = Self::take(step) {
-            step.execution_coordinator
-                .complete(step.execution_id, Err(Failure { traceback, error }));
+            step.execution_coordinator.complete(
+                step.execution_id,
+                Err(ExecutionFailure::Host {
+                    code,
+                    message,
+                    traceback,
+                }),
+            );
         }
     }
 }
