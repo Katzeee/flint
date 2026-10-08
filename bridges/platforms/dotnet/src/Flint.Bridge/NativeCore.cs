@@ -40,7 +40,7 @@ namespace Flint.Bridge
 
     /// <summary>
     /// Loads the native core and creates it with the host's execution capabilities.
-    /// A created core keeps its library loaded so outstanding tickets and steps stay callable.
+    /// A created core keeps its library loaded so steps the host still holds stay callable.
     /// </summary>
     public sealed class NativeCore : IDisposable
     {
@@ -98,7 +98,7 @@ namespace Flint.Bridge
             }
             try
             {
-                if (Function<AbiVersionFn>("flint_bridge_abi_version")() != 6)
+                if (Function<AbiVersionFn>("flint_bridge_abi_version")() != 7)
                     throw new BridgeCreationException(BridgeCreationErrorKind.AbiMismatch, "Unsupported native Bridge ABI");
                 _create = Function<CreateFn>("flint_bridge_create");
                 _stop = Function<StatusFn>("flint_bridge_stop");

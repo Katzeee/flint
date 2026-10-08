@@ -27,9 +27,9 @@ pub(crate) struct ExecutionRequest {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum Stage {
     Scheduled,
-    /// The current ticket still owns continuation after prepare completes.
+    /// The step being run still owns continuation after prepare completes.
     Preparing,
-    /// Preparation completion must schedule a new ticket to continue.
+    /// Preparation completion must post a new step to continue.
     Awaiting,
     Prepared {
         result_id: usize,

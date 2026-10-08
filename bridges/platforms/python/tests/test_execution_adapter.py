@@ -13,14 +13,14 @@ from flint_bridge.execution.capabilities import ExecutionCapabilities
 
 
 class BridgeApi:
-    """Records what the execution adapter reports to the core for each step pointer."""
+    """Records what the execution adapter reports to the core for each step."""
 
     def __init__(self):
         self.events = []
-        self.tickets = []
+        self.runs = []
 
-    def flint_ticket_run(self, ticket):
-        self.tickets.append(ticket)
+    def flint_step_run(self, step):
+        self.runs.append(step)
 
     def flint_step_output(self, step, out, out_len, err, err_len):
         self.events.append(("output", step, out[:out_len].decode(), err[:err_len].decode()))
@@ -130,7 +130,7 @@ def test_futures_complete_steps_later_from_another_thread(bound):
     assert "ValueError: EXPECTED" in bridge_api.events[-1][2]
 
 
-def test_failures_carry_tracebacks_and_output_ends_with_the_step(bound):
+def test_failures_carry_tracebacks(bound):
     streams = []
 
     class Executor:
@@ -149,8 +149,6 @@ def test_failures_carry_tracebacks_and_output_ends_with_the_step(bound):
     execution_binding.prepare(execution_binding.context, request(), 2)
     execution_binding.run(execution_binding.context, bridge_api.events[1][2], 3)
     assert bridge_api.events[2][:2] == ("fail", 3) and "SystemExit" in bridge_api.events[2][2]
-    streams[0].write("late")
-    assert len(bridge_api.events) == 3
     with pytest.raises(TypeError):
         streams[0].write(b"bytes")
 
@@ -193,12 +191,12 @@ class Idle:
         pass
 
 
-def test_post_hands_the_ticket_to_the_scheduler_and_reports_refusal(bound):
+def test_post_hands_the_step_to_the_scheduler_and_reports_refusal(bound):
     scheduler = Scheduler()
     bridge_api, execution_adapter, execution_binding = bound(Idle(), scheduler)
     assert execution_binding.post(execution_binding.context, 41)
     scheduler.posted[0]()
-    assert bridge_api.tickets == [41]
+    assert bridge_api.runs == [41]
 
     class Closed(Scheduler):
         def post(self, callback):

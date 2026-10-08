@@ -1,6 +1,6 @@
 use crate::hosts::host_executable;
 use crate::support::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -30,7 +30,7 @@ fn attach_survives_a_script_reload_and_reports_refused_settings() -> Result<()> 
         project.join("Packages/manifest.json"),
         r#"{"dependencies":{}}"#,
     )?;
-    // Records each domain load and reloads scripts when the test asks.
+    // Records ready scripting domains in the main Editor, excluding import workers.
     let loads = app.directory.join("loads.txt");
     let trigger = app.directory.join("reload");
     fs::write(
@@ -44,15 +44,21 @@ public static class FlintReload
 {{
     const string Loads = @"{}";
     const string Trigger = @"{}";
+    static bool ready;
 
     static FlintReload()
     {{
-        File.AppendAllText(Loads, "loaded\n");
+        if (AssetDatabase.IsAssetImportWorkerProcess()) return;
         EditorApplication.update += Poll;
     }}
 
     static void Poll()
     {{
+        if (!ready)
+        {{
+            ready = true;
+            File.AppendAllText(Loads, "loaded\n");
+        }}
         if (!File.Exists(Trigger)) return;
         File.Delete(Trigger);
         EditorUtility.RequestScriptReload();
@@ -101,11 +107,15 @@ public static class FlintReload
         anyhow::ensure!(attached["attached"] == true, "attach failed: {attached}");
         Ok(attached["instance_id"].as_str().unwrap().to_string())
     };
-    let first = attach()?;
+    let first = attach().context("initial Unity attach")?;
     crate::hosts::unity::verify_scene_execution(&app, &first)?;
 
+    let before_reload = load_count();
     fs::write(&trigger, "")?;
-    wait_until(Duration::from_secs(120), || Ok(load_count() >= 2))?;
+    wait_until(
+        Duration::from_secs(120),
+        || Ok(load_count() > before_reload),
+    )?;
     // The unloaded domain must take its Bridge with it.
     wait_until(Duration::from_secs(30), || {
         let instances = app.call("instances", &["--type", "unity"], 0)?;
@@ -113,7 +123,7 @@ public static class FlintReload
     })?;
 
     // The released claim and a fresh bootstrap load let a new Bridge start.
-    let second = attach()?;
+    let second = attach().context("Unity attach after script reload")?;
     anyhow::ensure!(second != first, "re-attach reused the unloaded Bridge");
 
     // Settings the running Bridge refuses come back as the attach's failure and

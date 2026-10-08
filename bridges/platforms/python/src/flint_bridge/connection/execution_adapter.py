@@ -2,7 +2,6 @@
 from concurrent.futures import Future
 import itertools
 import json
-import threading
 import traceback
 
 from .execution_binding import ExecutionBinding, POST, PREPARE, RUN, DISCARD, RELEASE
@@ -13,44 +12,16 @@ _execution_adapters = {}
 _released_execution_adapters = []
 
 
-class _StepWrapper:
-    """One completion owed to the core; output stops when it completes."""
-
-    def __init__(self, bridge_api, raw):
-        self._bridge_api, self.raw = bridge_api, raw
-        self._lock = threading.Lock()
-
-    def write(self, text, stderr):
-        data = text.encode("utf-8", "replace")
-        out, err = (b"", data) if stderr else (data, b"")
-        with self._lock:
-            if self.raw is not None:
-                self._bridge_api.flint_step_output(self.raw, out, len(out), err, len(err))
-
-    def succeed(self, result_id=0):
-        raw = self._take()
-        if raw is not None:
-            self._bridge_api.flint_step_succeed(raw, result_id)
-
-    def fail(self, trace):
-        raw = self._take()
-        if raw is not None:
-            self._bridge_api.flint_step_fail(raw, trace.encode("utf-8", "replace"), None)
-
-    def _take(self):
-        with self._lock:
-            raw, self.raw = self.raw, None
-        return raw
-
-
 class _Output:
-    def __init__(self, step_wrapper, stderr):
-        self._step_wrapper, self._stderr = step_wrapper, stderr
+    def __init__(self, bridge_api, step, stderr):
+        self._bridge_api, self._step, self._stderr = bridge_api, step, stderr
 
     def write(self, text):
         if not isinstance(text, str):
             raise TypeError("write() argument must be str, not " + type(text).__name__)
-        self._step_wrapper.write(text, self._stderr)
+        data = text.encode("utf-8", "replace")
+        out, err = (b"", data) if self._stderr else (data, b"")
+        self._bridge_api.flint_step_output(self._step, out, len(out), err, len(err))
         return len(text)
 
     def flush(self):
@@ -79,31 +50,29 @@ class ExecutionAdapter:
             DISCARD(self._on_discard), RELEASE(self._on_release))
         _execution_adapters[id(self)] = self
 
-    def _on_post(self, context, ticket):
+    def _on_post(self, context, step):
         try:
-            self._scheduler.post(lambda: self._bridge_api.flint_ticket_run(ticket))
+            self._scheduler.post(lambda: self._bridge_api.flint_step_run(step))
             return True
         except BaseException:
             traceback.print_exc()
             return False
 
-    def _on_prepare(self, context, request, raw):
-        step_wrapper = _StepWrapper(self._bridge_api, raw)
-
+    def _on_prepare(self, context, request, step):
         def on_prepared(prepared_result):
             result_id = next(self._result_ids)
             self._prepared_results[result_id] = prepared_result
-            step_wrapper.succeed(result_id)
+            self._bridge_api.flint_step_succeed(step, result_id)
 
-        self._call(step_wrapper, lambda: self._prepare(json.loads(request.decode("utf-8"))), on_prepared)
+        self._call(step, lambda: self._prepare(json.loads(request.decode("utf-8"))), on_prepared)
 
-    def _on_run(self, context, result_id, raw):
-        step_wrapper = _StepWrapper(self._bridge_api, raw)
+    def _on_run(self, context, result_id, step):
         prepared_result = self._prepared_results.pop(result_id)
         self._call(
-            step_wrapper,
-            lambda: self._run(prepared_result, _Output(step_wrapper, False), _Output(step_wrapper, True)),
-            lambda value: step_wrapper.succeed())
+            step,
+            lambda: self._run(prepared_result, _Output(self._bridge_api, step, False),
+                              _Output(self._bridge_api, step, True)),
+            lambda value: self._bridge_api.flint_step_succeed(step, 0))
 
     def _on_discard(self, context, result_id):
         self._prepared_results.pop(result_id, None)
@@ -111,23 +80,24 @@ class ExecutionAdapter:
     def _on_release(self, context):
         _released_execution_adapters[:] = [_execution_adapters.pop(context, None)]
 
-    @staticmethod
-    def _call(step_wrapper, invoke, done):
+    def _call(self, step, invoke, done):
         try:
             result = invoke()
         except BaseException:
-            step_wrapper.fail(traceback.format_exc())
+            self._fail(step, traceback.format_exc())
             return
         if isinstance(result, Future):
-            result.add_done_callback(lambda future: ExecutionAdapter._settle(step_wrapper, future, done))
+            result.add_done_callback(lambda future: self._settle(step, future, done))
         else:
             done(result)
 
-    @staticmethod
-    def _settle(step_wrapper, future, done):
+    def _settle(self, step, future, done):
         try:
             value = future.result()
         except BaseException as error:
-            step_wrapper.fail("".join(traceback.format_exception(type(error), error, error.__traceback__)))
+            self._fail(step, "".join(traceback.format_exception(type(error), error, error.__traceback__)))
             return
         done(value)
+
+    def _fail(self, step, trace):
+        self._bridge_api.flint_step_fail(step, trace.encode("utf-8", "replace"), None)

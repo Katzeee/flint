@@ -1,7 +1,6 @@
 //! A host whose scheduling and completions each test controls.
-use super::{Step, Ticket};
 use crate::execution_binding::ExecutionBinding;
-use crate::ffi::{flint_step_fail, flint_step_output, flint_step_succeed, flint_ticket_run};
+use crate::ffi::{flint_step_fail, flint_step_output, flint_step_run, flint_step_succeed};
 use serde_json::Value;
 use std::{
     collections::VecDeque,
@@ -32,7 +31,7 @@ pub(crate) struct Fake {
     pub(crate) during_prepare: Mutex<Option<Box<dyn Fn() + Send>>>,
     calls: Mutex<Vec<String>>,
     requests: Mutex<Vec<Value>>,
-    tickets: Mutex<VecDeque<usize>>,
+    posted: Mutex<VecDeque<usize>>,
     held: Mutex<Option<usize>>,
 }
 
@@ -46,7 +45,7 @@ impl Fake {
             during_prepare: Mutex::new(None),
             calls: Mutex::new(vec![]),
             requests: Mutex::new(vec![]),
-            tickets: Mutex::new(VecDeque::new()),
+            posted: Mutex::new(VecDeque::new()),
             held: Mutex::new(None),
         })
     }
@@ -70,11 +69,11 @@ impl Fake {
         self.requests.lock().unwrap().pop()
     }
 
-    pub(crate) fn take_ticket(&self, timeout: Duration) -> Option<*mut Ticket> {
+    pub(crate) fn take_posted(&self, timeout: Duration) -> Option<usize> {
         let deadline = Instant::now() + timeout;
         loop {
-            if let Some(ticket) = self.tickets.lock().unwrap().pop_front() {
-                return Some(ticket as *mut Ticket);
+            if let Some(step) = self.posted.lock().unwrap().pop_front() {
+                return Some(step);
             }
             if Instant::now() >= deadline {
                 return None;
@@ -83,52 +82,50 @@ impl Fake {
         }
     }
 
-    /// Runs the next posted ticket on this thread, as a host loop would.
-    pub(crate) fn run_ticket(&self, timeout: Duration) -> bool {
-        let Some(ticket) = self.take_ticket(timeout) else {
+    /// Runs the next posted step on this thread, as a host loop would.
+    pub(crate) fn run_posted(&self, timeout: Duration) -> bool {
+        let Some(step) = self.take_posted(timeout) else {
             return false;
         };
-        unsafe { flint_ticket_run(ticket) };
+        flint_step_run(step);
         true
     }
 
-    pub(crate) fn take_held(&self) -> Option<*mut Step> {
-        self.held
-            .lock()
-            .unwrap()
-            .take()
-            .map(|step| step as *mut Step)
+    pub(crate) fn take_held(&self) -> Option<usize> {
+        self.held.lock().unwrap().take()
     }
 
-    pub(crate) fn held(&self) -> Option<*const Step> {
-        self.held.lock().unwrap().map(|step| step as *const Step)
+    pub(crate) fn held(&self) -> Option<usize> {
+        *self.held.lock().unwrap()
     }
 }
 
-pub(crate) unsafe fn write(step: *const Step, stdout: &str, stderr: &str) -> bool {
-    flint_step_output(
-        step,
-        stdout.as_ptr(),
-        stdout.len(),
-        stderr.as_ptr(),
-        stderr.len(),
-    )
+pub(crate) fn write(step: usize, stdout: &str, stderr: &str) -> bool {
+    unsafe {
+        flint_step_output(
+            step,
+            stdout.as_ptr(),
+            stdout.len(),
+            stderr.as_ptr(),
+            stderr.len(),
+        )
+    }
 }
 
 unsafe fn fake<'a>(context: usize) -> &'a Fake {
     &*(context as *const Fake)
 }
 
-unsafe extern "C" fn post(context: usize, ticket: *mut Ticket) -> bool {
+unsafe extern "C" fn post(context: usize, step: usize) -> bool {
     let fake = fake(context);
     if fake.refuse.load(Ordering::SeqCst) {
         return false;
     }
-    fake.tickets.lock().unwrap().push_back(ticket as usize);
+    fake.posted.lock().unwrap().push_back(step);
     true
 }
 
-unsafe extern "C" fn prepare(context: usize, request: *const c_char, step: *mut Step) {
+unsafe extern "C" fn prepare(context: usize, request: *const c_char, step: usize) {
     let fake = fake(context);
     fake.calls.lock().unwrap().push("prepare".into());
     fake.requests
@@ -144,19 +141,19 @@ unsafe extern "C" fn prepare(context: usize, request: *const c_char, step: *mut 
             write(step, "prepared\n", "");
             flint_step_succeed(step, PREPARED);
         }
-        Mode::Hold => *fake.held.lock().unwrap() = Some(step as usize),
+        Mode::Hold => *fake.held.lock().unwrap() = Some(step),
         Mode::Fail => flint_step_fail(step, c"prepare trace".as_ptr(), ptr::null()),
     }
 }
 
-unsafe extern "C" fn run(context: usize, result_id: usize, step: *mut Step) {
+unsafe extern "C" fn run(context: usize, result_id: usize, step: usize) {
     let fake = fake(context);
     fake.calls.lock().unwrap().push(format!("run {result_id}"));
     write(step, "ran\n", "");
     let mode = *fake.run.lock().unwrap();
     match mode {
         Mode::Complete => flint_step_succeed(step, 0),
-        Mode::Hold => *fake.held.lock().unwrap() = Some(step as usize),
+        Mode::Hold => *fake.held.lock().unwrap() = Some(step),
         Mode::Fail => flint_step_fail(step, ptr::null(), ptr::null()),
     }
 }

@@ -220,5 +220,6 @@ impl Drop for BridgeCore {
                 let _ = dispatcher.join();
             }
         }
+        self.execution_coordinator.forget_steps();
     }
 }

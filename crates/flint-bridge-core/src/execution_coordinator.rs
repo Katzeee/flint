@@ -6,7 +6,9 @@ use crate::{
     state::BridgeState,
 };
 use std::{
+    collections::BTreeMap,
     ffi::CString,
+    ptr,
     sync::{mpsc, Arc, Mutex},
     thread::{self, JoinHandle},
 };
@@ -17,16 +19,31 @@ pub(crate) struct ExecutionCoordinator {
     schedule: Mutex<Option<mpsc::Sender<u64>>>,
 }
 
-/// A one-shot request to continue an execution on the host's thread.
-pub struct Ticket {
+/// One use of an execution owed by the host.
+pub(crate) struct Step {
     execution_coordinator: Arc<ExecutionCoordinator>,
     execution_id: u64,
 }
 
-/// One completion owed by the host for a prepare or run call.
-pub struct Step {
-    execution_coordinator: Arc<ExecutionCoordinator>,
-    execution_id: u64,
+/// Shared registry for steps issued by this library.
+/// Destroying a core removes its entries, so stale step numbers resolve to nothing.
+static STEPS: Mutex<Steps> = Mutex::new(Steps {
+    next: 1,
+    issued: BTreeMap::new(),
+});
+
+struct Steps {
+    next: usize,
+    issued: BTreeMap<usize, Step>,
+}
+
+impl Steps {
+    fn issue(&mut self, step: Step) -> usize {
+        let number = self.next;
+        self.next = self.next.checked_add(1).expect("step numbers exhausted");
+        self.issued.insert(number, step);
+        number
+    }
 }
 
 enum Action {
@@ -76,22 +93,35 @@ impl ExecutionCoordinator {
         drop(execution_binding);
     }
 
+    /// Ends every step the host still holds, including those it lost, so later use has no effect.
+    pub(crate) fn forget_steps(&self) {
+        STEPS
+            .lock()
+            .unwrap()
+            .issued
+            .retain(|_, step| !ptr::eq(Arc::as_ptr(&step.execution_coordinator), self));
+    }
+
     fn schedule(&self, execution_id: u64) {
         if let Some(schedule) = self.schedule.lock().unwrap().as_ref() {
             let _ = schedule.send(execution_id);
         }
     }
 
-    fn post(self: &Arc<Self>, execution_id: u64) {
-        let ticket = Box::into_raw(Box::new(Ticket {
+    fn issue(self: &Arc<Self>, execution_id: u64) -> usize {
+        STEPS.lock().unwrap().issue(Step {
             execution_coordinator: self.clone(),
             execution_id,
-        }));
+        })
+    }
+
+    fn post(self: &Arc<Self>, execution_id: u64) {
+        let step = self.issue(execution_id);
         let posted = self.call(|execution_binding| unsafe {
-            (execution_binding.post)(execution_binding.context, ticket)
+            (execution_binding.post)(execution_binding.context, step)
         });
         if posted != Some(true) {
-            drop(unsafe { Box::from_raw(ticket) });
+            Step::take(step);
             self.cancel(
                 execution_id,
                 if posted.is_none() { STOPPED } else { DROPPED },
@@ -134,13 +164,6 @@ impl ExecutionCoordinator {
         }
     }
 
-    fn step(self: &Arc<Self>, execution_id: u64) -> *mut Step {
-        Box::into_raw(Box::new(Step {
-            execution_coordinator: self.clone(),
-            execution_id,
-        }))
-    }
-
     fn advance(self: &Arc<Self>, execution_id: u64) {
         loop {
             let action = {
@@ -169,7 +192,7 @@ impl ExecutionCoordinator {
             match action {
                 Action::Cancel => return self.cancel(execution_id, STOPPED),
                 Action::Prepare(request) => {
-                    let step = self.step(execution_id);
+                    let step = self.issue(execution_id);
                     let called = self.call(|execution_binding| unsafe {
                         (execution_binding.prepare)(
                             execution_binding.context,
@@ -178,7 +201,7 @@ impl ExecutionCoordinator {
                         )
                     });
                     if called.is_none() {
-                        drop(unsafe { Box::from_raw(step) });
+                        Step::take(step);
                         self.state
                             .lock()
                             .unwrap()
@@ -198,12 +221,12 @@ impl ExecutionCoordinator {
                     }
                 }
                 Action::Run(result_id) => {
-                    let step = self.step(execution_id);
+                    let step = self.issue(execution_id);
                     let called = self.call(|execution_binding| unsafe {
                         (execution_binding.run)(execution_binding.context, result_id, step)
                     });
                     if called.is_none() {
-                        drop(unsafe { Box::from_raw(step) });
+                        Step::take(step);
                         self.state
                             .lock()
                             .unwrap()
@@ -241,34 +264,43 @@ impl ExecutionCoordinator {
     }
 }
 
-impl Ticket {
-    pub(crate) fn run(self) {
-        self.execution_coordinator.advance(self.execution_id);
-    }
-
-    pub(crate) fn drop_unrun(self) {
-        self.execution_coordinator
-            .cancel(self.execution_id, DROPPED);
-    }
-}
-
 impl Step {
-    pub(crate) fn output(&self, stdout: &str, stderr: &str) -> bool {
-        self.execution_coordinator
-            .state
+    fn take(step: usize) -> Option<Self> {
+        STEPS.lock().unwrap().issued.remove(&step)
+    }
+
+    pub(crate) fn run(step: usize) {
+        if let Some(step) = Self::take(step) {
+            step.execution_coordinator.advance(step.execution_id);
+        }
+    }
+
+    pub(crate) fn output(step: usize, stdout: &str, stderr: &str) -> bool {
+        let Some((execution_coordinator, execution_id)) = STEPS
             .lock()
             .unwrap()
-            .buffer_output(self.execution_id, stdout, stderr)
+            .issued
+            .get(&step)
+            .map(|step| (step.execution_coordinator.clone(), step.execution_id))
+        else {
+            return false;
+        };
+        let mut state = execution_coordinator.state.lock().unwrap();
+        state.buffer_output(execution_id, stdout, stderr)
     }
 
-    pub(crate) fn succeed(self, result_id: usize) {
-        self.execution_coordinator
-            .complete(self.execution_id, Ok(result_id));
+    pub(crate) fn succeed(step: usize, result_id: usize) {
+        if let Some(step) = Self::take(step) {
+            step.execution_coordinator
+                .complete(step.execution_id, Ok(result_id));
+        }
     }
 
-    pub(crate) fn fail(self, traceback: Option<String>, error: Option<String>) {
-        self.execution_coordinator
-            .complete(self.execution_id, Err(Failure { traceback, error }));
+    pub(crate) fn fail(step: usize, traceback: Option<String>, error: Option<String>) {
+        if let Some(step) = Self::take(step) {
+            step.execution_coordinator
+                .complete(step.execution_id, Err(Failure { traceback, error }));
+        }
     }
 }
 

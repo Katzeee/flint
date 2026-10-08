@@ -3,7 +3,7 @@
 use crate::{
     core::CreationError,
     execution_binding::{ExecutionBinding, OwnedExecutionBinding},
-    execution_coordinator::{Step, Ticket},
+    execution_coordinator::Step,
     settings::{ApplyResult, BridgeOptions, BridgeSettings},
     BridgeCore,
 };
@@ -22,7 +22,7 @@ unsafe fn input(value: *const c_char) -> Option<String> {
 
 #[no_mangle]
 pub extern "C" fn flint_bridge_abi_version() -> u32 {
-    6
+    7
 }
 
 /// Returns null on failure and sets `error_kind` to a nonzero
@@ -142,35 +142,22 @@ pub unsafe extern "C" fn flint_bridge_destroy(core: *mut BridgeCore) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn flint_ticket_run(ticket: *mut Ticket) {
-    if !ticket.is_null() {
-        Box::from_raw(ticket).run();
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn flint_ticket_drop(ticket: *mut Ticket) {
-    if !ticket.is_null() {
-        Box::from_raw(ticket).drop_unrun();
-    }
+pub extern "C" fn flint_step_run(step: usize) {
+    Step::run(step);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn flint_step_output(
-    step: *const Step,
+    step: usize,
     stdout: *const u8,
     stdout_len: usize,
     stderr: *const u8,
     stderr_len: usize,
 ) -> bool {
-    let (Some(step), Some(stdout), Some(stderr)) = (
-        step.as_ref(),
-        text(stdout, stdout_len),
-        text(stderr, stderr_len),
-    ) else {
+    let (Some(stdout), Some(stderr)) = (text(stdout, stdout_len), text(stderr, stderr_len)) else {
         return false;
     };
-    step.output(stdout, stderr)
+    Step::output(step, stdout, stderr)
 }
 
 unsafe fn text<'a>(data: *const u8, len: usize) -> Option<&'a str> {
@@ -184,21 +171,17 @@ unsafe fn text<'a>(data: *const u8, len: usize) -> Option<&'a str> {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn flint_step_succeed(step: *mut Step, result_id: usize) {
-    if !step.is_null() {
-        Box::from_raw(step).succeed(result_id);
-    }
+pub extern "C" fn flint_step_succeed(step: usize, result_id: usize) {
+    Step::succeed(step, result_id);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn flint_step_fail(
-    step: *mut Step,
+    step: usize,
     traceback: *const c_char,
     error: *const c_char,
 ) {
-    if !step.is_null() {
-        Box::from_raw(step).fail(input(traceback), input(error));
-    }
+    Step::fail(step, input(traceback), input(error));
 }
 
 #[no_mangle]

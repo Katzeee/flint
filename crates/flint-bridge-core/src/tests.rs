@@ -38,10 +38,10 @@ pub(crate) fn join_thread(thread: thread::JoinHandle<()>, name: &str, timeout: D
     }
 }
 
-/// A core whose host runs posted tickets on the test thread and holds each run.
-struct Core {
+/// A core whose host runs posted steps on the test thread and holds each run.
+pub(crate) struct Core {
     pointer: *mut BridgeCore,
-    fake: Arc<Fake>,
+    pub(crate) fake: Arc<Fake>,
     scope: Option<TestScope>,
 }
 
@@ -66,7 +66,7 @@ impl Core {
     fn connected(&self) -> bool {
         unsafe { flint_bridge_connected(self.pointer) }
     }
-    fn busy(&self) -> bool {
+    pub(crate) fn busy(&self) -> bool {
         unsafe { flint_bridge_busy(self.pointer) }
     }
     fn instance_id(&self) -> String {
@@ -79,7 +79,7 @@ impl Core {
     fn wait_request(&self, timeout: Duration) -> Option<Value> {
         let deadline = Instant::now() + timeout;
         loop {
-            self.fake.run_ticket(Duration::from_millis(1));
+            self.fake.run_posted(Duration::from_millis(1));
             if self.fake.held().is_some() {
                 if let Some(request) = self.fake.take_request() {
                     return Some(request);
@@ -93,13 +93,13 @@ impl Core {
     fn write(&self, stdout: &str, stderr: &str) -> bool {
         self.fake
             .held()
-            .is_some_and(|step| unsafe { write(step, stdout, stderr) })
+            .is_some_and(|step| write(step, stdout, stderr))
     }
     fn finish(&self) -> bool {
         let Some(step) = self.fake.take_held() else {
             return false;
         };
-        unsafe { flint_step_succeed(step, 0) };
+        flint_step_succeed(step, 0);
         true
     }
     fn apply_settings(&self, settings: Value) -> u32 {
@@ -125,7 +125,7 @@ impl Drop for Core {
                 flint_bridge_destroy(pointer);
             }
             if let Some(step) = fake.take_held() {
-                unsafe { flint_step_succeed(step, 0) };
+                flint_step_succeed(step, 0);
             }
         });
         join_thread(cleanup, "core cleanup", WAIT);
@@ -171,7 +171,7 @@ fn accepted(request_id: String) -> Envelope {
     )
 }
 
-fn execute(request_id: &str) -> Envelope {
+pub(crate) fn execute(request_id: &str) -> Envelope {
     envelope(
         request_id.into(),
         Payload::HostExecuteRequest(HostExecuteRequest {
@@ -185,7 +185,7 @@ fn execute(request_id: &str) -> Envelope {
 }
 
 /// Accepts bridges, acknowledges heartbeats, and identifies the session receiving each report.
-struct Backend {
+pub(crate) struct Backend {
     port: u16,
     registered: mpsc::Receiver<(usize, RegisterInstance)>,
     requests: async_mpsc::UnboundedSender<Envelope>,
@@ -200,7 +200,7 @@ impl Backend {
         Self::start_sessions(1)
     }
 
-    fn start_sessions(sessions: usize) -> Self {
+    pub(crate) fn start_sessions(sessions: usize) -> Self {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -275,7 +275,7 @@ impl Backend {
             thread: Some(thread),
         }
     }
-    fn send(&self, envelope: Envelope) {
+    pub(crate) fn send(&self, envelope: Envelope) {
         self.requests.send(envelope).unwrap();
     }
     fn registration(&mut self) -> RegisterInstance {
@@ -342,7 +342,7 @@ impl Drop for Backend {
     }
 }
 
-fn connected(backend: &mut Backend) -> Core {
+pub(crate) fn connected(backend: &mut Backend) -> Core {
     let core = Core::new(backend.port);
     wait_until(|| {
         backend.propagate_panic();

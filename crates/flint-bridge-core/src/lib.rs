@@ -13,7 +13,6 @@ mod state;
 
 pub use core::BridgeCore;
 pub use execution_binding::ExecutionBinding;
-pub use execution_coordinator::{Step, Ticket};
 pub use ffi::*;
 
 #[cfg(test)]

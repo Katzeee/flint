@@ -9,15 +9,15 @@ namespace Flint.Bridge
     /// <summary>Translates the core's host callbacks into managed calls and Task completions.</summary>
     internal sealed class ExecutionAdapter
     {
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void TicketFn(IntPtr ticket);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void RunFn(IntPtr step);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)]
-        private delegate bool OutputFn(IntPtr raw, IntPtr stdout, UIntPtr stdoutLength, IntPtr stderr, UIntPtr stderrLength);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void SucceedFn(IntPtr raw, IntPtr resultId);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void FailFn(IntPtr raw, IntPtr traceback, IntPtr error);
+        private delegate bool OutputFn(IntPtr step, IntPtr stdout, UIntPtr stdoutLength, IntPtr stderr, UIntPtr stderrLength);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void SucceedFn(IntPtr step, IntPtr resultId);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void FailFn(IntPtr step, IntPtr traceback, IntPtr error);
 
         private readonly IExecutor executor;
         private readonly IExecutionScheduler scheduler;
-        private readonly TicketFn runTicket;
+        private readonly RunFn runStep;
         private readonly OutputFn output;
         private readonly SucceedFn succeed;
         private readonly FailFn fail;
@@ -31,7 +31,7 @@ namespace Flint.Bridge
         {
             executor = executionCapabilities.Executor;
             scheduler = executionCapabilities.Scheduler;
-            runTicket = nativeCore.Function<TicketFn>("flint_ticket_run");
+            runStep = nativeCore.Function<RunFn>("flint_step_run");
             output = nativeCore.Function<OutputFn>("flint_step_output");
             succeed = nativeCore.Function<SucceedFn>("flint_step_succeed");
             fail = nativeCore.Function<FailFn>("flint_step_fail");
@@ -46,29 +46,27 @@ namespace Flint.Bridge
             };
         }
 
-        private bool Post(IntPtr context, IntPtr ticket)
+        private bool Post(IntPtr context, IntPtr step)
         {
-            try { scheduler.Post(() => runTicket(ticket)); return true; }
+            try { scheduler.Post(() => runStep(step)); return true; }
             catch (Exception error) { Console.Error.WriteLine(error); return false; }
         }
 
-        private void Prepare(IntPtr context, IntPtr request, IntPtr raw)
+        private void Prepare(IntPtr context, IntPtr request, IntPtr step)
         {
-            var stepWrapper = new StepWrapper(this, raw);
             Task<object> task;
             try { task = executor.Prepare(Json.Read<ExecutionRequest>(NativeCore.ReadUtf8(request))); }
-            catch (Exception error) { stepWrapper.Fail(error); return; }
-            Observe(task, stepWrapper, () => stepWrapper.Succeed(GCHandle.ToIntPtr(GCHandle.Alloc(task.Result))));
+            catch (Exception error) { Fail(step, error); return; }
+            Observe(task, step, () => succeed(step, GCHandle.ToIntPtr(GCHandle.Alloc(task.Result))));
         }
 
-        private void Run(IntPtr context, IntPtr resultId, IntPtr raw)
+        private void Run(IntPtr context, IntPtr resultId, IntPtr step)
         {
-            var stepWrapper = new StepWrapper(this, raw);
             var preparedResult = Take(resultId);
             Task task;
-            try { task = executor.Run(preparedResult, new Output(stepWrapper, false), new Output(stepWrapper, true)); }
-            catch (Exception error) { Finish(stepWrapper, preparedResult, error); return; }
-            Observe(task, stepWrapper, () => Finish(stepWrapper, preparedResult, null), error => Finish(stepWrapper, preparedResult, error));
+            try { task = executor.Run(preparedResult, new Output(this, step, false), new Output(this, step, true)); }
+            catch (Exception error) { Finish(step, preparedResult, error); return; }
+            Observe(task, step, () => Finish(step, preparedResult, null), error => Finish(step, preparedResult, error));
         }
 
         private static void Discard(IntPtr context, IntPtr resultId)
@@ -85,18 +83,18 @@ namespace Flint.Bridge
             return preparedResult;
         }
 
-        private static void Finish(StepWrapper stepWrapper, object preparedResult, Exception failure)
+        private void Finish(IntPtr step, object preparedResult, Exception failure)
         {
             try { (preparedResult as IDisposable)?.Dispose(); }
             catch (Exception error) { failure = failure ?? error; }
-            if (failure == null) stepWrapper.Succeed(IntPtr.Zero);
-            else stepWrapper.Fail(failure);
+            if (failure == null) succeed(step, IntPtr.Zero);
+            else Fail(step, failure);
         }
 
-        // A completed Task finishes inline, so the core can run without another ticket.
-        private static void Observe(Task task, StepWrapper stepWrapper, Action done, Action<Exception> failed = null)
+        // A completed Task finishes inline, so the core can run without posting another step.
+        private void Observe(Task task, IntPtr step, Action done, Action<Exception> failed = null)
         {
-            failed = failed ?? stepWrapper.Fail;
+            failed = failed ?? (error => Fail(step, error));
             if (task == null) { failed(new InvalidOperationException("The executor returned no Task")); return; }
             Action<Task> settle = completed =>
             {
@@ -108,65 +106,36 @@ namespace Flint.Bridge
             else task.ContinueWith(settle, TaskContinuationOptions.ExecuteSynchronously);
         }
 
-        private sealed class StepWrapper
+        private void Fail(IntPtr step, Exception failure)
         {
-            private readonly ExecutionAdapter executionAdapter;
-            private readonly object gate = new object();
-            private IntPtr raw;
-            internal StepWrapper(ExecutionAdapter executionAdapter, IntPtr raw) { this.executionAdapter = executionAdapter; this.raw = raw; }
+            var trace = NativeCore.Utf8(failure.ToString());
+            try { fail(step, trace, IntPtr.Zero); }
+            finally { Marshal.FreeHGlobal(trace); }
+        }
 
-            internal void Write(string text, bool stderr)
+        private void Write(IntPtr step, string text, bool stderr)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            var data = NativeCore.Utf8(text);
+            var length = (UIntPtr)Encoding.UTF8.GetByteCount(text);
+            try
             {
-                if (string.IsNullOrEmpty(text)) return;
-                var data = NativeCore.Utf8(text);
-                var length = (UIntPtr)Encoding.UTF8.GetByteCount(text);
-                try
-                {
-                    lock (gate)
-                    {
-                        if (raw == IntPtr.Zero) return;
-                        executionAdapter.output(raw, stderr ? IntPtr.Zero : data, stderr ? UIntPtr.Zero : length,
-                            stderr ? data : IntPtr.Zero, stderr ? length : UIntPtr.Zero);
-                    }
-                }
-                finally { Marshal.FreeHGlobal(data); }
+                output(step, stderr ? IntPtr.Zero : data, stderr ? UIntPtr.Zero : length,
+                    stderr ? data : IntPtr.Zero, stderr ? length : UIntPtr.Zero);
             }
-
-            internal void Succeed(IntPtr resultId)
-            {
-                var taken = Take();
-                if (taken != IntPtr.Zero) executionAdapter.succeed(taken, resultId);
-            }
-
-            internal void Fail(Exception failure)
-            {
-                var taken = Take();
-                if (taken == IntPtr.Zero) return;
-                var trace = NativeCore.Utf8(failure.ToString());
-                try { executionAdapter.fail(taken, trace, IntPtr.Zero); }
-                finally { Marshal.FreeHGlobal(trace); }
-            }
-
-            private IntPtr Take()
-            {
-                lock (gate)
-                {
-                    var taken = raw;
-                    raw = IntPtr.Zero;
-                    return taken;
-                }
-            }
+            finally { Marshal.FreeHGlobal(data); }
         }
 
         private sealed class Output : TextWriter
         {
-            private readonly StepWrapper stepWrapper;
+            private readonly ExecutionAdapter executionAdapter;
+            private readonly IntPtr step;
             private readonly bool stderr;
-            internal Output(StepWrapper stepWrapper, bool stderr) { this.stepWrapper = stepWrapper; this.stderr = stderr; }
+            internal Output(ExecutionAdapter executionAdapter, IntPtr step, bool stderr) { this.executionAdapter = executionAdapter; this.step = step; this.stderr = stderr; }
             public override Encoding Encoding => Encoding.UTF8;
-            public override void Write(string value) { stepWrapper.Write(value, stderr); }
-            public override void Write(char value) { stepWrapper.Write(value.ToString(), stderr); }
-            public override void Write(char[] buffer, int index, int count) { stepWrapper.Write(new string(buffer, index, count), stderr); }
+            public override void Write(string value) { executionAdapter.Write(step, value, stderr); }
+            public override void Write(char value) { executionAdapter.Write(step, value.ToString(), stderr); }
+            public override void Write(char[] buffer, int index, int count) { executionAdapter.Write(step, new string(buffer, index, count), stderr); }
         }
     }
 }

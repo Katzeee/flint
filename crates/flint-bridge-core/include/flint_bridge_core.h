@@ -10,19 +10,21 @@ extern "C" {
 #endif
 
 typedef struct FlintBridgeCore FlintBridgeCore;
-typedef struct FlintTicket FlintTicket;
 typedef struct FlintStep FlintStep;
 
 /* The core orchestrates each execution through these host callbacks:
  * post, then prepare and run on the host's execution thread, or discard when
  * the execution stops before running. Callbacks must not unwind.
  *
- * post is called from a core dispatcher thread, never the network thread. It
- * returns true after arranging exactly one later flint_ticket_run on the
- * execution thread, or flint_ticket_drop if the host cannot run it. On false the
- * core keeps the ticket.
+ * A step identifies one use of an execution the host owes the core; the host
+ * never dereferences it. Using a step after it is used, or after destroy, has
+ * no effect, so the host may drop one without releasing anything.
  *
- * prepare and run each receive one step, to complete exactly once, before or
+ * post is called from a core dispatcher thread, never the network thread. It
+ * returns true after arranging exactly one later flint_step_run on the
+ * execution thread, and false if it cannot.
+ *
+ * prepare and run each receive a step to complete exactly once, before or
  * after returning and from any thread. Output is accepted until completion.
  * prepare receives the request JSON {"request_id","workflow_id","execution_id",
  * "code","filename"}, borrowed for the call, and succeeds with an ID for its prepared
@@ -34,7 +36,7 @@ typedef struct FlintStep FlintStep;
  * destroyed or creation fails. */
 typedef struct FlintExecutionBinding {
     uintptr_t context;
-    bool (*post)(uintptr_t context, FlintTicket *ticket);
+    bool (*post)(uintptr_t context, FlintStep *step);
     void (*prepare)(uintptr_t context, const char *request_json, FlintStep *step);
     void (*run)(uintptr_t context, uintptr_t result_id, FlintStep *step);
     void (*discard)(uintptr_t context, uintptr_t result_id);
@@ -61,17 +63,16 @@ uint32_t flint_bridge_apply_settings(const FlintBridgeCore *core, const char *se
 /* Terminal: ends the connection and cancels execution whose code has not
  * started. Returns false while prepare or run is still outstanding. */
 bool flint_bridge_stop(const FlintBridgeCore *core);
-/* Stops, revokes every callback, and releases the process claim. Outstanding
- * tickets and steps stay valid to finish and have no further effect. Call it
- * after stop returns true, unless the hosting context itself is ending. */
+/* Stops, revokes every callback, and releases the process claim and every step
+ * the host still holds. Call it after stop returns true, unless the hosting
+ * context itself is ending. */
 void flint_bridge_destroy(FlintBridgeCore *core);
 void flint_bridge_string_free(char *value);
 
-void flint_ticket_run(FlintTicket *ticket);
-void flint_ticket_drop(FlintTicket *ticket);
-/* Spans are UTF-8; a zero-length span may be null. Do not call concurrently with
- * completion of the same step. */
-bool flint_step_output(const FlintStep *step, const uint8_t *stdout, size_t stdout_len,
+void flint_step_run(FlintStep *step);
+/* Spans are UTF-8; a zero-length span may be null. Returns false once the step
+ * no longer accepts output. */
+bool flint_step_output(FlintStep *step, const uint8_t *stdout, size_t stdout_len,
                        const uint8_t *stderr, size_t stderr_len);
 void flint_step_succeed(FlintStep *step, uintptr_t result_id);
 void flint_step_fail(FlintStep *step, const char *traceback, const char *error);
