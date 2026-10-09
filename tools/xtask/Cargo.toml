@@ -6,6 +6,11 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+toml = "0.9"
+sha2 = "0.10"
+# Select the pure-Rust backend for zip's deflate support.
+flate2 = "1.1"
+zip = { version = "9.0.0", default-features = false, features = ["deflate-flate2"] }
 
 [lints]
 workspace = true

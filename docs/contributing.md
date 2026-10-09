@@ -82,7 +82,7 @@ The code generator first synchronizes protobuf Rust output, then compiles the ap
 
 A type belongs in a protobuf schema only when it travels on the wire; `HostKind` and IPC types stay Rust-sourced. Protocol changes start in the owning schema, with wire semantics beside the corresponding fields and framing implementation. Generated files come only from [`tools/contracts-codegen`](../tools/contracts-codegen/src/main.rs): `cargo codegen` regenerates them in the same change as their sources, and `cargo codegen --check` verifies that they match. A change to the shape or meaning of a wire message raises `PROTOCOL_VERSION` in the framing module, and a change to workflow records raises the workflow schema version in `flint-backend::store`.
 
-Builds use declared, locked dependencies and remain independent of developer-local environments. xtask owns dependency preparation; application build scripts compile and embed prepared sources. Tooling declares the interpreters it requires but never provisions them; a missing prerequisite fails with an error naming the requirement.
+Builds use declared, locked dependencies. `cargo xtask setup` owns checkout initialization: repository dependencies and Git hooks. Build, check, and test commands use that prepared environment; application build scripts compile and embed prepared sources. Tooling declares the interpreters it requires but never provisions them; a missing prerequisite fails with an error naming the requirement.
 
 Bridge files reach the executable as a flat set keyed by path, all embedded by `flint-hosts` at compile time: the Python library, the .NET binding, and the Unity package sources, together with the binaries its build compiles from the locked workspace, namely the native Bridge core and, on Windows, the attach bootstrap and the Unity adapter. Those nested builds use their own target directories under the build's output. The bootstrap links the C runtime statically so it needs no runtime present in the target host.
 
@@ -96,7 +96,7 @@ Attach and export are classified in three layers, each named in its types: host 
 
 Run `cargo xtask test lint` to check formatting and run Clippy on every workspace target with all features enabled. Warnings fail this check. The `lint` suite is part of the default `cargo xtask test` command used by CI and uses `target/lint` for build artifacts. Fix diagnostics at their source; a lint exception belongs at the smallest applicable scope with its reason. Generated Rust remains owned by `cargo codegen` rather than hand-edited to satisfy a check.
 
-`cargo xtask check` runs the format and lint checks without tests or dependency preparation. Select languages with `cargo xtask check rust gui python csharp`. The language test suites in `cargo xtask test` run these same checks before their tests; the default `lint` suite owns the Rust checks.
+`cargo xtask check` runs the format and lint checks without tests or dependency preparation. Select languages with `cargo xtask check rust gui python csharp`. GUI, Python, and C# test suites run their language checks before testing. Rust tests and Rust checks are separate suites, `rust` and `lint`; both run by default.
 
 | Language | Formatter | Lint |
 |---|---|---|
@@ -107,7 +107,7 @@ Run `cargo xtask test lint` to check formatting and run Clippy on every workspac
 
 Generated frontend bindings and the Cairn submodule are excluded from application formatting. C# files outside the .NET projects, namely Unity UPM Editor sources and product-test fixtures, receive whitespace checks; their compilation remains with the Unity and runtime tests. `.gitattributes` keeps text files on LF across platforms. Tool versions come from the Rust toolchain, npm lockfile, uv lockfile, and .NET SDK declaration.
 
-Install the checkout's pre-commit hook with `cargo xtask hooks`. `.pre-commit-config.yaml` selects language checks from staged paths. pre-commit temporarily hides unstaged tracked changes and restores them after checking; each selected check validates its project and only reports problems, without formatting or staging files. Hooks use prepared dependencies and the tools on PATH; they do not run the dependency preparation or application tests. CI runs the same language checks through the default test suites. To check every tracked file through the hook runner, use `uv run --project bridges --locked --group lint --python ">=3.11,<3.15" pre-commit run --all-files`.
+Setup installs prek and registers the checkout's pre-commit hook. [prek.toml](../prek.toml) selects language checks from staged paths. The runner temporarily hides unstaged tracked changes and restores them after checking; each selected check validates its project and only reports problems, without formatting or staging files. Hooks use the prepared environment and run the same language checks as CI. Run `cargo xtask check hooks` to apply the hook configuration to every tracked file.
 
 ## Tests
 

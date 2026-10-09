@@ -1,0 +1,38 @@
+default_install_hook_types = ["pre-commit"]
+default_stages = ["pre-commit"]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "rust"
+name = "Rust format and lint"
+entry = "cargo xtask check rust"
+language = "system"
+pass_filenames = false
+files = '(\.rs$|(^|/)Cargo\.(toml|lock)$|^rust(fmt|-toolchain)\.toml$|^\.cargo/|^prek\.toml$|^\.gitattributes$)'
+
+[[repos.hooks]]
+id = "frontend"
+name = "Frontend format and lint"
+entry = "cargo xtask check gui"
+language = "system"
+pass_filenames = false
+files = '^(apps/flint/|tools/xtask/|prek\.toml$|\.(gitattributes|editorconfig)$)'
+exclude = '^apps/flint/(src-tauri/|cairn/)'
+
+[[repos.hooks]]
+id = "python"
+name = "Python format and lint"
+entry = "cargo xtask check python"
+language = "system"
+pass_filenames = false
+files = '(\.py$|^bridges/(pyproject\.toml|uv\.lock)$|^tools/xtask/|^prek\.toml$|^\.gitattributes$)'
+
+[[repos.hooks]]
+id = "csharp"
+name = "C# format and lint"
+entry = "cargo xtask check csharp"
+language = "system"
+pass_filenames = false
+files = '(\.cs$|\.csproj$|\.slnx$|^bridges/(global\.json|Directory\.Build\.props)$|/packages\.lock\.json$|^\.editorconfig$|^tools/xtask/|^prek\.toml$|^\.gitattributes$)'

@@ -34,7 +34,6 @@ default-groups = []
 [dependency-groups]
 test = ["pytest==9.0.3", "PySide6-Essentials==6.11.1"]
 lint = [
-    "pre-commit==4.6.2",
     "ruff==0.16.10",
 ]
 

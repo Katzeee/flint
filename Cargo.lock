@@ -637,6 +637,7 @@ dependencies = [
  "anyhow",
  "prost-build",
  "tempfile",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
@@ -5607,6 +5608,10 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "flate2",
+ "sha2",
+ "toml 0.9.12+spec-1.1.0",
+ "zip",
 ]
 
 [[package]]

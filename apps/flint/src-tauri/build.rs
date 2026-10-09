@@ -34,7 +34,7 @@ fn build_frontend() {
     assert!(
         root.join("apps/flint/cairn/package.json").is_file()
             && root.join("apps/flint/node_modules/.package-lock.json").is_file(),
-        "Frontend dependencies are not prepared; run cargo xtask build from the repository root"
+        "Frontend dependencies are not prepared; run cargo xtask setup from the repository root"
     );
     for input in [
         "apps/flint/index.html",
@@ -64,7 +64,7 @@ fn build_frontend() {
         .expect("Node.js and npm are required to build the Flint desktop UI; see docs/development.md");
     assert!(
         status.success(),
-        "Flint desktop UI build failed; see the npm error above. Use cargo xtask build to prepare locked dependencies"
+        "Flint desktop UI build failed; see the npm error above. Use cargo xtask setup to prepare locked dependencies"
     );
 }
 

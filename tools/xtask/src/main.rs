@@ -8,6 +8,8 @@ use std::{
 
 use anyhow::{Context, Result};
 
+mod setup;
+
 struct Suite {
     name: &'static str,
     default: bool,
@@ -47,34 +49,11 @@ const SUITES: &[Suite] = &[
     },
 ];
 
-fn prepare(root: &Path) -> Result<()> {
-    execute(
-        root,
-        "git",
-        &["submodule", "update", "--init", "--", "apps/flint/cairn"],
-        &[],
-    )?;
-    let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
-    execute(
-        &root.join("apps/flint"),
-        npm,
-        &["ci", "--include=dev", "--no-audit", "--no-fund"],
-        &[],
-    )
-}
-
-fn build(root: &Path, args: &[String]) -> Result<()> {
-    let release = match args {
-        [] => false,
-        [flag] if flag == "--release" => true,
-        _ => return Err(anyhow::anyhow!(usage())),
-    };
-    prepare(root)?;
-    let mut args = vec!["build", "--locked", "--package", "flint"];
-    if release {
-        args.push("--release");
-    }
-    execute(root, "cargo", &args, &[])
+fn codegen(root: &Path, args: &[String]) -> Result<()> {
+    let protoc = env::var_os("PROTOC").unwrap_or_else(|| setup::protoc_path(root).into_os_string());
+    let mut command = vec!["run", "--locked", "--package", "contracts-codegen", "--"];
+    command.extend(args.iter().map(String::as_str));
+    execute(root, "cargo", &command, &[("PROTOC", &protoc)])
 }
 
 fn lint(root: &Path) -> Result<()> {
@@ -119,15 +98,16 @@ fn gui(root: &Path) -> Result<()> {
 }
 
 fn python_tool(root: &Path, command: &[&str]) -> Result<()> {
+    let python = setup::python_request(root)?;
     let mut args = vec![
         "run",
         "--project",
         "bridges",
         "--locked",
-        "--group",
-        "lint",
+        "--no-sync",
+        "--all-groups",
         "--python",
-        ">=3.11,<3.15",
+        &python,
     ];
     args.extend_from_slice(command);
     execute(root, "uv", &args, &[])
@@ -143,7 +123,6 @@ fn python_checks(root: &Path) -> Result<()> {
 
 fn csharp_checks(root: &Path) -> Result<()> {
     let bridges = root.join("bridges");
-    execute(&bridges, "dotnet", &["restore", "Flint.slnx", "--locked-mode"], &[])?;
     execute(
         &bridges,
         "dotnet",
@@ -178,7 +157,8 @@ fn check(root: &Path, names: &[String]) -> Result<()> {
             "gui" => gui_checks(root),
             "python" => python_checks(root),
             "csharp" => csharp_checks(root),
-            _ => anyhow::bail!("unknown check {name:?}; expected rust, gui, python, or csharp"),
+            "hooks" => setup::run_hooks(root),
+            _ => anyhow::bail!("unknown check {name:?}; expected rust, gui, python, csharp, or hooks"),
         }
         .with_context(|| format!("[{name}]"))?;
     }
@@ -186,6 +166,7 @@ fn check(root: &Path, names: &[String]) -> Result<()> {
 }
 
 fn python_environment(root: &Path, command: &[&str]) -> Result<()> {
+    let python = setup::python_request(root)?;
     let mut args = vec![
         "run",
         "--directory",
@@ -193,10 +174,10 @@ fn python_environment(root: &Path, command: &[&str]) -> Result<()> {
         "--locked",
         "--package",
         "flint-bridge",
-        "--group",
-        "test",
+        "--no-sync",
+        "--all-groups",
         "--python",
-        ">=3.11,<3.15",
+        &python,
     ];
     args.extend_from_slice(command);
     execute(root, "uv", &args, &[])
@@ -329,7 +310,7 @@ fn execute(directory: &Path, program: &str, args: &[&str], envs: &[(&str, &OsStr
 fn usage() -> String {
     let names: Vec<_> = SUITES.iter().map(|suite| suite.name).collect();
     format!(
-        "Usage: cargo xtask build [--release]\n       cargo xtask test [{}]...\n       cargo xtask check [rust|gui|python|csharp]...\n       cargo xtask hooks\nBuild and test prepare the submodule and locked frontend dependencies.\nWithout suite names, test runs every default suite.",
+        "Usage: cargo xtask setup\n       cargo codegen [--check]\n       cargo xtask test [{}]...\n       cargo xtask check [rust|gui|python|csharp|hooks]...\nSetup prepares repository dependencies and installs Git hooks.\nWithout suite names, test runs every default suite.",
         names.join("|")
     )
 }
@@ -348,7 +329,6 @@ fn test(root: &Path, names: &[String]) -> Result<()> {
             })
             .collect::<std::result::Result<_, _>>()?
     };
-    prepare(root)?;
     for suite in selected {
         println!("[{}]", suite.name);
         (suite.run)(root).with_context(|| format!("[{}]", suite.name))?;
@@ -359,12 +339,10 @@ fn test(root: &Path, names: &[String]) -> Result<()> {
 fn dispatch(args: &[String]) -> Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()?;
     match args.split_first() {
-        Some((command, args)) if command == "build" => build(&root, args),
+        Some((command, args)) if command == "codegen" => codegen(&root, args),
         Some((command, names)) if command == "test" => test(&root, names),
         Some((command, names)) if command == "check" => check(&root, names),
-        Some((command, args)) if command == "hooks" && args.is_empty() => {
-            python_tool(&root, &["pre-commit", "install"])
-        }
+        Some((command, args)) if command == "setup" && args.is_empty() => setup::run(&root),
         _ => Err(anyhow::anyhow!(usage())),
     }
 }

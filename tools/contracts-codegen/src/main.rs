@@ -90,6 +90,10 @@ fn generate_ipc(root: &Path, temporary: &Path, check: bool) -> Result<()> {
 }
 
 fn generate_protocol(root: &Path, temporary: &Path, check: bool) -> Result<()> {
+    let manifest: toml::Table = include_str!("../../../Cargo.toml").parse()?;
+    let required = manifest["workspace"]["metadata"]["tools"]["protoc"]["version"]
+        .as_str()
+        .context("workspace must declare its protoc version")?;
     let protocol = root.join("protocol");
     let protoc = std::env::var_os("PROTOC")
         .map(PathBuf::from)
@@ -97,12 +101,12 @@ fn generate_protocol(root: &Path, temporary: &Path, check: bool) -> Result<()> {
         .unwrap_or_else(|| PathBuf::from("protoc"));
     let version = Command::new(&protoc).arg("--version").output().with_context(|| {
         format!(
-            "cannot run {}; provide protoc 24.4 on PATH or through PROTOC",
+            "cannot run {}; run cargo xtask setup or set PROTOC to protoc {required}",
             protoc.display()
         )
     })?;
-    if !version.status.success() || String::from_utf8_lossy(&version.stdout).trim() != "libprotoc 24.4" {
-        anyhow::bail!("protocol generation requires protoc 24.4");
+    if !version.status.success() || String::from_utf8_lossy(&version.stdout).trim() != format!("libprotoc {required}") {
+        anyhow::bail!("protocol generation requires protoc {required}");
     }
     let generated = temporary.join("rust");
     fs::create_dir_all(&generated)?;
