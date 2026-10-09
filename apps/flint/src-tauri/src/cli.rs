@@ -217,6 +217,15 @@ pub fn run() -> i32 {
 
 fn run_command(command: Command) -> Result<Option<Output>> {
     if matches!(&command, Command::Gui) {
+        #[cfg(windows)]
+        unsafe {
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn FreeConsole() -> i32;
+            }
+            // The desktop leaves the console; CLI commands retain their terminal and standard streams.
+            FreeConsole();
+        }
         crate::desktop::run(Application::load()?)
             .map_err(|error| Failure::caused_by(FailureCode::CommandFailed, error.as_ref()))?;
         return Ok(None);

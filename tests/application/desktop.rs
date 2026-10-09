@@ -5,9 +5,8 @@ use std::{process::Stdio, time::Duration};
 #[test]
 fn desktop_survives_backend_stop_and_restart_and_reuses_its_window_process() -> Result<()> {
     let app = App::new();
-    let mut command = app.command("gui");
+    let mut command = app.launch_command();
     command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    hidden(&mut command);
     let mut desktop = OwnedProcess(command.spawn()?);
     wait_until(Duration::from_secs(30), || {
         anyhow::ensure!(desktop.0.try_wait()?.is_none(), "desktop exited during startup");

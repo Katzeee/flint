@@ -162,14 +162,18 @@ impl App {
         }
     }
     pub fn command(&self, name: &str) -> Command {
+        let mut command = self.launch_command();
+        command.args([name, "--json"]);
+        command
+    }
+    pub fn launch_command(&self) -> Command {
         let mut command = Command::new(&self.binary);
         assert!(self.directory.is_absolute() && self.directory.is_dir());
         command
             .current_dir(&self.directory)
             .env("FLINT_TEST_ROOT", &self.directory)
             .env("FLINT_TEST_CONTROL_PORT", self.control_port.to_string())
-            .env("FLINT_TEST_BRIDGE_PORT", self.bridge_port.to_string())
-            .args([name, "--json"]);
+            .env("FLINT_TEST_BRIDGE_PORT", self.bridge_port.to_string());
         command
     }
     pub fn call(&self, name: &str, args: &[&str], expected: i32) -> Result<Value> {
