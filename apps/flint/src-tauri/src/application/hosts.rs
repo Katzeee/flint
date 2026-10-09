@@ -13,7 +13,7 @@ fn host_failure(error: HostError) -> Failure {
     Failure::caused_by(code, &error)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct HostInfo {
     #[serde(flatten)]
     pub candidate: HostCandidate,
@@ -22,7 +22,7 @@ pub struct HostInfo {
     pub preview: Option<Preview>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(untagged)]
 pub enum Preview {
     Image { image: String },

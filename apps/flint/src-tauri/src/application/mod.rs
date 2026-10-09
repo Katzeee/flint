@@ -26,7 +26,7 @@ pub use hosts::{ExportResult, HostInfo, Preview};
 
 pub type Result<T> = std::result::Result<T, Failure>;
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct ApplicationInfo {
     pub version: &'static str,
     pub control_endpoint: String,

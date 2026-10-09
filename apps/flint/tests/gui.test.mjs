@@ -5,8 +5,25 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { _electron } from "playwright-core";
 import { preview } from "vite";
+import { build } from "esbuild";
 
 const appRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+
+// Exercise the generated bindings through Tauri's SDK transport mock.
+const ipcMock = await build({
+  stdin: {
+    contents: `
+      import { mockIPC } from "@tauri-apps/api/mocks";
+      import { emit } from "@tauri-apps/api/event";
+      mockIPC((command, args) => window.__mockInvoke(command, args), { shouldMockEvents: true });
+      window.__emitEvent = emit;
+    `,
+    resolveDir: appRoot,
+  },
+  bundle: true,
+  write: false,
+  format: "iife",
+});
 
 async function withDesktop(run) {
   // Serve the window's own content security policy, so the view loads under the rules Tauri applies.
@@ -28,6 +45,7 @@ async function withDesktop(run) {
     });
     const page = await application.firstWindow();
     await page.setViewportSize({ width: 1280, height: 850 });
+    await page.addInitScript({ content: ipcMock.outputFiles[0].text });
     const cspViolations = [];
     await page.exposeFunction("__recordCspViolation", (violation) => {
       cspViolations.push(violation);
@@ -104,92 +122,87 @@ test("desktop navigation preserves connection identity and asynchronous selectio
           },
         ],
       });
-      window.__TAURI__ = {
-        event: { listen: async () => () => {} },
-        core: {
-          invoke: async (command, args) => {
-            window.__invokeCalls.push({ command, args });
-            if (command === "activate_title_bar") return "custom";
-            if (command === "snapshot")
-              return structuredClone(window.__mockSnapshot);
-            if (command === "candidates")
-              return [
-                  {
-                    host: "maya",
-                    pid: 4520,
-                    executable: "C:/Maya/maya.exe",
-                  },
-              ];
-            if (command === "workflows")
-              return structuredClone(window.__workflows);
-            if (command === "workflow") {
-              if (args.id === "first" && window.__delayFirst)
-                return new Promise((resolve) => {
-                  window.__finishFirst = () =>
-                    resolve(record("first", "Asset check"));
-                });
-              return record(
-                args.id,
-                args.id === "first" ? "Asset check" : "Material check",
-              );
-            }
-            if (command === "host_info") {
-              if (args.preview !== true)
-                throw new Error("Application cards must request previews explicitly");
-              window.__captures = (window.__captures ?? 0) + 1;
-              window.__peakCaptures = Math.max(
-                window.__peakCaptures ?? 0,
-                window.__captures,
-              );
-              if (window.__captures > 2) {
-                window.__captures -= 1;
-                throw new Error("Window previews are busy");
-              }
-              await new Promise((resolve) => setTimeout(resolve, 80));
-              window.__captures -= 1;
-              if (args.pid === 4522)
-                return {
-                  pid: args.pid,
-                  host: "maya",
-                  executable: "C:/Maya/maya.exe",
-                  window: { title: "Scene maya-3", minimized: true },
-                  preview: { unavailable_reason: "Window is minimized" },
-                };
-              return {
-                pid: args.pid,
+      window.__mockInvoke = async (command, args) => {
+        window.__invokeCalls.push({ command, args });
+        if (command === "activate_title_bar") return "custom";
+        if (command === "snapshot")
+          return structuredClone(window.__mockSnapshot);
+        if (command === "candidates")
+          return [
+              {
                 host: "maya",
+                pid: 4520,
                 executable: "C:/Maya/maya.exe",
-                window: {
-                  minimized: false,
-                  title: args.pid === 4520
-                    ? "Character_Rig.ma"
-                    : `Scene maya-${args.pid - 4519}`,
-                },
-                preview: {
-                  image:
-                    "data:image/svg+xml," +
-                    encodeURIComponent(
-                      '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#344842"/><rect x="16" y="40" width="150" height="344" fill="#263630"/><rect x="182" y="40" width="442" height="344" fill="#78988b"/><text x="208" y="214" font-size="24" fill="white">Character_Rig.ma</text></svg>',
-                    ),
-                },
-              };
-            }
-            if (command === "focus_application") return;
-            if (command === "attach")
-              return { pid: args.pid, host: args.hostKind, instance_id: "maya-1", execution_ready: true };
-            if (command === "desktop_info")
-              return {
-                version: "0.1.0",
-                state_dir: "C:/FlintData",
-                control_endpoint: "127.0.0.1:6322",
-                bridge_endpoint: "127.0.0.1:6321",
-                attach_supported: true,
-              };
-            if (command === "start_backend")
-              return window.__mockSnapshot.backend;
-            throw new Error(`Unexpected command: ${command}`);
-          },
-        },
+              },
+          ];
+        if (command === "workflows")
+          return structuredClone(window.__workflows);
+        if (command === "workflow") {
+          if (args.id === "first" && window.__delayFirst)
+            return new Promise((resolve) => {
+              window.__finishFirst = () =>
+                resolve(record("first", "Asset check"));
+            });
+          return record(
+            args.id,
+            args.id === "first" ? "Asset check" : "Material check",
+          );
+        }
+        if (command === "host_info") {
+          if (args.preview !== true)
+            throw new Error("Application cards must request previews explicitly");
+          window.__captures = (window.__captures ?? 0) + 1;
+          window.__peakCaptures = Math.max(
+            window.__peakCaptures ?? 0,
+            window.__captures,
+          );
+          if (window.__captures > 2) {
+            window.__captures -= 1;
+            throw new Error("Window previews are busy");
+          }
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          window.__captures -= 1;
+          if (args.pid === 4522)
+            return {
+              pid: args.pid,
+              host: "maya",
+              executable: "C:/Maya/maya.exe",
+              window: { title: "Scene maya-3", minimized: true },
+              preview: { unavailable_reason: "Window is minimized" },
+            };
+          return {
+            pid: args.pid,
+            host: "maya",
+            executable: "C:/Maya/maya.exe",
+            window: {
+              minimized: false,
+              title: args.pid === 4520
+                ? "Character_Rig.ma"
+                : `Scene maya-${args.pid - 4519}`,
+            },
+            preview: {
+              image:
+                "data:image/svg+xml," +
+                encodeURIComponent(
+                  '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#344842"/><rect x="16" y="40" width="150" height="344" fill="#263630"/><rect x="182" y="40" width="442" height="344" fill="#78988b"/><text x="208" y="214" font-size="24" fill="white">Character_Rig.ma</text></svg>',
+                ),
+            },
+          };
+        }
+        if (command === "focus_application") return;
+        if (command === "attach")
+          return { pid: args.pid, host: args.hostKind, instance_id: "maya-1", execution_ready: true };
+        if (command === "desktop_info")
+          return {
+            version: "0.1.0",
+            state_dir: "C:/FlintData",
+            control_endpoint: "127.0.0.1:6322",
+            bridge_endpoint: "127.0.0.1:6321",
+            attach_supported: true,
+          };
+        if (command === "start_backend")
+          return window.__mockSnapshot.backend;
+        throw new Error(`Unexpected command: ${command}`);
       };
     });
     await page.goto(url);
@@ -341,49 +354,41 @@ test("backend controls recover from refusal and preserve pending work across nav
         bridge_port: 6321,
       };
       window.__mockSnapshot = { backend, instances: [] };
-      window.__TAURI__ = {
-        event: { listen: async (_event, handler) => {
-          window.__desktopOpened = handler;
-          return () => {};
-        } },
-        core: {
-          invoke: async (command, args) => {
-            window.__invokeCalls.push({ command, args });
-            if (command === "activate_title_bar") return "custom";
-            if (command === "snapshot") return structuredClone(window.__mockSnapshot);
-            if (command === "candidates") return [];
-            if (command === "desktop_info")
-              return {
-                version: "0.1.0",
-                state_dir: "C:/FlintData",
-                control_endpoint: "127.0.0.1:6322",
-                bridge_endpoint: "127.0.0.1:6321",
-                attach_supported: true,
-              };
-            if (command === "stop_backend") {
-              if (!window.__allowStop)
-                throw { code: "backend_busy", message: "executions are still active" };
-              window.__mockSnapshot = { backend: null, instances: [] };
-              return { stopped_pid: backend.pid };
-            }
-            if (command === "start_backend") {
-              window.__startDuringRestart.push(restarting);
+      window.__mockInvoke = async (command, args) => {
+        window.__invokeCalls.push({ command, args });
+        if (command === "activate_title_bar") return "custom";
+        if (command === "snapshot") return structuredClone(window.__mockSnapshot);
+        if (command === "candidates") return [];
+        if (command === "desktop_info")
+          return {
+            version: "0.1.0",
+            state_dir: "C:/FlintData",
+            control_endpoint: "127.0.0.1:6322",
+            bridge_endpoint: "127.0.0.1:6321",
+            attach_supported: true,
+          };
+        if (command === "stop_backend") {
+          if (!window.__allowStop)
+            throw { code: "backend_busy", message: "executions are still active" };
+          window.__mockSnapshot = { backend: null, instances: [] };
+          return { stopped_pid: backend.pid };
+        }
+        if (command === "start_backend") {
+          window.__startDuringRestart.push(restarting);
+          window.__mockSnapshot = { backend, instances: [] };
+          return backend;
+        }
+        if (command === "restart_backend") {
+          restarting = true;
+          return new Promise((resolve) => {
+            window.__finishRestart = () => {
+              restarting = false;
               window.__mockSnapshot = { backend, instances: [] };
-              return backend;
-            }
-            if (command === "restart_backend") {
-              restarting = true;
-              return new Promise((resolve) => {
-                window.__finishRestart = () => {
-                  restarting = false;
-                  window.__mockSnapshot = { backend, instances: [] };
-                  resolve(backend);
-                };
-              });
-            }
-            throw new Error(`Unexpected command: ${command}`);
-          },
-        },
+              resolve(backend);
+            };
+          });
+        }
+        throw new Error(`Unexpected command: ${command}`);
       };
     });
     await page.goto(`${url}#/settings`);
@@ -428,7 +433,7 @@ test("backend controls recover from refusal and preserve pending work across nav
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     assert.equal(await page.getByRole("button", { name: "Restart", exact: true }).isDisabled(), true);
     // Reopening while restart is pending must establish the backend after that operation.
-    await page.evaluate(() => window.__desktopOpened());
+    await page.evaluate(() => window.__emitEvent("desktop-opened", null));
     await page.evaluate(() => window.__finishRestart());
     await page.waitForFunction(() => window.__invokeCalls.filter((call) => call.command === "start_backend").length === 3);
     assert.deepEqual(

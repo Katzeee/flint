@@ -169,7 +169,7 @@ function ExecutionPage({
                 : "No output recorded."}
             </Text>
           ) : null}
-          <OutputBlock title="Code">{execution.code}</OutputBlock>
+          {execution.code != null ? <OutputBlock title="Code">{execution.code}</OutputBlock> : null}
         </Flex>
       </Box>
     </>

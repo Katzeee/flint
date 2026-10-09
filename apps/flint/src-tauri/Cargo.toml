@@ -4,17 +4,23 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 build = "build.rs"
+default-run = "flint"
 
 [features]
-default = ["custom-protocol"]
+default = ["desktop", "custom-protocol"]
+desktop = []
+bindings = ["dep:specta-typescript"]
 custom-protocol = ["tauri/custom-protocol"]
 test-runtime = ["flint-backend/test-runtime"]
 
 [dependencies]
 thiserror.workspace = true
 flint-backend.workspace = true
-flint-hosts.workspace = true
-flint-contracts = { workspace = true, features = ["protocol"] }
+flint-hosts = { workspace = true, features = ["typescript"] }
+flint-contracts = { workspace = true, features = ["protocol", "typescript"] }
+specta.workspace = true
+specta-typescript = { workspace = true, optional = true }
+tauri-specta.workspace = true
 tauri = { workspace = true, features = ["tray-icon"] }
 tauri-plugin-decoration.workspace = true
 tauri-plugin-single-instance.workspace = true
@@ -36,7 +42,17 @@ tauri-build.workspace = true
 tempfile.workspace = true
 wait-timeout.workspace = true
 
+[[bin]]
+name = "flint"
+path = "src/main.rs"
+required-features = ["desktop"]
+
 [[test]]
 name = "product"
 path = "../../../tests/main.rs"
 required-features = ["test-runtime"]
+
+[[bin]]
+name = "flint-bindings"
+path = "src/bindings.rs"
+required-features = ["bindings"]

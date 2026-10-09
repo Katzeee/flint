@@ -40,7 +40,7 @@ import {
 import { messageOf, useResource } from "./resource.js";
 import { ErrorNotice, formatTime, Loading } from "./shared.js";
 import { loadWindowPreview } from "./window-preview.js";
-import { hostKinds, type HostKind } from "./generated/host.js";
+import { hostKinds, type HostKind } from "./generated/bindings.js";
 
 const hostNames: Readonly<Record<HostKind, string>> = {
   maya: "Maya",

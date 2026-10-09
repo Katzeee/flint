@@ -6,7 +6,7 @@ use flint_contracts::protocol::{Failure, FailureCode};
 use flint_hosts::{Attach, AttachRequest, HostKind};
 use std::time::{Duration, Instant};
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, specta::Type)]
 pub struct AttachResult {
     pub pid: u32,
     pub host: HostKind,

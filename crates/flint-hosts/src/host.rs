@@ -1,6 +1,6 @@
 //! Built-in host integrations, distinct from open Bridge registration identifiers.
 
-use serde_with::{DeserializeFromStr, SerializeDisplay};
+use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString, IntoStaticStr};
 
 /// A host integration Flint knows by name. This does not promise that the host
@@ -13,13 +13,15 @@ use strum::{Display, EnumIter, EnumString, IntoStaticStr};
     Debug,
     Eq,
     PartialEq,
-    SerializeDisplay,
-    DeserializeFromStr,
+    Serialize,
+    Deserialize,
     Display,
     EnumString,
     IntoStaticStr,
     EnumIter,
 )]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum HostKind {
     Maya,

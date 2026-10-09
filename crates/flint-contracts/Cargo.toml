@@ -7,9 +7,11 @@ publish.workspace = true
 [features]
 default = ["protocol"]
 protocol = ["dep:bytes", "dep:prost", "dep:tokio-util", "dep:tokio", "dep:futures-util", "dep:serde_with"]
+typescript = ["dep:specta"]
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
+specta = { workspace = true, optional = true }
 serde_with = { workspace = true, optional = true }
 strum = { workspace = true, features = ["derive"] }
 bytes = { workspace = true, optional = true }

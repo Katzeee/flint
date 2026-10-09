@@ -24,6 +24,7 @@ pub enum HostError {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
 pub struct HostCandidate {
     pub pid: u32,
     pub host: HostKind,

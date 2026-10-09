@@ -15,6 +15,7 @@ pub struct HostInfo {
 }
 
 #[derive(serde::Serialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
 pub struct WindowInfo {
     pub title: String,
     pub minimized: bool,

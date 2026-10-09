@@ -77,7 +77,7 @@ async fn request_until(
             Failure::with_message(FailureCode::BackendUnavailable, "backend request timed out")
         })?
 }
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, specta::Type)]
 pub struct BackendStopped {
     pub stopped_pid: Option<u32>,
 }
@@ -241,7 +241,7 @@ async fn pause(deadline: Instant) -> Result<()> {
     Ok(())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct Snapshot {
     /// No backend is listening. This is distinct from a running backend with no instances.
     pub backend: Option<PingResponse>,

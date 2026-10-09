@@ -29,7 +29,7 @@ fn watch_sources(directory: &Path) {
     }
 }
 
-fn main() {
+fn build_frontend() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     assert!(
         root.join("apps/flint/cairn/package.json").is_file()
@@ -43,6 +43,7 @@ fn main() {
         "apps/flint/vite.config.ts",
         "apps/flint/package.json",
         "apps/flint/package-lock.json",
+        "apps/flint/src/generated",
         "apps/flint/cairn/package.json",
         "apps/flint/cairn/tsconfig.json",
     ] {
@@ -69,6 +70,12 @@ fn main() {
         status.success(),
         "Flint desktop UI build failed; see the npm error above. Use cargo xtask build to prepare locked dependencies"
     );
+}
+
+fn main() {
+    if std::env::var_os("CARGO_FEATURE_DESKTOP").is_some() {
+        build_frontend();
+    }
     println!("cargo:rerun-if-changed=windows-app-manifest.xml");
     let windows = tauri_build::WindowsAttributes::new()
         .app_manifest(include_str!("windows-app-manifest.xml"));

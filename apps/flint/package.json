@@ -25,6 +25,7 @@
   "dependencies": {
     "@cairn/host-tauri": "file:./cairn/packages/hosts/tauri",
     "@cairn/ui": "file:./cairn/packages/ui",
+    "@tauri-apps/api": "^2.12.2",
     "lucide-react": "^1.39.0",
     "react": "19.2.3",
     "react-dom": "19.2.3"
