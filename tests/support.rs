@@ -1,5 +1,5 @@
-use anyhow::{bail, Context, Result};
-use serde_json::{json, Value};
+use anyhow::{Context, Result, bail};
+use serde_json::{Value, json};
 use std::{
     env, fs,
     io::Write,
@@ -21,11 +21,7 @@ pub fn root() -> PathBuf {
 }
 pub fn binary() -> PathBuf {
     let path = PathBuf::from(env!("CARGO_BIN_EXE_flint"));
-    assert!(
-        path.is_file(),
-        "Cargo did not build flint: {}",
-        path.display()
-    );
+    assert!(path.is_file(), "Cargo did not build flint: {}", path.display());
     path
 }
 pub fn python() -> PathBuf {
@@ -42,16 +38,8 @@ pub fn python() -> PathBuf {
         "No Python >=3.11,<3.15 is discoverable by uv; install one or set FLINT_TEST_PYTHON\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let path = PathBuf::from(
-        String::from_utf8(output.stdout)
-            .expect("Invalid Python path")
-            .trim(),
-    );
-    assert!(
-        path.is_file(),
-        "Python interpreter does not exist: {}",
-        path.display()
-    );
+    let path = PathBuf::from(String::from_utf8(output.stdout).expect("Invalid Python path").trim());
+    assert!(path.is_file(), "Python interpreter does not exist: {}", path.display());
     path
 }
 pub fn fixture(name: &str) -> PathBuf {
@@ -97,21 +85,12 @@ pub fn run(command: &mut Command, timeout: Duration, input: Option<&str>) -> Res
     let stdout = NamedTempFile::new()?;
     let stderr = NamedTempFile::new()?;
     command.stdout(stdout.reopen()?).stderr(stderr.reopen()?);
-    command.stdin(if input.is_some() {
-        Stdio::piped()
-    } else {
-        Stdio::null()
-    });
+    command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
     hidden(command);
     let description = format!("{command:?}");
     let mut process = OwnedProcess(command.spawn().with_context(|| description.clone())?);
     if let Some(input) = input {
-        process
-            .0
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(input.as_bytes())?;
+        process.0.stdin.take().unwrap().write_all(input.as_bytes())?;
     }
     let status = process.0.wait_timeout(timeout)?.with_context(|| {
         format!(
@@ -127,12 +106,7 @@ pub fn run(command: &mut Command, timeout: Duration, input: Option<&str>) -> Res
 }
 pub fn checked(command: &mut Command, timeout: Duration) -> Result<Output> {
     let output = run(command, timeout, None)?;
-    anyhow::ensure!(
-        output.status.success(),
-        "{}\n{}",
-        output.stdout,
-        output.stderr
-    );
+    anyhow::ensure!(output.status.success(), "{}\n{}", output.stdout, output.stderr);
     Ok(output)
 }
 pub fn wait_until(timeout: Duration, mut condition: impl FnMut() -> Result<bool>) -> Result<()> {
@@ -189,10 +163,6 @@ impl App {
     }
     pub fn command(&self, name: &str) -> Command {
         let mut command = Command::new(&self.binary);
-        assert!(
-            cfg!(feature = "test-runtime"),
-            "Product tests require the isolated build"
-        );
         assert!(self.directory.is_absolute() && self.directory.is_dir());
         command
             .current_dir(&self.directory)
@@ -205,18 +175,8 @@ impl App {
     pub fn call(&self, name: &str, args: &[&str], expected: i32) -> Result<Value> {
         self.input(name, args, expected, None)
     }
-    pub fn input(
-        &self,
-        name: &str,
-        args: &[&str],
-        expected: i32,
-        input: Option<&str>,
-    ) -> Result<Value> {
-        let result = run(
-            self.command(name).args(args),
-            Duration::from_secs(45),
-            input,
-        )?;
+    pub fn input(&self, name: &str, args: &[&str], expected: i32, input: Option<&str>) -> Result<Value> {
+        let result = run(self.command(name).args(args), Duration::from_secs(45), input)?;
         anyhow::ensure!(
             result.status.code() == Some(expected),
             "{name}: expected exit {expected}, got {}\n{}\n{}",
@@ -225,8 +185,8 @@ impl App {
             result.stderr
         );
         anyhow::ensure!(result.stderr.is_empty(), "{name}: {}", result.stderr);
-        let response: Value = serde_json::from_str(&result.stdout)
-            .with_context(|| format!("Invalid JSON: {}", result.stdout))?;
+        let response: Value =
+            serde_json::from_str(&result.stdout).with_context(|| format!("Invalid JSON: {}", result.stdout))?;
         if response.get("ready").is_some() {
             anyhow::ensure!(
                 response["bridge_address"] == "127.0.0.1"
@@ -254,23 +214,10 @@ impl App {
             .unwrap()
             .into())
     }
-    pub fn execute(
-        &self,
-        instance: &str,
-        workflow: &str,
-        code: &str,
-        expected: i32,
-    ) -> Result<Value> {
+    pub fn execute(&self, instance: &str, workflow: &str, code: &str, expected: i32) -> Result<Value> {
         self.call(
             "exec",
-            &[
-                "--instance-id",
-                instance,
-                "--workflow-id",
-                workflow,
-                "--code",
-                code,
-            ],
+            &["--instance-id", instance, "--workflow-id", workflow, "--code", code],
             expected,
         )
     }
@@ -317,10 +264,7 @@ impl Drop for App {
                 break;
             }
             if Instant::now() >= deadline {
-                let message = format!(
-                    "Could not cleanly stop isolated backend on port {}",
-                    self.control_port
-                );
+                let message = format!("Could not cleanly stop isolated backend on port {}", self.control_port);
                 if !thread::panicking() {
                     panic!("{message}");
                 }
@@ -369,15 +313,18 @@ impl PythonHost {
                 .ok()
                 .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
             if report.is_none() {
-                anyhow::ensure!(process.0.try_wait()?.is_none(), "Python fixture exited before reporting. Set FLINT_TEST_PYTHON to an interpreter executable. {}\n{}", fs::read_to_string(app.directory.join("host.stderr"))?, fs::read_to_string(app.directory.join("host.stdout"))?);
+                anyhow::ensure!(
+                    process.0.try_wait()?.is_none(),
+                    "Python fixture exited before reporting. Set FLINT_TEST_PYTHON to an interpreter executable. {}\n{}",
+                    fs::read_to_string(app.directory.join("host.stderr"))?,
+                    fs::read_to_string(app.directory.join("host.stdout"))?
+                );
             }
             Ok(report.is_some())
         })?;
         let report = report.unwrap();
         anyhow::ensure!(report.get("error").is_none(), "Host bootstrap: {report}");
-        let imported = report["module_file"]
-            .as_str()
-            .context("Missing Python module path")?;
+        let imported = report["module_file"].as_str().context("Missing Python module path")?;
         anyhow::ensure!(
             imported.to_lowercase().starts_with(&format!(
                 "{}{}",
@@ -387,10 +334,7 @@ impl PythonHost {
             "Python loaded the Bridge from {imported}, outside {}",
             bundle.display()
         );
-        anyhow::ensure!(
-            report["pid"].as_u64().is_some_and(|pid| pid > 0),
-            "Missing host PID"
-        );
+        anyhow::ensure!(report["pid"].as_u64().is_some_and(|pid| pid > 0), "Missing host PID");
         Ok(Self {
             process,
             report,

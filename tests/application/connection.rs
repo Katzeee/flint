@@ -5,8 +5,7 @@ use std::{fs, time::Duration};
 #[test]
 fn backend_reports_rejected_registrations_before_closing_the_connection() -> Result<()> {
     use flint_contracts::protocol::{
-        envelope, envelope::Payload, framed, read_envelope, RegisterExecutionChannel,
-        RegisterInstance,
+        RegisterExecutionChannel, RegisterInstance, envelope, envelope::Payload, framed, read_envelope,
     };
     use futures_util::SinkExt;
 
@@ -56,10 +55,7 @@ fn backend_reports_rejected_registrations_before_closing_the_connection() -> Res
         }
         Ok::<_, anyhow::Error>(())
     })?;
-    assert_eq!(
-        app.call("instances", &[], 0)?["instances"],
-        serde_json::json!([])
-    );
+    assert_eq!(app.call("instances", &[], 0)?["instances"], serde_json::json!([]));
     Ok(())
 }
 

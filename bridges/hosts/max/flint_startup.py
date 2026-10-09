@@ -1,4 +1,5 @@
 """Start the bundled Bridge from a 3ds Max post-startup script."""
+
 from pathlib import Path
 import sys
 

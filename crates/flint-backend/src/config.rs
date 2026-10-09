@@ -73,9 +73,7 @@ pub fn lock_contended(error: &io::Error) -> bool {
 
 #[cfg(feature = "test-runtime")]
 fn test_runtime() -> Result<(PathBuf, u16, u16)> {
-    let root = PathBuf::from(
-        std::env::var_os("FLINT_TEST_ROOT").context("test build requires FLINT_TEST_ROOT")?,
-    );
+    let root = PathBuf::from(std::env::var_os("FLINT_TEST_ROOT").context("test build requires FLINT_TEST_ROOT")?);
     anyhow::ensure!(
         root.is_absolute() && root.is_dir(),
         "FLINT_TEST_ROOT must be an existing absolute directory"
@@ -92,9 +90,6 @@ fn test_runtime() -> Result<(PathBuf, u16, u16)> {
     };
     let control_port = port("FLINT_TEST_CONTROL_PORT")?;
     let bridge_port = port("FLINT_TEST_BRIDGE_PORT")?;
-    anyhow::ensure!(
-        control_port != bridge_port,
-        "test endpoints must use different ports"
-    );
+    anyhow::ensure!(control_port != bridge_port, "test endpoints must use different ports");
     Ok((root, control_port, bridge_port))
 }

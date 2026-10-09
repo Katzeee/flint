@@ -4,6 +4,7 @@ import pytest
 @pytest.fixture
 def panel_module(qapp):
     from flint_bridge.ui import connection_panel
+
     return connection_panel
 
 
@@ -11,9 +12,11 @@ SETTINGS = {"address": "127.0.0.1", "port": 6321, "name": "Maya", "enabled": Tru
 
 
 def retrying(message):
-    return {"connection": {"state": "retrying",
-                           "obstacle": {"kind": "unreachable", "message": message}},
-            "busy": False, "settings": SETTINGS}
+    return {
+        "connection": {"state": "retrying", "obstacle": {"kind": "unreachable", "message": message}},
+        "busy": False,
+        "settings": SETTINGS,
+    }
 
 
 def test_an_obstacle_and_a_refused_action_are_shown_separately(panel_module):
@@ -22,8 +25,7 @@ def test_an_obstacle_and_a_refused_action_are_shown_separately(panel_module):
     def refuse(*_):
         raise RuntimeError("Bridge is executing host code")
 
-    panel = panel_module.ConnectionPanel(
-        SETTINGS, lambda: snapshot["value"], refuse, lambda: None)
+    panel = panel_module.ConnectionPanel(SETTINGS, lambda: snapshot["value"], refuse, lambda: None)
     assert panel.status.text() == "Retrying"
     assert panel.warning_text.text() == "connection refused"
 
@@ -32,8 +34,11 @@ def test_an_obstacle_and_a_refused_action_are_shown_separately(panel_module):
     assert panel.warning_text.text() == "connection refused"
 
     # Polling replaces the status but leaves the action's result alone.
-    snapshot["value"] = {"connection": {"state": "connected", "instance_id": "maya-1"},
-                         "busy": False, "settings": SETTINGS}
+    snapshot["value"] = {
+        "connection": {"state": "connected", "instance_id": "maya-1"},
+        "busy": False,
+        "settings": SETTINGS,
+    }
     panel.refresh()
     assert panel.status.text() == "Connected"
     assert panel.warning.isHidden()

@@ -17,7 +17,7 @@ mod os;
 mod runtimes;
 
 use anyhow::Result;
-use flint_contracts::attach::{error_path, plan_path, RuntimePlan};
+use flint_contracts::attach::{RuntimePlan, error_path, plan_path};
 
 /// Read the plan the injector left for this process and start the Bridge.
 ///

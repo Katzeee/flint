@@ -64,5 +64,5 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Generated contracts are current
         run: cargo codegen --check
-      - name: Tests
+      - name: Lints and tests
         run: cargo xtask test

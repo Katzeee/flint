@@ -1,4 +1,5 @@
 """A disposable Python host; Rust owns orchestration and assertions."""
+
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ try:
     sys.path.insert(0, config["bundle"])
     import flint_bridge
     from flint_bridge.standalone_python import manager
+
     report["module_file"] = flint_bridge.__file__
     bridge = manager.connect(port=config["port"])
     if not bridge.wait_until_connected(10):

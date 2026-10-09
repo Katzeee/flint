@@ -8,6 +8,7 @@ from ..qt import resolve_qt
 
 def create_scheduler():
     import maya.cmds
+
     maya.cmds.about(version=True)
     return QtMainThread(resolve_qt(fallback="PySide2"))
 
@@ -15,6 +16,7 @@ def create_scheduler():
 def dispatch_initialization(callback):
     """Schedule `callback` on Maya's main thread from any thread."""
     import maya.utils
+
     maya.utils.executeDeferred(callback)
 
 

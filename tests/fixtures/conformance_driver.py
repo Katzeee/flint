@@ -3,6 +3,7 @@
 Reads one JSON command per line and answers each with one JSON line. Results
 are reported as the binding produced them; Rust owns every assertion.
 """
+
 import json
 import sys
 import threading
@@ -72,7 +73,10 @@ def close(command):
 
 
 COMMANDS = {
-    "create": create, "apply": apply, "take": take, "finish": finish,
+    "create": create,
+    "apply": apply,
+    "take": take,
+    "finish": finish,
     "close": close,
     "status": lambda command: core.status,
 }

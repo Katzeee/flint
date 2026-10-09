@@ -56,3 +56,6 @@ required-features = ["test-runtime"]
 name = "flint-bindings"
 path = "src/bindings.rs"
 required-features = ["bindings"]
+
+[lints]
+workspace = true

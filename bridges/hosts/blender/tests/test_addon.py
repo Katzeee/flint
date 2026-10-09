@@ -7,7 +7,8 @@ from types import ModuleType, SimpleNamespace
 def load_addon(monkeypatch, connect):
     addon_path = Path(__file__).resolve().parents[1] / "addon/__init__.py"
     spec = importlib.util.spec_from_file_location(
-        "flint_blender", addon_path, submodule_search_locations=[str(addon_path.parent)])
+        "flint_blender", addon_path, submodule_search_locations=[str(addon_path.parent)]
+    )
     addon = importlib.util.module_from_spec(spec)
     events = []
     registered = {}
@@ -16,26 +17,30 @@ def load_addon(monkeypatch, connect):
     for name in ("BoolProperty", "IntProperty", "StringProperty", "PointerProperty"):
         setattr(props, name, lambda **kwargs: None)
     bpy.props = props
-    bpy.types = SimpleNamespace(AddonPreferences=object, Operator=object,
-                                PropertyGroup=object, Panel=object,
-                                WindowManager=type("WindowManager", (), {}))
+    bpy.types = SimpleNamespace(
+        AddonPreferences=object,
+        Operator=object,
+        PropertyGroup=object,
+        Panel=object,
+        WindowManager=type("WindowManager", (), {}),
+    )
+
     def registration_key(klass):
         return getattr(klass, "bl_idname", klass.__name__)
 
     bpy.utils = SimpleNamespace(
         register_class=lambda klass: registered.__setitem__(registration_key(klass), klass),
-        unregister_class=lambda klass: registered.pop(registration_key(klass)))
-    preferences = SimpleNamespace(
-        address="127.0.0.1", port=6321, instance_name="Blender", enabled=True)
-    draft = SimpleNamespace(
-        address="127.0.0.1", port=6321, instance_name="Blender", enabled=True)
+        unregister_class=lambda klass: registered.pop(registration_key(klass)),
+    )
+    preferences = SimpleNamespace(address="127.0.0.1", port=6321, instance_name="Blender", enabled=True)
+    draft = SimpleNamespace(address="127.0.0.1", port=6321, instance_name="Blender", enabled=True)
     bpy.context = SimpleNamespace(
         window_manager=SimpleNamespace(flint_bridge_draft=draft, windows=[]),
-        preferences=SimpleNamespace(addons={
-            "flint_blender": SimpleNamespace(preferences=preferences)}))
-    timers = SimpleNamespace(register=lambda *args, **kwargs: None,
-                             is_registered=lambda *args: True,
-                             unregister=lambda *args: None)
+        preferences=SimpleNamespace(addons={"flint_blender": SimpleNamespace(preferences=preferences)}),
+    )
+    timers = SimpleNamespace(
+        register=lambda *args, **kwargs: None, is_registered=lambda *args: True, unregister=lambda *args: None
+    )
     bpy.app = SimpleNamespace(timers=timers)
     manager = SimpleNamespace(
         connect=lambda **kwargs: events.append(("connect", kwargs)) or connect(),
@@ -80,9 +85,7 @@ def test_a_bridge_that_cannot_start_leaves_the_addon_usable(monkeypatch, capsys)
     assert registered == {}
     assert not hasattr(bpy.types.WindowManager, "flint_bridge_draft")
     assert events == [
-        ("connect", {"address": "127.0.0.1",
-                     "port": 6321, "name": "Blender", "enabled": True}),
-        ("configure", (), {"address": "127.0.0.1", "port": 6330,
-                           "name": "Blender", "enabled": True}),
+        ("connect", {"address": "127.0.0.1", "port": 6321, "name": "Blender", "enabled": True}),
+        ("configure", (), {"address": "127.0.0.1", "port": 6330, "name": "Blender", "enabled": True}),
         ("disconnect",),
     ]

@@ -80,25 +80,19 @@ unsafe fn find_mono() -> Option<HMODULE> {
 }
 
 unsafe fn attach_mono(mono: HMODULE, plan: &MonoPlan) -> Result<()> {
-    let get_root_domain: unsafe extern "C" fn() -> *mut c_void =
-        transmute(export(mono, b"mono_get_root_domain\0")?);
+    let get_root_domain: unsafe extern "C" fn() -> *mut c_void = transmute(export(mono, b"mono_get_root_domain\0")?);
     let thread_attach: unsafe extern "C" fn(*mut c_void) -> *mut c_void =
         transmute(export(mono, b"mono_thread_attach\0")?);
-    let domain_set: unsafe extern "C" fn(*mut c_void, i32) -> i32 =
-        transmute(export(mono, b"mono_domain_set\0")?);
+    let domain_set: unsafe extern "C" fn(*mut c_void, i32) -> i32 = transmute(export(mono, b"mono_domain_set\0")?);
     let domain_foreach: unsafe extern "C" fn(MonoDomainFn, *mut c_void) =
         transmute(export(mono, b"mono_domain_foreach\0")?);
-    let friendly_name: MonoFriendlyNameFn =
-        transmute(export(mono, b"mono_domain_get_friendly_name\0")?);
+    let friendly_name: MonoFriendlyNameFn = transmute(export(mono, b"mono_domain_get_friendly_name\0")?);
     let assembly_open: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void =
         transmute(export(mono, b"mono_domain_assembly_open\0")?);
     let get_image: unsafe extern "C" fn(*mut c_void) -> *mut c_void =
         transmute(export(mono, b"mono_assembly_get_image\0")?);
-    let class_from_name: unsafe extern "C" fn(
-        *mut c_void,
-        *const c_char,
-        *const c_char,
-    ) -> *mut c_void = transmute(export(mono, b"mono_class_from_name\0")?);
+    let class_from_name: unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> *mut c_void =
+        transmute(export(mono, b"mono_class_from_name\0")?);
     let method_from_name: unsafe extern "C" fn(*mut c_void, *const c_char, i32) -> *mut c_void =
         transmute(export(mono, b"mono_class_get_method_from_name\0")?);
     let string_new: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void =
@@ -126,11 +120,7 @@ unsafe fn attach_mono(mono: HMODULE, plan: &MonoPlan) -> Result<()> {
         friendly_name,
     };
     domain_foreach(find_domain, &mut search as *mut _ as *mut c_void);
-    let domain = if search.target.is_null() {
-        root
-    } else {
-        search.target
-    };
+    let domain = if search.target.is_null() { root } else { search.target };
     domain_set(domain, 0);
     thread_attach(domain);
 
@@ -153,8 +143,7 @@ unsafe fn attach_mono(mono: HMODULE, plan: &MonoPlan) -> Result<()> {
             plan.class
         ));
     }
-    let method_name =
-        CString::new(plan.method.as_str()).context("managed method name has a NUL")?;
+    let method_name = CString::new(plan.method.as_str()).context("managed method name has a NUL")?;
     let method = method_from_name(class, method_name.as_ptr(), 1);
     if method.is_null() {
         return Err(anyhow::anyhow!(
@@ -171,9 +160,7 @@ unsafe fn attach_mono(mono: HMODULE, plan: &MonoPlan) -> Result<()> {
     let mut exception: *mut c_void = null_mut();
     let failure = runtime_invoke(method, null_mut(), arguments.as_mut_ptr(), &mut exception);
     if !exception.is_null() {
-        return Err(anyhow::anyhow!(
-            "the managed attach entry threw an exception"
-        ));
+        return Err(anyhow::anyhow!("the managed attach entry threw an exception"));
     }
     // The entry returns null on success, or why it could not start the Bridge.
     if !failure.is_null() {

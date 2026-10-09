@@ -1,9 +1,9 @@
 //! Each host's Bridge: the files it installs with and attaches with, and its attach entry.
 
 use crate::{
-    layout::{write_archive, Format, Layout},
-    platform::{dotnet, python, Platform, PlatformEntry},
     HostKind,
+    layout::{Format, Layout, write_archive},
+    platform::{Platform, PlatformEntry, dotnet, python},
 };
 use anyhow::Result;
 use std::{
@@ -15,11 +15,7 @@ use strum::IntoEnumIterator;
 
 macro_rules! bridges {
     ($path:literal) => {
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../bridges/",
-            $path
-        ))
+        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../bridges/", $path))
     };
 }
 
@@ -55,14 +51,8 @@ pub(crate) fn bridge(host: HostKind) -> HostBridge {
             install: Some(Install::zip(
                 Layout::default()
                     .file("flint.mod", bridges!("hosts/maya/flint.mod"))
-                    .file(
-                        "flint/plug-ins/flint_plugin.py",
-                        bridges!("hosts/maya/flint_plugin.py"),
-                    )
-                    .file(
-                        "flint/scripts/flint_maya.py",
-                        bridges!("hosts/maya/flint_maya.py"),
-                    )
+                    .file("flint/plug-ins/flint_plugin.py", bridges!("hosts/maya/flint_plugin.py"))
+                    .file("flint/scripts/flint_maya.py", bridges!("hosts/maya/flint_maya.py"))
                     .merge(python_library("flint/scripts")),
             )),
             attach: Some(python::attach("flint_bridge.maya")),
@@ -99,10 +89,7 @@ pub(crate) fn bridge(host: HostKind) -> HostBridge {
         HostKind::Blender => HostBridge {
             install: Some(Install::zip(
                 Layout::default()
-                    .file(
-                        "flint_blender/__init__.py",
-                        bridges!("hosts/blender/addon/__init__.py"),
-                    )
+                    .file("flint_blender/__init__.py", bridges!("hosts/blender/addon/__init__.py"))
                     .merge(python_library("flint_blender")),
             )),
             attach: Some(python::attach("flint_bridge.blender")),

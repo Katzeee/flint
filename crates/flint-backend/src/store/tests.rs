@@ -2,9 +2,7 @@ use super::{Store, StoreError};
 use flint_contracts::protocol::{ExecutionStatus, Failure, FailureCode};
 
 fn record(store: &Store, workflow: &str, code: &str) -> String {
-    store
-        .append(workflow, "host", code.into(), code.into())
-        .unwrap()
+    store.append(workflow, "host", code.into(), code.into()).unwrap()
 }
 
 #[test]
@@ -43,10 +41,7 @@ fn restart_preserves_completed_records_and_marks_interrupted_outcomes_unknown() 
     assert_eq!(failed.traceback.as_deref(), Some("host stack"));
     let interrupted = store.execution(&workflow, &running).unwrap();
     assert_eq!(interrupted.status, ExecutionStatus::Failed);
-    assert!(interrupted
-        .error
-        .unwrap()
-        .is(FailureCode::ExecutionInterrupted));
+    assert!(interrupted.error.unwrap().is(FailureCode::ExecutionInterrupted));
 }
 
 #[test]
@@ -58,8 +53,7 @@ fn an_unreadable_record_fails_only_the_operations_that_need_it() {
     record(&store, &template, "print(1)");
     drop(store);
     let template_path = directory.path().join(format!("{template}.json"));
-    let template: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&template_path).unwrap()).unwrap();
+    let template: serde_json::Value = serde_json::from_slice(&std::fs::read(&template_path).unwrap()).unwrap();
     std::fs::remove_file(template_path).unwrap();
     let mut unspecified_status = template.clone();
     unspecified_status["execs"][0]["status"] = "unspecified".into();
@@ -96,10 +90,7 @@ fn an_unreadable_record_fails_only_the_operations_that_need_it() {
         assert!(failure.is(FailureCode::WorkflowUnreadable));
         assert!(failure.message.contains(&format!("{id}.json")), "{failure}");
         if id == "older" {
-            assert!(
-                failure.message.contains("unsupported schema version 1"),
-                "{failure}"
-            );
+            assert!(failure.message.contains("unsupported schema version 1"), "{failure}");
         }
     }
 }
@@ -128,13 +119,9 @@ fn workflow_index_tracks_updates_and_survives_restart() {
         })
         .unwrap();
     for host in ["second-host", "host"] {
-        let execution = store
-            .append(&first, host, "print(2)".into(), "".into())
-            .unwrap();
+        let execution = store.append(&first, host, "print(2)".into(), "".into()).unwrap();
         store
-            .update(&first, &execution, |e| {
-                e.status = ExecutionStatus::Succeeded
-            })
+            .update(&first, &execution, |e| e.status = ExecutionStatus::Succeeded)
             .unwrap();
     }
     drop(store);

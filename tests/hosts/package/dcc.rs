@@ -1,7 +1,7 @@
 use crate::hosts::host_executable;
 use crate::support::*;
 use anyhow::{Context, Result};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     fs,
     path::PathBuf,
@@ -15,10 +15,7 @@ struct Evidence {
 }
 impl Evidence {
     fn checkpoint(&mut self, name: &str) -> Result<()> {
-        self.data["checks"]
-            .as_array_mut()
-            .unwrap()
-            .push(name.into());
+        self.data["checks"].as_array_mut().unwrap().push(name.into());
         fs::write(&self.path, serde_json::to_vec_pretty(&self.data)?)?;
         Ok(())
     }
@@ -31,12 +28,7 @@ impl Drop for Evidence {
     }
 }
 
-pub(super) fn verify_host(
-    kind: &str,
-    variable: &str,
-    expected_executable: &str,
-    scene_code: &str,
-) -> Result<()> {
+pub(super) fn verify_host(kind: &str, variable: &str, expected_executable: &str, scene_code: &str) -> Result<()> {
     let executable = host_executable(variable)?;
     anyhow::ensure!(
         executable
@@ -104,10 +96,7 @@ pub(super) fn verify_host(
     } else if kind == "max" {
         let appdata = app.directory.join("max-appdata");
         fs::create_dir_all(&appdata)?;
-        fs::write(
-            appdata.join("3dsmax.ini"),
-            "[MAXScript]\nLoadStartupScripts=1\n",
-        )?;
+        fs::write(appdata.join("3dsmax.ini"), "[MAXScript]\nLoadStartupScripts=1\n")?;
         fs::write(
             appdata.join("FlintBridge.ini"),
             format!("[Flint Bridge]\nBridgePort={}\n", app.bridge_port),
@@ -155,24 +144,14 @@ pub(super) fn verify_host(
     } else {
         installation
     };
-    let module = PathBuf::from(
-        report["package_module"]
-            .as_str()
-            .context("Package module path")?,
-    );
+    let module = PathBuf::from(report["package_module"].as_str().context("Package module path")?);
     anyhow::ensure!(
         module.is_file(),
         "Loaded package module is missing: {}",
         module.display()
     );
-    let module_path = module
-        .to_string_lossy()
-        .replace('\\', "/")
-        .to_ascii_lowercase();
-    let package_path = package_root
-        .to_string_lossy()
-        .replace('\\', "/")
-        .to_ascii_lowercase();
+    let module_path = module.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    let package_path = package_root.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
     anyhow::ensure!(
         module_path.starts_with(&format!("{package_path}/")),
         "Host loaded {} outside exported package installation {}",
@@ -187,10 +166,7 @@ pub(super) fn verify_host(
         assert_eq!(report["settings_visible"], true);
     }
     if kind == "maya" || kind == "max" {
-        anyhow::ensure!(
-            screenshot.is_file(),
-            "Host settings screenshot was not captured"
-        );
+        anyhow::ensure!(screenshot.is_file(), "Host settings screenshot was not captured");
     }
     let instance = app.await_instance(kind, None)?;
     let id = instance["instance_id"].as_str().unwrap();
@@ -202,24 +178,25 @@ pub(super) fn verify_host(
         )?
         .stdout,
     )?;
-    assert!(candidates["hosts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|candidate| { candidate["pid"] == host.0.id() && candidate["host"] == kind }));
+    assert!(
+        candidates["hosts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|candidate| { candidate["pid"] == host.0.id() && candidate["host"] == kind })
+    );
     evidence.checkpoint("native_startup_and_registration")?;
     let workflow = app.workflow(&format!("{kind}-rust-validation"))?;
     let scene = app.execute(id, &workflow, scene_code, 0)?;
     assert_eq!(scene["status"], "succeeded");
     let scene_detail = app.details(&workflow, &scene, 0)?;
-    assert!(scene_detail["stdout"]
-        .as_str()
-        .unwrap()
-        .contains(&format!("SCENE_OK {}", host.0.id())));
-    assert!(scene_detail["stderr"]
-        .as_str()
-        .unwrap()
-        .contains("STDERR_OK"));
+    assert!(
+        scene_detail["stdout"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("SCENE_OK {}", host.0.id()))
+    );
+    assert!(scene_detail["stderr"].as_str().unwrap().contains("STDERR_OK"));
     evidence.data["scene"] = scene_detail;
     evidence.checkpoint("main_thread_scene_crud_and_output")?;
     assert!(host.0.try_wait()?.is_none());

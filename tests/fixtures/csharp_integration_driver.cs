@@ -57,9 +57,13 @@ internal static class Program
         else ThreadPool.QueueUserWorkItem(_ => RunDispatched(callback));
     }
 
-    private static BridgeSettings Settings(JsonNode value) => new BridgeSettings {
-        Address = value["address"].GetValue<string>(), Port = value["port"].GetValue<int>(),
-        Name = value["name"].GetValue<string>(), Enabled = value["enabled"]?.GetValue<bool>() ?? true };
+    private static BridgeSettings Settings(JsonNode value) => new BridgeSettings
+    {
+        Address = value["address"].GetValue<string>(),
+        Port = value["port"].GetValue<int>(),
+        Name = value["name"].GetValue<string>(),
+        Enabled = value["enabled"]?.GetValue<bool>() ?? true
+    };
 
     private static JsonNode Call(JsonNode command)
     {
@@ -78,15 +82,25 @@ internal static class Program
                     manager.Configure(Settings(command["settings"]));
                     return new JsonObject { ["applied"] = true };
                 case "attach":
-                    return new JsonObject { ["instance_id"] = manager.Attach(library, Settings(command["settings"]),
-                        command["timeout_ms"]?.GetValue<int>() ?? 20000) };
+                    return new JsonObject
+                    {
+                        ["instance_id"] = manager.Attach(library, Settings(command["settings"]),
+                        command["timeout_ms"]?.GetValue<int>() ?? 20000)
+                    };
                 case "status": return manager.StatusJson == null ? null : JsonNode.Parse(manager.StatusJson);
                 case "reconnect":
                     manager.Reconnect();
                     return new JsonObject { ["reconnected"] = true };
                 case "close": return new JsonObject { ["closed"] = manager.Disconnect() };
-                case "probe": return new JsonObject { ["created"] = created, ["released"] = released,
-                    ["finished"] = finished, ["factory_thread"] = factoryThread, ["dispatch_thread"] = dispatchThread };
+                case "probe":
+                    return new JsonObject
+                    {
+                        ["created"] = created,
+                        ["released"] = released,
+                        ["finished"] = finished,
+                        ["factory_thread"] = factoryThread,
+                        ["dispatch_thread"] = dispatchThread
+                    };
                 case "wait_started": return new JsonObject { ["started"] = started.Wait(5000) };
                 case "release":
                     release.Set();

@@ -8,13 +8,8 @@ fn concurrent_cli_calls_share_one_backend() -> Result<()> {
     let app = App::new();
     assert!(app.call("stop", &[], 0)?["stopped_pid"].is_null());
     let responses = std::thread::scope(|scope| {
-        let calls: Vec<_> = (0..4)
-            .map(|_| scope.spawn(|| app.call("start", &[], 0)))
-            .collect();
-        calls
-            .into_iter()
-            .map(|t| t.join().unwrap())
-            .collect::<Result<Vec<_>>>()
+        let calls: Vec<_> = (0..4).map(|_| scope.spawn(|| app.call("start", &[], 0))).collect();
+        calls.into_iter().map(|t| t.join().unwrap()).collect::<Result<Vec<_>>>()
     })?;
     for response in &responses {
         assert_eq!(response["pid"], responses[0]["pid"]);

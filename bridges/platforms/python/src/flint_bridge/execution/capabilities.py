@@ -1,4 +1,5 @@
 """What a host supplies so the core can execute its code."""
+
 from dataclasses import dataclass
 
 

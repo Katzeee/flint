@@ -10,7 +10,8 @@ namespace Flint.Bridge
     internal sealed class ExecutionAdapter
     {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void RunFn(IntPtr step);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)]
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
         private delegate bool OutputFn(IntPtr step, IntPtr stdout, UIntPtr stdoutLength, IntPtr stderr, UIntPtr stderrLength);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void SucceedFn(IntPtr step, IntPtr resultId);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void FailFn(IntPtr step, IntPtr code, IntPtr message, IntPtr traceback);
@@ -36,7 +37,8 @@ namespace Flint.Bridge
             succeed = nativeCore.Function<SucceedFn>("flint_step_succeed");
             fail = nativeCore.Function<FailFn>("flint_step_fail");
             root = GCHandle.Alloc(this);
-            ExecutionBinding = new ExecutionBinding {
+            ExecutionBinding = new ExecutionBinding
+            {
                 Context = GCHandle.ToIntPtr(root),
                 Post = Post,
                 Prepare = Prepare,

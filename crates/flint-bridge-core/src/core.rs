@@ -13,7 +13,7 @@ use std::{
     thread,
     time::Duration,
 };
-use tokio::sync::{watch, Notify};
+use tokio::sync::{Notify, watch};
 use tokio_util::sync::CancellationToken;
 
 /// Why no Bridge core was created; each variant is one creation category of the C ABI.
@@ -28,10 +28,7 @@ pub(crate) enum CreationError {
 }
 
 fn claimed_by(owner: &Option<ClaimOwner>) -> String {
-    owner
-        .as_ref()
-        .map(|owner| format!(": {owner}"))
-        .unwrap_or_default()
+    owner.as_ref().map(|owner| format!(": {owner}")).unwrap_or_default()
 }
 
 pub struct BridgeCore {
@@ -46,10 +43,7 @@ pub struct BridgeCore {
 }
 
 impl BridgeCore {
-    pub(crate) fn new(
-        options: BridgeOptions,
-        execution_binding: OwnedExecutionBinding,
-    ) -> Result<Self, CreationError> {
+    pub(crate) fn new(options: BridgeOptions, execution_binding: OwnedExecutionBinding) -> Result<Self, CreationError> {
         Self::start(options, execution_binding, claim::acquire)
     }
 
@@ -69,9 +63,7 @@ impl BridgeCore {
         execution_binding: OwnedExecutionBinding,
         acquire: impl FnOnce(&ClaimOwner) -> io::Result<ClaimOutcome>,
     ) -> Result<Self, CreationError> {
-        let (identity, settings) = options
-            .into_parts()
-            .map_err(CreationError::InvalidConfiguration)?;
+        let (identity, settings) = options.into_parts().map_err(CreationError::InvalidConfiguration)?;
         let owner = ClaimOwner {
             host: identity.host.clone(),
             runtime_version: identity.runtime_version.clone(),
@@ -85,10 +77,7 @@ impl BridgeCore {
             ClaimOutcome::Acquired(claim) => claim,
             ClaimOutcome::Occupied(owner) => return Err(CreationError::Claimed(owner)),
         };
-        let settings = Arc::new(SettingsSnapshot {
-            revision: 0,
-            settings,
-        });
+        let settings = Arc::new(SettingsSnapshot { revision: 0, settings });
         let state = Arc::new(Mutex::new(BridgeState::new(settings.clone())));
         let (settings_tx, settings_rx) = watch::channel(settings);
         let (execution_coordinator, schedule, dispatcher) =
@@ -100,34 +89,32 @@ impl BridgeCore {
         let thread_state = state.clone();
         let thread_shutdown = shutdown.clone();
         let thread_reconnect_notify = reconnect_notify.clone();
-        let thread = thread::Builder::new()
-            .name("flint-bridge-core".into())
-            .spawn(move || {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("Tokio runtime");
-                let flush_state = thread_state.clone();
-                runtime.block_on(async {
-                    tokio::select! {
-                        _ = async {
-                            let mut timer = tokio::time::interval(Duration::from_millis(20));
-                            loop {
-                                timer.tick().await;
-                                flush_state.lock().unwrap().flush_output();
-                            }
-                        } => {},
-                        _ = connection::run(
-                            identity,
-                            settings_rx,
-                            thread_state,
-                            schedule,
-                            thread_shutdown,
-                            thread_reconnect_notify,
-                        ) => {},
-                    }
-                });
+        let thread = thread::Builder::new().name("flint-bridge-core".into()).spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Tokio runtime");
+            let flush_state = thread_state.clone();
+            runtime.block_on(async {
+                tokio::select! {
+                    _ = async {
+                        let mut timer = tokio::time::interval(Duration::from_millis(20));
+                        loop {
+                            timer.tick().await;
+                            flush_state.lock().unwrap().flush_output();
+                        }
+                    } => {},
+                    _ = connection::run(
+                        identity,
+                        settings_rx,
+                        thread_state,
+                        schedule,
+                        thread_shutdown,
+                        thread_reconnect_notify,
+                    ) => {},
+                }
             });
+        });
         let thread = match thread {
             Ok(thread) => thread,
             Err(error) => {

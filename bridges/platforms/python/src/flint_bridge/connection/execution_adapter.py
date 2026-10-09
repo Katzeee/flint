@@ -1,4 +1,5 @@
 """Translate the core's host callbacks into Python calls and completions."""
+
 from concurrent.futures import Future
 import itertools
 import json
@@ -46,8 +47,13 @@ class ExecutionAdapter:
         self._prepared_results = {}
         self._result_ids = itertools.count(1)
         self.execution_binding = ExecutionBinding(
-            id(self), POST(self._on_post), PREPARE(self._on_prepare), RUN(self._on_run),
-            DISCARD(self._on_discard), RELEASE(self._on_release))
+            id(self),
+            POST(self._on_post),
+            PREPARE(self._on_prepare),
+            RUN(self._on_run),
+            DISCARD(self._on_discard),
+            RELEASE(self._on_release),
+        )
         _execution_adapters[id(self)] = self
 
     def _on_post(self, context, step):
@@ -70,9 +76,11 @@ class ExecutionAdapter:
         prepared_result = self._prepared_results.pop(result_id)
         self._call(
             step,
-            lambda: self._run(prepared_result, _Output(self._bridge_api, step, False),
-                              _Output(self._bridge_api, step, True)),
-            lambda value: self._bridge_api.flint_step_succeed(step, 0))
+            lambda: self._run(
+                prepared_result, _Output(self._bridge_api, step, False), _Output(self._bridge_api, step, True)
+            ),
+            lambda value: self._bridge_api.flint_step_succeed(step, 0),
+        )
 
     def _on_discard(self, context, result_id):
         self._prepared_results.pop(result_id, None)
@@ -100,5 +108,6 @@ class ExecutionAdapter:
         done(value)
 
     def _fail(self, step, error, trace):
-        self._bridge_api.flint_step_fail(step, None, str(error).encode("utf-8", "replace"),
-                                        trace.encode("utf-8", "replace"))
+        self._bridge_api.flint_step_fail(
+            step, None, str(error).encode("utf-8", "replace"), trace.encode("utf-8", "replace")
+        )

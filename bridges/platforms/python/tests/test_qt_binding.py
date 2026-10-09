@@ -11,8 +11,9 @@ def test_running_binding_wins_over_another_available_binding(monkeypatch, active
     core = SimpleNamespace()
     widgets = SimpleNamespace(QApplication=SimpleNamespace(instance=lambda: object()))
     monkeypatch.setitem(sys.modules, fallback + ".QtCore", SimpleNamespace())
-    monkeypatch.setitem(sys.modules, fallback + ".QtWidgets",
-                        SimpleNamespace(QApplication=SimpleNamespace(instance=lambda: None)))
+    monkeypatch.setitem(
+        sys.modules, fallback + ".QtWidgets", SimpleNamespace(QApplication=SimpleNamespace(instance=lambda: None))
+    )
     monkeypatch.setitem(sys.modules, active + ".QtCore", core)
     monkeypatch.setitem(sys.modules, active + ".QtWidgets", widgets)
     imported = []

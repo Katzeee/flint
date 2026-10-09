@@ -33,9 +33,7 @@ fn build_frontend() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     assert!(
         root.join("apps/flint/cairn/package.json").is_file()
-            && root
-                .join("apps/flint/node_modules/.package-lock.json")
-                .is_file(),
+            && root.join("apps/flint/node_modules/.package-lock.json").is_file(),
         "Frontend dependencies are not prepared; run cargo xtask build from the repository root"
     );
     for input in [
@@ -63,9 +61,7 @@ fn build_frontend() {
         .current_dir(&frontend)
         .args(["run", "build"])
         .status()
-        .expect(
-            "Node.js and npm are required to build the Flint desktop UI; see docs/development.md",
-        );
+        .expect("Node.js and npm are required to build the Flint desktop UI; see docs/development.md");
     assert!(
         status.success(),
         "Flint desktop UI build failed; see the npm error above. Use cargo xtask build to prepare locked dependencies"
@@ -77,8 +73,7 @@ fn main() {
         build_frontend();
     }
     println!("cargo:rerun-if-changed=windows-app-manifest.xml");
-    let windows = tauri_build::WindowsAttributes::new()
-        .app_manifest(include_str!("windows-app-manifest.xml"));
+    let windows = tauri_build::WindowsAttributes::new().app_manifest(include_str!("windows-app-manifest.xml"));
     let attributes = tauri_build::Attributes::new().windows_attributes(windows);
     tauri_build::try_build(attributes).expect("Tauri build failed");
 }

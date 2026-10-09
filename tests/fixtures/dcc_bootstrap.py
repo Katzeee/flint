@@ -1,9 +1,13 @@
 """Runs inside a fresh DCC process. Rust owns the test lifecycle."""
+
 import json
 import os
 from pathlib import Path
 import sys
 import traceback
+
+# Rust supplies this value before executing the fixture in the host.
+CONFIG = globals()["CONFIG"]
 
 report = {"pid": os.getpid(), "python": sys.version, "host": CONFIG["host"]}
 if CONFIG["host"] != "blender":
@@ -12,8 +16,11 @@ if CONFIG["host"] != "blender":
 
 def capture_settings_window():
     QtWidgets.QApplication.processEvents()
-    dialogs = [widget for widget in QtWidgets.QApplication.topLevelWidgets()
-               if widget.windowTitle() == "Flint Bridge" and widget.isVisible()]
+    dialogs = [
+        widget
+        for widget in QtWidgets.QApplication.topLevelWidgets()
+        if widget.windowTitle() == "Flint Bridge" and widget.isVisible()
+    ]
     if not dialogs:
         raise RuntimeError("The Flint Bridge settings window is not visible")
     if not dialogs[-1].grab().save(CONFIG["screenshot"]):
@@ -25,13 +32,14 @@ try:
     if CONFIG["host"] == "blender":
         import bpy
         import threading
+
         report["main_thread"] = threading.current_thread() is threading.main_thread()
-        bpy.ops.preferences.addon_install(filepath=CONFIG["bundle"], overwrite=True,
-                                          enable_on_install=True)
+        bpy.ops.preferences.addon_install(filepath=CONFIG["bundle"], overwrite=True, enable_on_install=True)
         report["addon_enabled"] = "flint_blender" in bpy.context.preferences.addons
         if not report["addon_enabled"]:
             raise RuntimeError("The Blender Add-on was not enabled")
         import flint_blender
+
         report["package_module"] = flint_blender.__file__
         draft = bpy.context.window_manager.flint_bridge_draft
         draft.port = CONFIG["port"]
@@ -44,18 +52,22 @@ try:
         raise RuntimeError("The host must bootstrap on its UI thread")
     if CONFIG["host"] == "maya":
         import maya.cmds as cmds
+
         cmds.optionVar(intValue=("flint_bridge_port", CONFIG["port"]))
         cmds.loadPlugin("flint_plugin.py", quiet=True)
         report["plugin_loaded"] = cmds.pluginInfo("flint_plugin.py", query=True, loaded=True)
         import flint_maya
+
         report["package_module"] = flint_maya.__file__
         flint_maya.show_settings()
         report["settings_visible"] = capture_settings_window()
         from flint_bridge.maya import manager
+
         report["version"] = cmds.about(version=True)
         report["scene"] = cmds.file(query=True, sceneName=True)
     elif CONFIG["host"] == "max":
         import pymxs
+
         report["version"] = str(pymxs.runtime.maxVersion())
         report["scene"] = str(pymxs.runtime.maxFileName)
         packages = pymxs.runtime.PluginPackageManager
@@ -64,6 +76,7 @@ try:
             for index in range(1, packages.GetPostStartUpScriptsCount() + 1)
         )
         import flint_max
+
         report["package_module"] = flint_max.__file__
         flint_max.show_settings()
         report["settings_visible"] = capture_settings_window()

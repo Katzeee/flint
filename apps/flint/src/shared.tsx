@@ -1,10 +1,7 @@
 import { Callout, Flex, Spinner, Text } from "@cairn/ui";
 import { useEffect, useState, type ReactNode } from "react";
 
-export function ErrorNotice({
-  error,
-  retry,
-}: Readonly<{ error: string; retry?: () => void }>) {
+export function ErrorNotice({ error, retry }: Readonly<{ error: string; retry?: () => void }>) {
   if (!error) return null;
   return (
     <Callout.Root tone="danger">
@@ -22,10 +19,7 @@ export function ErrorNotice({
 }
 
 // Loads that finish sooner than the delay show nothing, so a fast response never flashes a placeholder.
-export function Deferred({
-  children,
-  delay = 300,
-}: Readonly<{ children: ReactNode; delay?: number }>) {
+export function Deferred({ children, delay = 300 }: Readonly<{ children: ReactNode; delay?: number }>) {
   const [shown, setShown] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setShown(true), delay);
@@ -34,9 +28,7 @@ export function Deferred({
   return shown ? children : null;
 }
 
-export function Loading({
-  children = "Loading",
-}: Readonly<{ children?: ReactNode }>) {
+export function Loading({ children = "Loading" }: Readonly<{ children?: ReactNode }>) {
   return (
     <Flex align="center" gap="2" p="5" role="status">
       <Spinner size="sm" />

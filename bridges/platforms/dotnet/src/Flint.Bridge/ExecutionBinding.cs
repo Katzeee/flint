@@ -7,7 +7,8 @@ namespace Flint.Bridge
     [StructLayout(LayoutKind.Sequential)]
     internal struct ExecutionBinding
     {
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] [return: MarshalAs(UnmanagedType.I1)]
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
         internal delegate bool PostFn(IntPtr context, IntPtr step);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void PrepareFn(IntPtr context, IntPtr request, IntPtr step);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void RunFn(IntPtr context, IntPtr resultId, IntPtr step);

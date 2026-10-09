@@ -17,20 +17,13 @@ fn build_against_export(app: &App, program: &str) -> Result<(PathBuf, PathBuf)> 
         let archive = app.export("dotnet")?;
         fs::create_dir_all(&bundle)?;
         checked(
-            Command::new("tar")
-                .arg("-xf")
-                .arg(&archive)
-                .arg("-C")
-                .arg(&bundle),
+            Command::new("tar").arg("-xf").arg(&archive).arg("-C").arg(&bundle),
             Duration::from_secs(15),
         )?;
     }
     let binding = bundle.join("NativeCore.cs");
     let native = bundle.join("flint_bridge_core.dll");
-    anyhow::ensure!(
-        binding.is_file() && native.is_file(),
-        "Incomplete C# export"
-    );
+    anyhow::ensure!(binding.is_file() && native.is_file(), "Incomplete C# export");
 
     let project = app.directory.join("csharp-host");
     fs::create_dir_all(&project)?;
@@ -55,10 +48,7 @@ fn build_against_export(app: &App, program: &str) -> Result<(PathBuf, PathBuf)> 
             .args(["--nologo", "--verbosity", "quiet"]),
         Duration::from_secs(90),
     )?;
-    Ok((
-        project.join("bin/Debug/net10.0/FlintRuntimeHost.dll"),
-        native,
-    ))
+    Ok((project.join("bin/Debug/net10.0/FlintRuntimeHost.dll"), native))
 }
 
 #[test]
@@ -102,39 +92,26 @@ fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
     let instance = app.await_instance("standalone_csharp", None)?;
     assert_eq!(instance["instance_id"], report["instance_id"]);
     let workflow = app.workflow("csharp-runtime-export")?;
-    let execution = app.execute(
-        instance["instance_id"].as_str().unwrap(),
-        &workflow,
-        "ping",
-        0,
-    )?;
+    let execution = app.execute(instance["instance_id"].as_str().unwrap(), &workflow, "ping", 0)?;
     let mut detail = Value::Null;
     wait_until(Duration::from_secs(15), || {
         detail = app.details(&workflow, &execution, 0)?;
         Ok(detail["status"] == "succeeded")
     })?;
     assert_eq!(detail["stdout"], "CSHARP_ZIP_OK\n");
-    let failed = app.execute(
-        instance["instance_id"].as_str().unwrap(),
-        &workflow,
-        "unsupported",
-        1,
-    )?;
+    let failed = app.execute(instance["instance_id"].as_str().unwrap(), &workflow, "unsupported", 1)?;
     let failure = app.details(&workflow, &failed, 1)?;
     assert_eq!(failure["status"], "failed");
     assert_eq!(failure["error"]["code"], "execution_failed");
     assert_eq!(failure["error"]["message"], "unsupported_test_command");
-    assert!(failure["traceback"]
-        .as_str()
-        .unwrap()
-        .contains("InvalidOperationException: unsupported_test_command"));
+    assert!(
+        failure["traceback"]
+            .as_str()
+            .unwrap()
+            .contains("InvalidOperationException: unsupported_test_command")
+    );
     assert_eq!(failed["error"], failure["error"]);
-    let execution = app.execute(
-        instance["instance_id"].as_str().unwrap(),
-        &workflow,
-        "async",
-        0,
-    )?;
+    let execution = app.execute(instance["instance_id"].as_str().unwrap(), &workflow, "async", 0)?;
     wait_until(Duration::from_secs(10), || {
         detail = app.details(&workflow, &execution, 0)?;
         Ok(detail["stdout"] == "BEGIN\0🙂\n")
@@ -161,17 +138,8 @@ fn exported_zip_conforms_to_the_runtime_scenarios() -> Result<()> {
     app.call("start", &[], 0)?;
     let (assembly, native) = build_against_export(&app, "conformance_driver.cs")?;
     let mut command = Command::new("dotnet");
-    command
-        .arg(assembly)
-        .arg(native)
-        .current_dir(&app.directory);
-    conformance::verify(
-        &app,
-        "standalone_csharp",
-        Driver::start(command)?,
-        "held",
-        "",
-    )
+    command.arg(assembly).arg(native).current_dir(&app.directory);
+    conformance::verify(&app, "standalone_csharp", Driver::start(command)?, "held", "")
 }
 
 #[test]
@@ -181,9 +149,6 @@ fn exported_host_entry_preserves_the_connection_contract() -> Result<()> {
     app.call("start", &[], 0)?;
     let (assembly, native) = build_against_export(&app, "csharp_integration_driver.cs")?;
     let mut command = Command::new("dotnet");
-    command
-        .arg(assembly)
-        .arg(native)
-        .current_dir(&app.directory);
+    command.arg(assembly).arg(native).current_dir(&app.directory);
     conformance::verify_host_entry(&app, "standalone_csharp", Driver::start(command)?)
 }

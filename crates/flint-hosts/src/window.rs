@@ -92,20 +92,19 @@ use platform::{capture, focus, window_info};
 #[cfg(windows)]
 mod platform {
     use super::WindowInfo;
-    use anyhow::{bail, ensure, Context, Result};
+    use anyhow::{Context, Result, bail, ensure};
     use std::{mem::size_of, ptr::null_mut};
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, RECT},
         Graphics::Gdi::{
-            CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
-            SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC,
-            HGDIOBJ,
+            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC,
+            DeleteObject, GetDC, HBITMAP, HDC, HGDIOBJ, ReleaseDC, SelectObject,
         },
         Storage::Xps::PrintWindow,
         UI::WindowsAndMessaging::{
-            EnumWindows, GetWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-            GetWindowThreadProcessId, IsHungAppWindow, IsIconic, IsWindowVisible,
-            SetForegroundWindow, ShowWindowAsync, GW_OWNER, PW_RENDERFULLCONTENT, SW_RESTORE,
+            EnumWindows, GW_OWNER, GetWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+            GetWindowThreadProcessId, IsHungAppWindow, IsIconic, IsWindowVisible, PW_RENDERFULLCONTENT, SW_RESTORE,
+            SetForegroundWindow, ShowWindowAsync,
         },
     };
 
@@ -209,10 +208,7 @@ mod platform {
             ensure!(IsIconic(hwnd) == 0, "window is minimized");
             ensure!(IsHungAppWindow(hwnd) == 0, "application is not responding");
             let mut rect = RECT::default();
-            ensure!(
-                GetWindowRect(hwnd, &mut rect) != 0,
-                "window bounds are unavailable"
-            );
+            ensure!(GetWindowRect(hwnd, &mut rect) != 0, "window bounds are unavailable");
             let width = rect.right - rect.left;
             let height = rect.bottom - rect.top;
             ensure!(
@@ -246,14 +242,7 @@ mod platform {
                 ..Default::default()
             };
             let mut bits = null_mut();
-            canvas.bitmap = CreateDIBSection(
-                canvas.source,
-                &info,
-                DIB_RGB_COLORS,
-                &mut bits,
-                null_mut(),
-                0,
-            );
+            canvas.bitmap = CreateDIBSection(canvas.source, &info, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
             ensure!(
                 !canvas.bitmap.is_null() && !bits.is_null(),
                 "could not allocate preview bitmap"
@@ -265,19 +254,14 @@ mod platform {
                 PrintWindow(hwnd, canvas.dc, PW_RENDERFULLCONTENT) != 0,
                 "application did not provide a window preview"
             );
-            let source =
-                std::slice::from_raw_parts(bits as *const u8, width as usize * height as usize * 4);
-            let scale = (640.0 / f64::from(width))
-                .min(480.0 / f64::from(height))
-                .min(1.0);
+            let source = std::slice::from_raw_parts(bits as *const u8, width as usize * height as usize * 4);
+            let scale = (640.0 / f64::from(width)).min(480.0 / f64::from(height)).min(1.0);
             let out_width = (f64::from(width) * scale).round().max(1.0) as usize;
             let out_height = (f64::from(height) * scale).round().max(1.0) as usize;
             let mut rgb = Vec::with_capacity(out_width * out_height * 3);
             for y in 0..out_height {
                 for x in 0..out_width {
-                    let i = ((y * height as usize / out_height) * width as usize
-                        + x * width as usize / out_width)
-                        * 4;
+                    let i = ((y * height as usize / out_height) * width as usize + x * width as usize / out_width) * 4;
                     rgb.extend_from_slice(&[source[i + 2], source[i + 1], source[i]]);
                 }
             }

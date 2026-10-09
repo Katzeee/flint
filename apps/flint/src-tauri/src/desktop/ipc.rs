@@ -1,7 +1,7 @@
 //! Desktop IPC commands and the registry used by both Tauri and binding generation.
 use crate::application::{
-    Application, ApplicationInfo, AttachResult, BackendStopped, Failure, GetWorkflowResponse,
-    HostCandidate, HostInfo, HostKind, PingResponse, Snapshot, WorkflowSummary,
+    Application, ApplicationInfo, AttachResult, BackendStopped, Failure, GetWorkflowResponse, HostCandidate, HostInfo,
+    HostKind, PingResponse, Snapshot, WorkflowSummary,
 };
 use strum::IntoEnumIterator;
 use tauri_plugin_decoration::WebviewWindowExt;
@@ -75,10 +75,7 @@ async fn workflows(state: tauri::State<'_, Application>) -> Result<Vec<WorkflowS
 
 #[tauri::command]
 #[specta::specta]
-async fn workflow(
-    state: tauri::State<'_, Application>,
-    id: String,
-) -> Result<GetWorkflowResponse, Failure> {
+async fn workflow(state: tauri::State<'_, Application>, id: String) -> Result<GetWorkflowResponse, Failure> {
     state.workflow(id).await
 }
 

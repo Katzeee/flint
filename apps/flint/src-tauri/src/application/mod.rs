@@ -17,9 +17,8 @@ pub use attach::AttachResult;
 pub use control::{BackendStopped, Snapshot};
 use flint_backend::config::Config;
 pub use flint_contracts::protocol::{
-    ExecuteRequest, ExecutionResult, ExecutionStatus, ExecutionView, Failure, FailureCode,
-    GetExecutionResponse, GetWorkflowResponse, InstanceInfo, PingResponse, StartWorkflowRequest,
-    StartWorkflowResponse, WorkflowSummary,
+    ExecuteRequest, ExecutionResult, ExecutionStatus, ExecutionView, Failure, FailureCode, GetExecutionResponse,
+    GetWorkflowResponse, InstanceInfo, PingResponse, StartWorkflowRequest, StartWorkflowResponse, WorkflowSummary,
 };
 pub use flint_hosts::{ExportTarget, HostCandidate, HostKind};
 pub use hosts::{ExportResult, HostInfo, Preview};
@@ -43,8 +42,7 @@ impl Application {
     /// Loads the product runtime without creating files or starting a backend.
     pub fn load() -> Result<Self> {
         Ok(Self {
-            config: Config::load()
-                .map_err(|error| Failure::caused_by(FailureCode::CommandFailed, error.as_ref()))?,
+            config: Config::load().map_err(|error| Failure::caused_by(FailureCode::CommandFailed, error.as_ref()))?,
         })
     }
 
@@ -60,9 +58,7 @@ impl Application {
     }
 }
 
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T> + Send + 'static,
-) -> Result<T> {
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
     tokio::task::spawn_blocking(work)
         .await
         .map_err(|error| Failure::caused_by(FailureCode::InternalError, &error))?

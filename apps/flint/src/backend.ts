@@ -22,9 +22,14 @@ export class FailureError extends Error {
 }
 
 function isFailure(value: unknown): value is Failure {
-  return typeof value === "object" && value !== null &&
-    "code" in value && typeof value.code === "string" &&
-    "message" in value && typeof value.message === "string";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "code" in value &&
+    typeof value.code === "string" &&
+    "message" in value &&
+    typeof value.message === "string"
+  );
 }
 
 // Generated commands preserve Tauri rejections; views receive diagnostic Errors.

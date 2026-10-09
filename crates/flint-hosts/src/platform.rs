@@ -47,12 +47,7 @@ impl Platform {
 
 impl PlatformEntry {
     /// `root` is the staged attach layout.
-    pub(crate) fn plan(
-        &self,
-        root: &Path,
-        request: &AttachRequest,
-        error_path: &Path,
-    ) -> RuntimePlan {
+    pub(crate) fn plan(&self, root: &Path, request: &AttachRequest, error_path: &Path) -> RuntimePlan {
         match self {
             Self::Python(entry) => python::plan(entry, root, request, error_path),
             Self::Dotnet(entry) => dotnet::plan(entry, root, request),

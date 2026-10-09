@@ -3,8 +3,7 @@ use std::ptr::null_mut;
 use windows_sys::Win32::{
     Foundation::HWND,
     UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, IsIconic, ShowWindow, SW_SHOWMINNOACTIVE,
-        WS_OVERLAPPEDWINDOW,
+        CreateWindowExW, DestroyWindow, IsIconic, SW_SHOWMINNOACTIVE, ShowWindow, WS_OVERLAPPEDWINDOW,
     },
 };
 
@@ -44,10 +43,12 @@ fn minimized_window_reports_why_capture_is_unavailable_without_restoring_it() {
     let info = platform::window_info(std::process::id()).unwrap();
     assert_eq!(info.title, "Flint preview fixture");
     assert!(info.minimized);
-    assert!(platform::capture(std::process::id())
-        .unwrap_err()
-        .to_string()
-        .to_lowercase()
-        .contains("minimized"));
+    assert!(
+        platform::capture(std::process::id())
+            .unwrap_err()
+            .to_string()
+            .to_lowercase()
+            .contains("minimized")
+    );
     assert_ne!(unsafe { IsIconic(window.0) }, 0);
 }

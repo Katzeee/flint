@@ -1,7 +1,7 @@
 use super::*;
 use crate::execution_coordinator::fake::Fake;
-use serde_json::{json, Value};
-use std::sync::{atomic::Ordering, Arc};
+use serde_json::{Value, json};
+use std::sync::{Arc, atomic::Ordering};
 
 fn options() -> String {
     json!({"host":"python", "address":"127.0.0.1", "port":6321,
@@ -85,18 +85,12 @@ fn create_rejects_invalid_configuration_and_releases_the_execution_binding() {
         1,
         "null execution binding has no registration to release"
     );
-    assert!(unsafe {
-        flint_bridge_create(
-            ptr::null(),
-            &fake.execution_binding(),
-            ptr::null_mut(),
-            ptr::null_mut(),
-        )
-    }
-    .is_null());
+    assert!(
+        unsafe { flint_bridge_create(ptr::null(), &fake.execution_binding(), ptr::null_mut(), ptr::null_mut(),) }
+            .is_null()
+    );
     assert_released("null error outputs");
-    let (core, error) =
-        unsafe { creation_result([255u8, 0].as_ptr().cast(), &fake.execution_binding()) };
+    let (core, error) = unsafe { creation_result([255u8, 0].as_ptr().cast(), &fake.execution_binding()) };
     assert!(core.is_null());
     assert!(error.unwrap().1.contains("not UTF-8"));
     assert_released("invalid UTF-8");

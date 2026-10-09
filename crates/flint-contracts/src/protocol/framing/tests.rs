@@ -1,4 +1,4 @@
-use crate::protocol::{envelope::Payload, Envelope, EnvelopeCodec, PingRequest, PROTOCOL_VERSION};
+use crate::protocol::{Envelope, EnvelopeCodec, PROTOCOL_VERSION, PingRequest, envelope::Payload};
 use bytes::BytesMut;
 use prost::Message;
 use tokio_util::codec::{Decoder, Encoder};
@@ -14,13 +14,8 @@ fn sample() -> Envelope {
 #[test]
 fn decoding_rejects_invalid_envelope_fields() {
     let mut valid = BytesMut::new();
-    EnvelopeCodec::default()
-        .encode(sample(), &mut valid)
-        .unwrap();
-    assert_eq!(
-        EnvelopeCodec::default().decode(&mut valid).unwrap(),
-        Some(sample())
-    );
+    EnvelopeCodec::default().encode(sample(), &mut valid).unwrap();
+    assert_eq!(EnvelopeCodec::default().decode(&mut valid).unwrap(), Some(sample()));
     let mut version = sample();
     version.protocol_version = 1;
     let mut request = sample();
@@ -36,10 +31,7 @@ fn decoding_rejects_invalid_envelope_fields() {
         let mut bytes = BytesMut::from((payload.len() as u32).to_be_bytes().as_slice());
         bytes.extend_from_slice(&payload);
         assert_eq!(
-            EnvelopeCodec::default()
-                .decode(&mut bytes)
-                .unwrap_err()
-                .kind(),
+            EnvelopeCodec::default().decode(&mut bytes).unwrap_err().kind(),
             std::io::ErrorKind::InvalidData,
             "{case}: decode"
         );

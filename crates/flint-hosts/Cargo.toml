@@ -32,3 +32,6 @@ png = "0.17"
 
 [build-dependencies]
 toml = "0.9"
+
+[lints]
+workspace = true

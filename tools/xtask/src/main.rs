@@ -16,6 +16,11 @@ struct Suite {
 
 const SUITES: &[Suite] = &[
     Suite {
+        name: "lint",
+        default: true,
+        run: lint,
+    },
+    Suite {
         name: "rust",
         default: true,
         run: rust,
@@ -72,16 +77,112 @@ fn build(root: &Path, args: &[String]) -> Result<()> {
     execute(root, "cargo", &args, &[])
 }
 
+fn lint(root: &Path) -> Result<()> {
+    execute(root, "cargo", &["fmt", "--all", "--", "--check"], &[])?;
+    let target = target_dir(root).join("lint");
+    #[cfg(windows)]
+    let target = PathBuf::from(target.to_string_lossy().trim_start_matches(r"\\?\"));
+    execute(
+        root,
+        "cargo",
+        &[
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--all-features",
+            "--locked",
+            "--",
+            "-D",
+            "warnings",
+        ],
+        &[("CARGO_TARGET_DIR", target.as_os_str())],
+    )
+}
+
 fn rust(root: &Path) -> Result<()> {
     cargo_test(root, &["test", "--workspace", "--locked"])
 }
 
+fn gui_checks(root: &Path) -> Result<()> {
+    let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    let app = root.join("apps/flint");
+    execute(&app, npm, &["run", "format:check"], &[])?;
+    execute(&app, npm, &["run", "lint"], &[])
+}
+
 fn gui(root: &Path) -> Result<()> {
+    gui_checks(root)?;
     let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
     let app = root.join("apps/flint");
     execute(&app, npm, &["run", "typecheck"], &[])?;
-    execute(&app, npm, &["run", "lint"], &[])?;
     execute(&app, npm, &["test"], &[])
+}
+
+fn python_tool(root: &Path, command: &[&str]) -> Result<()> {
+    let mut args = vec![
+        "run",
+        "--project",
+        "bridges",
+        "--locked",
+        "--group",
+        "lint",
+        "--python",
+        ">=3.11,<3.15",
+    ];
+    args.extend_from_slice(command);
+    execute(root, "uv", &args, &[])
+}
+
+fn python_checks(root: &Path) -> Result<()> {
+    python_tool(
+        root,
+        &["ruff", "format", "--check", "--config", "bridges/pyproject.toml", "."],
+    )?;
+    python_tool(root, &["ruff", "check", "--config", "bridges/pyproject.toml", "."])
+}
+
+fn csharp_checks(root: &Path) -> Result<()> {
+    let bridges = root.join("bridges");
+    execute(&bridges, "dotnet", &["restore", "Flint.slnx", "--locked-mode"], &[])?;
+    execute(
+        &bridges,
+        "dotnet",
+        &["format", "Flint.slnx", "--verify-no-changes", "--no-restore"],
+        &[],
+    )?;
+    for folder in ["hosts/unity/upm", "../tests/fixtures"] {
+        execute(
+            &bridges,
+            "dotnet",
+            &["format", "whitespace", folder, "--folder", "--verify-no-changes"],
+            &[],
+        )?;
+    }
+    execute(
+        &bridges,
+        "dotnet",
+        &["build", "Flint.slnx", "--no-restore", "--warnaserror", "--nologo"],
+        &[],
+    )
+}
+
+fn check(root: &Path, names: &[String]) -> Result<()> {
+    let selected: Vec<&str> = if names.is_empty() {
+        vec!["rust", "gui", "python", "csharp"]
+    } else {
+        names.iter().map(String::as_str).collect()
+    };
+    for name in selected {
+        match name {
+            "rust" => lint(root),
+            "gui" => gui_checks(root),
+            "python" => python_checks(root),
+            "csharp" => csharp_checks(root),
+            _ => anyhow::bail!("unknown check {name:?}; expected rust, gui, python, or csharp"),
+        }
+        .with_context(|| format!("[{name}]"))?;
+    }
+    Ok(())
 }
 
 fn python_environment(root: &Path, command: &[&str]) -> Result<()> {
@@ -102,6 +203,7 @@ fn python_environment(root: &Path, command: &[&str]) -> Result<()> {
 }
 
 fn python(root: &Path) -> Result<()> {
+    python_checks(root)?;
     python_environment(root, &["pytest", "-q"])?;
     python_environment(
         root,
@@ -133,6 +235,7 @@ fn python(root: &Path) -> Result<()> {
 }
 
 fn csharp(root: &Path) -> Result<()> {
+    csharp_checks(root)?;
     execute(
         root,
         "cargo",
@@ -188,21 +291,13 @@ fn hosts(root: &Path) -> Result<()> {
 
 fn cargo_test(root: &Path, args: &[&str]) -> Result<()> {
     let mut args = args.to_vec();
-    let options = args
-        .iter()
-        .position(|arg| *arg == "--")
-        .unwrap_or(args.len());
+    let options = args.iter().position(|arg| *arg == "--").unwrap_or(args.len());
     args.splice(options..options, ["--features", "flint/test-runtime"]);
     let target = target_dir(root).join("tests");
     // Tauri's permission globbing requires ordinary Windows paths.
     #[cfg(windows)]
     let target = PathBuf::from(target.to_string_lossy().trim_start_matches(r"\\?\"));
-    execute(
-        root,
-        "cargo",
-        &args,
-        &[("CARGO_TARGET_DIR", target.as_os_str())],
-    )
+    execute(root, "cargo", &args, &[("CARGO_TARGET_DIR", target.as_os_str())])
 }
 
 fn target_dir(root: &Path) -> PathBuf {
@@ -219,9 +314,9 @@ fn execute(directory: &Path, program: &str, args: &[&str], envs: &[(&str, &OsStr
         .current_dir(directory)
         .status()
         .map_err(|error| match error.kind() {
-            io::ErrorKind::NotFound => anyhow::Error::new(error).context(format!(
-                "`{program}` is not on PATH; see docs/development.md"
-            )),
+            io::ErrorKind::NotFound => {
+                anyhow::Error::new(error).context(format!("`{program}` is not on PATH; see docs/development.md"))
+            }
             _ => anyhow::Error::from(error),
         })?;
     if status.success() {
@@ -234,7 +329,7 @@ fn execute(directory: &Path, program: &str, args: &[&str], envs: &[(&str, &OsStr
 fn usage() -> String {
     let names: Vec<_> = SUITES.iter().map(|suite| suite.name).collect();
     format!(
-        "Usage: cargo xtask build [--release]\n       cargo xtask test [{}]...\nBoth commands prepare the submodule and locked frontend dependencies.\nWithout suite names, test runs every default suite.",
+        "Usage: cargo xtask build [--release]\n       cargo xtask test [{}]...\n       cargo xtask check [rust|gui|python|csharp]...\n       cargo xtask hooks\nBuild and test prepare the submodule and locked frontend dependencies.\nWithout suite names, test runs every default suite.",
         names.join("|")
     )
 }
@@ -262,12 +357,14 @@ fn test(root: &Path, names: &[String]) -> Result<()> {
 }
 
 fn dispatch(args: &[String]) -> Result<()> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()?;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()?;
     match args.split_first() {
         Some((command, args)) if command == "build" => build(&root, args),
         Some((command, names)) if command == "test" => test(&root, names),
+        Some((command, names)) if command == "check" => check(&root, names),
+        Some((command, args)) if command == "hooks" && args.is_empty() => {
+            python_tool(&root, &["pre-commit", "install"])
+        }
         _ => Err(anyhow::anyhow!(usage())),
     }
 }

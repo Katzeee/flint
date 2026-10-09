@@ -1,4 +1,4 @@
-use crate::protocol::{envelope::Payload, Envelope};
+use crate::protocol::{Envelope, envelope::Payload};
 use bytes::BytesMut;
 use futures_util::StreamExt;
 use prost::Message;
@@ -37,9 +37,7 @@ pub fn envelope(request_id: String, payload: Payload) -> Envelope {
 }
 
 /// Reads one required message. The caller owns deadlines and cancellation.
-pub async fn read_envelope<T: AsyncRead + AsyncWrite + Unpin>(
-    wire: &mut Wire<T>,
-) -> io::Result<Envelope> {
+pub async fn read_envelope<T: AsyncRead + AsyncWrite + Unpin>(wire: &mut Wire<T>) -> io::Result<Envelope> {
     wire.next().await.ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::UnexpectedEof,
@@ -107,8 +105,7 @@ impl Decoder for EnvelopeCodec {
             return Ok(None);
         };
         self.pending = false;
-        let envelope = Envelope::decode(bytes)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let envelope = Envelope::decode(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         validate(&envelope)?;
         Ok(Some(envelope))
     }
@@ -120,10 +117,7 @@ impl Decoder for EnvelopeCodec {
         // LengthDelimitedCodec may have consumed a complete header already.
         // An empty buffer therefore does not by itself mean a clean EOF.
         if self.pending {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "truncated frame",
-            ));
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "truncated frame"));
         }
         Ok(None)
     }
@@ -137,8 +131,7 @@ impl Encoder<Envelope> for EnvelopeCodec {
         if envelope.encoded_len() > self.limit {
             return Err(invalid("frame exceeds limit"));
         }
-        self.framing
-            .encode(envelope.encode_to_vec().into(), destination)
+        self.framing.encode(envelope.encode_to_vec().into(), destination)
     }
 }
 

@@ -16,8 +16,11 @@ def host(monkeypatch):
 
 
 def request(tmp_path):
-    return json.dumps(dict(module="flint_test_host", address="127.0.0.1", port=6321, name="场景",
-                           error_path=str(tmp_path / "42.error")))
+    return json.dumps(
+        dict(
+            module="flint_test_host", address="127.0.0.1", port=6321, name="场景", error_path=str(tmp_path / "42.error")
+        )
+    )
 
 
 def test_attach_runs_the_host_manager_on_a_daemon_thread(host, tmp_path):

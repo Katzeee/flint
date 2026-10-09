@@ -1,4 +1,3 @@
-using System;
 using Flint.Bridge;
 
 namespace Flint.Unity

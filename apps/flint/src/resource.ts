@@ -35,9 +35,9 @@ export function useResource<T>(
   });
   useEffect(() => {
     if (key === null) return;
-    const force = previous.current.key === key && (
-      previous.current.revision !== revision || previous.current.refreshVersion !== refreshVersion
-    );
+    const force =
+      previous.current.key === key &&
+      (previous.current.revision !== revision || previous.current.refreshVersion !== refreshVersion);
     previous.current = { key, refreshVersion, revision };
     const entry = resources.acquire<T>(key);
     let active = true;
@@ -54,11 +54,12 @@ export function useResource<T>(
       let cancelled = false;
       try {
         const data = await resources.read(entry, reader.current);
-        if (active) setResult((previous) =>
-          previous.key === key && previous.data === data && !previous.error && !previous.loading
-            ? previous
-            : { key, data, error: "", loading: false },
-        );
+        if (active)
+          setResult((previous) =>
+            previous.key === key && previous.data === data && !previous.error && !previous.loading
+              ? previous
+              : { key, data, error: "", loading: false },
+          );
       } catch (error) {
         cancelled = error instanceof DOMException && error.name === "AbortError";
         if (active && !cancelled)
@@ -69,8 +70,7 @@ export function useResource<T>(
             loading: false,
           }));
       } finally {
-        if (active && (cancelled || interval > 0))
-          timer = window.setTimeout(refresh, cancelled ? 0 : interval);
+        if (active && (cancelled || interval > 0)) timer = window.setTimeout(refresh, cancelled ? 0 : interval);
       }
     };
     if (!fresh) void refresh();
@@ -83,7 +83,7 @@ export function useResource<T>(
   }, [key, interval, revision, refreshVersion, freshness]);
   const reload = useCallback(() => setRevision((value) => value + 1), []);
   return {
-    data: result.key === key ? result.data : cached?.data ?? null,
+    data: result.key === key ? result.data : (cached?.data ?? null),
     error: result.key === key ? result.error : "",
     loading: key !== null && (result.key !== key || result.loading),
     reload,

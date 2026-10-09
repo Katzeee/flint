@@ -151,11 +151,7 @@ impl BridgeState {
     }
 
     /// A session without an obstacle ended on request and starts over.
-    pub(crate) fn finish_session(
-        &mut self,
-        settings_snapshot: &SettingsSnapshot,
-        obstacle: Option<Obstacle>,
-    ) {
+    pub(crate) fn finish_session(&mut self, settings_snapshot: &SettingsSnapshot, obstacle: Option<Obstacle>) {
         if self.stopped() || self.settings_snapshot.revision != settings_snapshot.revision {
             return;
         }
@@ -178,12 +174,7 @@ impl BridgeState {
             return None;
         }
         self.last_execution_id += 1;
-        self.execution = Some(Execution::new(
-            self.last_execution_id,
-            request_id,
-            request,
-            outbound,
-        ));
+        self.execution = Some(Execution::new(self.last_execution_id, request_id, request, outbound));
         Some(self.last_execution_id)
     }
 }

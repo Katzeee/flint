@@ -1,5 +1,5 @@
 //! Local host inspection, focus, previews, and Bridge exports.
-use super::{blocking, Application, Failure, FailureCode, Result};
+use super::{Application, Failure, FailureCode, Result, blocking};
 use base64::Engine;
 use flint_hosts::{ExportTarget, HostCandidate, HostError, WindowInfo, WindowPreview};
 use serde::Serialize;
@@ -75,15 +75,11 @@ impl Application {
         ExportTarget::available().collect()
     }
 
-    pub async fn export_bridge(
-        target: ExportTarget,
-        output: Option<PathBuf>,
-    ) -> Result<ExportResult> {
+    pub async fn export_bridge(target: ExportTarget, output: Option<PathBuf>) -> Result<ExportResult> {
         blocking(move || {
             Ok(ExportResult {
-                path: flint_hosts::export(target, output.as_deref()).map_err(|error| {
-                    Failure::caused_by(FailureCode::CommandFailed, error.as_ref())
-                })?,
+                path: flint_hosts::export(target, output.as_deref())
+                    .map_err(|error| Failure::caused_by(FailureCode::CommandFailed, error.as_ref()))?,
                 version: env!("CARGO_PKG_VERSION"),
             })
         })

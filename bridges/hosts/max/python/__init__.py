@@ -8,6 +8,7 @@ from ..qt import resolve_qt
 
 def create_scheduler():
     import pymxs
+
     pymxs.runtime.maxVersion()
     return QtMainThread(resolve_qt(fallback="PySide2"))
 

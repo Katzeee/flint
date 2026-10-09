@@ -1,7 +1,7 @@
 use crate::hosts::host_executable;
 use crate::support::*;
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     fs,
     path::PathBuf,
@@ -15,8 +15,7 @@ fn exported_package_registers_and_executes() -> Result<()> {
     let app = App::evidence("unity");
     app.call("start", &[], 0)?;
     let bundle = app.export("unity")?;
-    let unity_path =
-        |path: &std::path::Path| PathBuf::from(path.to_string_lossy().trim_start_matches(r"\\?\"));
+    let unity_path = |path: &std::path::Path| PathBuf::from(path.to_string_lossy().trim_start_matches(r"\\?\"));
     checked(
         Command::new("tar")
             .arg("-xzf")
@@ -52,15 +51,10 @@ public static class FlintTestBootstrap
             app.bridge_port
         ),
     )?;
-    let package_path = package
-        .to_string_lossy()
-        .trim_start_matches(r"\\?\")
-        .replace('\\', "/");
+    let package_path = package.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/");
     fs::write(
         project.join("Packages/manifest.json"),
-        serde_json::to_vec(
-            &json!({"dependencies":{"com.flint.bridge":format!("file:{package_path}")}}),
-        )?,
+        serde_json::to_vec(&json!({"dependencies":{"com.flint.bridge":format!("file:{package_path}")}}))?,
     )?;
     let log = app.directory.join("unity.log");
     let mut command = Command::new(executable);
@@ -78,11 +72,7 @@ public static class FlintTestBootstrap
     println!("UNITY_STARTED {} {}", host.0.id(), app.directory.display());
     let mut instance = None;
     wait_until(Duration::from_secs(180), || {
-        anyhow::ensure!(
-            host.0.try_wait()?.is_none(),
-            "Unity exited; inspect {}",
-            log.display()
-        );
+        anyhow::ensure!(host.0.try_wait()?.is_none(), "Unity exited; inspect {}", log.display());
         instance = app.instance("unity")?;
         Ok(instance.is_some())
     })?;
@@ -109,11 +99,13 @@ public static class FlintTestBootstrap
         )?
         .stdout,
     )?;
-    assert!(candidates["hosts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|candidate| { candidate["pid"] == host.0.id() && candidate["host"] == "unity" }));
+    assert!(
+        candidates["hosts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|candidate| { candidate["pid"] == host.0.id() && candidate["host"] == "unity" })
+    );
     crate::hosts::unity::verify_scene_execution(&app, id)?;
     crate::hosts::unity::verify_execution_failures(&app, id)?;
     assert!(host.0.try_wait()?.is_none());

@@ -4,11 +4,11 @@ use crate::ffi::{flint_step_fail, flint_step_output, flint_step_run, flint_step_
 use serde_json::Value;
 use std::{
     collections::VecDeque,
-    ffi::{c_char, CStr},
+    ffi::{CStr, c_char},
     ptr,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -101,15 +101,7 @@ impl Fake {
 }
 
 pub(crate) fn write(step: usize, stdout: &str, stderr: &str) -> bool {
-    unsafe {
-        flint_step_output(
-            step,
-            stdout.as_ptr(),
-            stdout.len(),
-            stderr.as_ptr(),
-            stderr.len(),
-        )
-    }
+    unsafe { flint_step_output(step, stdout.as_ptr(), stdout.len(), stderr.as_ptr(), stderr.len()) }
 }
 
 unsafe fn fake<'a>(context: usize) -> &'a Fake {
@@ -164,11 +156,7 @@ unsafe extern "C" fn run(context: usize, result_id: usize, step: usize) {
 }
 
 unsafe extern "C" fn discard(context: usize, result_id: usize) {
-    fake(context)
-        .calls
-        .lock()
-        .unwrap()
-        .push(format!("discard {result_id}"));
+    fake(context).calls.lock().unwrap().push(format!("discard {result_id}"));
 }
 
 unsafe extern "C" fn release(context: usize) {

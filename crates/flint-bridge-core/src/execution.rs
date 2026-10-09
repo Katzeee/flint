@@ -4,7 +4,7 @@ use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use serde::Serialize;
 use std::convert::Infallible;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use tokio::{net::TcpStream, sync::mpsc as async_mpsc};
 
 type Wire = flint_contracts::protocol::framing::Wire<TcpStream>;
@@ -120,17 +120,11 @@ impl Execution {
 
 impl BridgeState {
     pub(crate) fn execution_mut(&mut self, id: u64) -> Option<&mut Execution> {
-        self.execution
-            .as_mut()
-            .filter(|execution| execution.id == id)
+        self.execution.as_mut().filter(|execution| execution.id == id)
     }
 
     /// Reports the terminal result after buffered output.
-    pub(crate) fn finish_execution(
-        &mut self,
-        id: u64,
-        result: Result<(), ExecutionFailure>,
-    ) -> bool {
+    pub(crate) fn finish_execution(&mut self, id: u64, result: Result<(), ExecutionFailure>) -> bool {
         let Some(stage) = self.execution_mut(id).map(|execution| execution.stage) else {
             return false;
         };
@@ -148,10 +142,7 @@ impl BridgeState {
         };
         execution
             .outbound
-            .send(envelope(
-                execution.request.request_id,
-                Payload::ExecutionResult(result),
-            ))
+            .send(envelope(execution.request.request_id, Payload::ExecutionResult(result)))
             .is_ok()
     }
 

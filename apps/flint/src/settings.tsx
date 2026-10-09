@@ -45,12 +45,7 @@ export function Settings({
           <List.Section title="Appearance">
             <List.Item
               control={
-                <Select.Root
-                  value={appearance}
-                  onValueChange={(value) =>
-                    onAppearanceChange(value as CairnAppearance)
-                  }
-                >
+                <Select.Root value={appearance} onValueChange={(value) => onAppearanceChange(value as CairnAppearance)}>
                   <Select.Trigger />
                   <Select.Content>
                     <Select.Item value="inherit">System</Select.Item>
@@ -73,11 +68,7 @@ export function Settings({
 
           <List.Section title="Backend">
             <List.Item
-              trailing={
-                <Status tone={ready ? "success" : "neutral"}>
-                  {ready ? "Running" : "Not running"}
-                </Status>
-              }
+              trailing={<Status tone={ready ? "success" : "neutral"}>{ready ? "Running" : "Not running"}</Status>}
             >
               Status
             </List.Item>
@@ -87,9 +78,7 @@ export function Settings({
             <List.Item trailing={info.data ? <Code>{info.data.bridge_endpoint}</Code> : pending}>
               Bridge endpoint
             </List.Item>
-            <List.Item trailing={info.data?.state_dir ?? pending}>
-              Data directory
-            </List.Item>
+            <List.Item trailing={info.data?.state_dir ?? pending}>Data directory</List.Item>
           </List.Section>
           <ErrorNotice error={info.error} retry={info.reload} />
 

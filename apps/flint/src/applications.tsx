@@ -31,12 +31,7 @@ import {
   type HostCandidate,
   type Snapshot,
 } from "./backend.js";
-import {
-  instancePath,
-  navigate,
-  workflowPath,
-  type Route,
-} from "./navigation.js";
+import { instancePath, navigate, workflowPath, type Route } from "./navigation.js";
 import { messageOf, useResource } from "./resource.js";
 import { ErrorNotice, formatTime, Loading } from "./shared.js";
 import { loadWindowPreview } from "./window-preview.js";
@@ -69,12 +64,7 @@ function ApplicationCard({
   const pid = instance?.pid ?? candidate!.pid;
   const host = instance?.instance_type ?? candidate!.host;
   const href = `#/${instance ? instancePath(instance.instance_id) : `apps/candidates/${pid}`}`;
-  const preview = useResource(
-    `preview:${host}:${pid}`,
-    (signal) => loadWindowPreview(pid, signal),
-    10000,
-    revision,
-  );
+  const preview = useResource(`preview:${host}:${pid}`, (signal) => loadWindowPreview(pid, signal), 10000, revision);
   const title = preview.data?.window?.title || instance?.instance_name || hostName(host);
   const windowPreview = preview.data?.preview;
   return (
@@ -102,9 +92,7 @@ function ApplicationCard({
       <Flex direction="column" gap="4" minWidth="0">
         <Flex direction="column" gap="2">
           <Heading as="h3" size="body-large" truncate title={title}>
-            <Card.Link href={href}>
-              {title}
-            </Card.Link>
+            <Card.Link href={href}>{title}</Card.Link>
           </Heading>
           <Text size="label" tone="muted">
             {hostName(host)} · PID {pid}
@@ -124,7 +112,15 @@ function ApplicationCard({
 }
 
 function ApplicationGroup({
-  title, count, ready, loading, error, retry, emptyTitle, description, children,
+  title,
+  count,
+  ready,
+  loading,
+  error,
+  retry,
+  emptyTitle,
+  description,
+  children,
 }: Readonly<{
   title: string;
   count: number;
@@ -146,7 +142,9 @@ function ApplicationGroup({
         </Flex>
         <ErrorNotice error={error ?? ""} retry={retry} />
         {count > 0 ? (
-          <Grid columns={cardColumns} gap="4">{children}</Grid>
+          <Grid columns={cardColumns} gap="4">
+            {children}
+          </Grid>
         ) : !error ? (
           <Flex direction="column" gap="1" role="status">
             <Text>{ready ? emptyTitle : "Looking for applications…"}</Text>
@@ -159,10 +157,7 @@ function ApplicationGroup({
 }
 
 // One labelled fact in a record's summary, beside its preview.
-function Fact({
-  label,
-  children,
-}: Readonly<{ label: string; children: ReactNode }>) {
+function Fact({ label, children }: Readonly<{ label: string; children: ReactNode }>) {
   return (
     <Flex direction="column" gap="1" minWidth="0">
       <Text size="label" tone="muted">
@@ -216,15 +211,8 @@ function ApplicationDetail({
       setAttaching(false);
     }
   };
-  const related = useResource(
-    instance ? "workflows" : null,
-    readWorkflows,
-    5000,
-  );
-  const records =
-    related.data?.filter(
-      (item) => instance && item.instance_ids.includes(instance.instance_id),
-    ) ?? [];
+  const related = useResource(instance ? "workflows" : null, readWorkflows, 5000);
+  const records = related.data?.filter((item) => instance && item.instance_ids.includes(instance.instance_id)) ?? [];
   const hostWindow = preview.data?.window;
   const windowPreview = preview.data?.preview;
   const application = host ? hostName(host) : "Application";
@@ -234,16 +222,9 @@ function ApplicationDetail({
   return (
     <>
       <PageBar.Root>
-        <PageBar.Back
-          label="Back to applications"
-          onSelect={() => navigate("apps")}
-        />
-        <PageBar.Title>
-          {pid === undefined ? name : `${name} · PID ${pid}`}
-        </PageBar.Title>
-        {hostWindow?.title ? (
-          <PageBar.Subtitle>{hostWindow.title}</PageBar.Subtitle>
-        ) : null}
+        <PageBar.Back label="Back to applications" onSelect={() => navigate("apps")} />
+        <PageBar.Title>{pid === undefined ? name : `${name} · PID ${pid}`}</PageBar.Title>
+        {hostWindow?.title ? <PageBar.Subtitle>{hostWindow.title}</PageBar.Subtitle> : null}
         {instance || candidate ? (
           <PageBar.Action
             icon={RefreshCw}
@@ -310,20 +291,8 @@ function ApplicationDetail({
               <Flex direction="column" gap="4" flexGrow="1" flexBasis="320px" minWidth="0" pt="1">
                 <Grid columns="2" gapX="6" gapY="4">
                   <Fact label="Bridge">
-                    <Status
-                      tone={
-                        instance
-                          ? instance.execution_ready
-                            ? "success"
-                            : "warning"
-                          : "neutral"
-                      }
-                    >
-                      {instance
-                        ? instance.execution_ready
-                          ? "Ready to execute"
-                          : "Connecting"
-                        : "Not connected"}
+                    <Status tone={instance ? (instance.execution_ready ? "success" : "warning") : "neutral"}>
+                      {instance ? (instance.execution_ready ? "Ready to execute" : "Connecting") : "Not connected"}
                     </Status>
                   </Fact>
                   <Fact label="Application">{application}</Fact>
@@ -343,11 +312,7 @@ function ApplicationDetail({
                     </Text>
                     {candidate && attachSupported ? (
                       <Button onClick={() => void attach()} disabled={attaching}>
-                        {attaching ? (
-                          <Spinner size="sm" />
-                        ) : (
-                          <Icon glyph={Zap} size="sm" />
-                        )}
+                        {attaching ? <Spinner size="sm" /> : <Icon glyph={Zap} size="sm" />}
                         {attaching ? "Attaching…" : "Attach Bridge"}
                       </Button>
                     ) : null}
@@ -369,17 +334,11 @@ function ApplicationDetail({
                 <Flex direction="column" gap="6" pt="2">
                   <List.Section title="Details">
                     {instance ? (
-                      <List.Item trailing={<Code>{instance.instance_id}</Code>}>
-                        Instance ID
-                      </List.Item>
+                      <List.Item trailing={<Code>{instance.instance_id}</Code>}>Instance ID</List.Item>
                     ) : null}
                     <List.Item trailing={pid}>Process ID</List.Item>
-                    {hostWindow?.title ? (
-                      <List.Item description={hostWindow.title}>Window</List.Item>
-                    ) : null}
-                    {executable ? (
-                      <List.Item description={executable}>Executable</List.Item>
-                    ) : null}
+                    {hostWindow?.title ? <List.Item description={hostWindow.title}>Window</List.Item> : null}
+                    {executable ? <List.Item description={executable}>Executable</List.Item> : null}
                   </List.Section>
                 </Flex>
               </Tabs.Content>
@@ -416,8 +375,7 @@ function ApplicationDetail({
                   <EmptyState>
                     <EmptyState.Title>Connect the Bridge to run code</EmptyState.Title>
                     <EmptyState.Description>
-                      The console runs code inside {application} once its Bridge
-                      connects.
+                      The console runs code inside {application} once its Bridge connects.
                     </EmptyState.Description>
                   </EmptyState>
                 )}
@@ -441,9 +399,7 @@ function ApplicationDetail({
                     ) : (
                       <EmptyState>
                         <EmptyState.Title>
-                          {related.loading && !related.data
-                            ? "Loading workflows…"
-                            : "No workflows yet"}
+                          {related.loading && !related.data ? "Loading workflows…" : "No workflows yet"}
                         </EmptyState.Title>
                         <EmptyState.Description>
                           Workflows that run code in this application appear here.
@@ -490,9 +446,7 @@ export function Applications({
   const [previewRevision, setPreviewRevision] = useState(0);
   const instances = snapshot?.instances ?? [];
   const connectedPids = new Set(instances.map((instance) => instance.pid));
-  const candidates = (discovery.data ?? []).filter(
-    (candidate) => !connectedPids.has(candidate.pid),
-  );
+  const candidates = (discovery.data ?? []).filter((candidate) => !connectedPids.has(candidate.pid));
   const reload = () => {
     setPreviewRevision((value) => value + 1);
     discovery.reload();
@@ -503,9 +457,7 @@ export function Applications({
       ? instances.find((item) => item.pid === Number(route.id))
       : instances.find((item) => item.instance_id === route.id);
     const candidate =
-      !instance && route.candidate
-        ? candidates.find((item) => item.pid === Number(route.id))
-        : undefined;
+      !instance && route.candidate ? candidates.find((item) => item.pid === Number(route.id)) : undefined;
     return (
       <>
         <ApplicationDetail
@@ -544,9 +496,7 @@ export function Applications({
                 {firstLoad ? <Spinner size="sm" /> : <Icon glyph={AppWindow} size="lg" />}
               </EmptyState.Illustration>
               <EmptyState.Title>{firstLoad ? "Looking for applications…" : "No applications running"}</EmptyState.Title>
-              <EmptyState.Description>
-                Open Blender, Maya, 3ds Max or Unity to get started.
-              </EmptyState.Description>
+              <EmptyState.Description>Open Blender, Maya, 3ds Max or Unity to get started.</EmptyState.Description>
             </EmptyState>
           </Section>
         ) : (

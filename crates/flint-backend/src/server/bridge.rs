@@ -7,12 +7,8 @@ pub(super) async fn connection(backend: BackendHandle, socket: TcpStream) -> Res
 
 async fn dispatch(backend: BackendHandle, wire: Wire, first: Envelope) -> Result<()> {
     match first.payload.unwrap() {
-        Payload::RegisterInstance(req) => {
-            heartbeat_connection(backend, wire, first.request_id, req).await
-        }
-        Payload::RegisterExecutionChannel(req) => {
-            execution_connection(backend, wire, first.request_id, req).await
-        }
+        Payload::RegisterInstance(req) => heartbeat_connection(backend, wire, first.request_id, req).await,
+        Payload::RegisterExecutionChannel(req) => execution_connection(backend, wire, first.request_id, req).await,
         _ => anyhow::bail!("expected a Bridge registration"),
     }
 }
@@ -102,14 +98,10 @@ async fn execution_connection(
         let mut state = backend.0.state.lock().unwrap();
         match state.sessions.get_mut(&req.instance_id) {
             None => Err("the instance is not registered"),
-            Some(session)
-                if session.registration.pid != req.pid || session.token != req.session_token =>
-            {
+            Some(session) if session.registration.pid != req.pid || session.token != req.session_token => {
                 Err("the execution channel identity does not match its registration")
             }
-            Some(session) if session.sender.is_some() => {
-                Err("the execution channel is already connected")
-            }
+            Some(session) if session.sender.is_some() => Err("the execution channel is already connected"),
             Some(session) => {
                 session.sender = Some(sender);
                 Ok(session.cancel.clone())
@@ -143,10 +135,7 @@ fn process_message(backend: &BackendHandle, instance: &str, message: Envelope) -
     let Some(job) = state.jobs.get_mut(&message.request_id) else {
         return Ok(());
     };
-    anyhow::ensure!(
-        job.instance == instance,
-        "response belongs to another instance"
-    );
+    anyhow::ensure!(job.instance == instance, "response belongs to another instance");
     match message.payload.unwrap() {
         Payload::ExecutionOutputUpdate(update) => {
             anyhow::ensure!(
@@ -156,10 +145,7 @@ fn process_message(backend: &BackendHandle, instance: &str, message: Envelope) -
             if update.sequence <= job.output_sequence {
                 return Ok(());
             }
-            anyhow::ensure!(
-                update.sequence == job.output_sequence + 1,
-                "output sequence gap"
-            );
+            anyhow::ensure!(update.sequence == job.output_sequence + 1, "output sequence gap");
             backend.0.store.update(&job.workflow, &job.execution, |e| {
                 e.stdout += &update.stdout_delta;
                 e.stderr += &update.stderr_delta;

@@ -5,8 +5,12 @@ use std::time::Duration;
 
 pub fn verify_scene_execution(app: &App, id: &str) -> Result<()> {
     let workflow = app.workflow("unity-mono-validation")?;
-    let scene = unity_execution(app, id, &workflow,
-        "var item = new GameObject(\"Flint Unity validation\");\nDebug.Log(\"UNITY_SCENE_OK \" + System.Diagnostics.Process.GetCurrentProcess().Id);\nUnityEngine.Object.DestroyImmediate(item);")?;
+    let scene = unity_execution(
+        app,
+        id,
+        &workflow,
+        "var item = new GameObject(\"Flint Unity validation\");\nDebug.Log(\"UNITY_SCENE_OK \" + System.Diagnostics.Process.GetCurrentProcess().Id);\nUnityEngine.Object.DestroyImmediate(item);",
+    )?;
     assert_eq!(scene["status"], "succeeded", "{scene:?}");
     assert!(scene["stdout"].as_str().unwrap().contains("UNITY_SCENE_OK"));
     Ok(())
@@ -22,38 +26,28 @@ pub fn verify_execution_failures(app: &App, id: &str) -> Result<()> {
     )?;
     assert_eq!(failure["status"], "failed", "{failure:?}");
     assert_eq!(failure["error"]["code"], "execution_failed", "{failure:?}");
-    assert!(failure["traceback"]
-        .as_str()
-        .unwrap()
-        .contains("UNITY_EXPECTED_FAILURE"));
+    assert!(
+        failure["traceback"]
+            .as_str()
+            .unwrap()
+            .contains("UNITY_EXPECTED_FAILURE")
+    );
     let syntax = unity_execution(app, id, &workflow, "this is not valid C#;")?;
     assert_eq!(syntax["status"], "failed", "{syntax:?}");
     assert_eq!(syntax["error"]["code"], "preparation_failed", "{syntax:?}");
-    assert!(
-        syntax["traceback"].as_str().unwrap().contains("error CS"),
-        "{syntax:?}"
-    );
+    assert!(syntax["traceback"].as_str().unwrap().contains("error CS"), "{syntax:?}");
     Ok(())
 }
 
 fn unity_execution(app: &App, instance: &str, workflow: &str, code: &str) -> Result<Value> {
     let submitted = run(
-        app.command("exec").args([
-            "--instance-id",
-            instance,
-            "--workflow-id",
-            workflow,
-            "--code",
-            code,
-        ]),
+        app.command("exec")
+            .args(["--instance-id", instance, "--workflow-id", workflow, "--code", code]),
         Duration::from_secs(60),
         None,
     )?;
     anyhow::ensure!(
-        submitted
-            .status
-            .code()
-            .is_some_and(|code| code == 0 || code == 1),
+        submitted.status.code().is_some_and(|code| code == 0 || code == 1),
         "Unity submission failed: {} {}",
         submitted.stdout,
         submitted.stderr
@@ -63,22 +57,13 @@ fn unity_execution(app: &App, instance: &str, workflow: &str, code: &str) -> Res
     let mut detail = None;
     wait_until(Duration::from_secs(60), || {
         let response = run(
-            app.command("execution").args([
-                "--workflow-id",
-                workflow,
-                "--execution-id",
-                execution,
-                "--view",
-                "full",
-            ]),
+            app.command("execution")
+                .args(["--workflow-id", workflow, "--execution-id", execution, "--view", "full"]),
             Duration::from_secs(15),
             None,
         )?;
         anyhow::ensure!(
-            response
-                .status
-                .code()
-                .is_some_and(|code| code == 0 || code == 1),
+            response.status.code().is_some_and(|code| code == 0 || code == 1),
             "Unity execution lookup failed: {} {}",
             response.stdout,
             response.stderr

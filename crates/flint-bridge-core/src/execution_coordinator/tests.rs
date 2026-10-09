@@ -1,12 +1,10 @@
-use super::fake::{write, Fake, Mode, PREPARED};
+use super::fake::{Fake, Mode, PREPARED, write};
 use super::*;
 use crate::{
     ffi::{flint_step_fail, flint_step_run, flint_step_succeed},
     settings::{BridgeSettings, SettingsSnapshot},
 };
-use flint_contracts::protocol::{
-    envelope::Payload, Envelope, ExecutionResult, ExecutionStatus, HostExecuteRequest,
-};
+use flint_contracts::protocol::{Envelope, ExecutionResult, ExecutionStatus, HostExecuteRequest, envelope::Payload};
 use std::{ptr, sync::atomic::Ordering, time::Duration};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -34,17 +32,12 @@ impl Fixture {
             },
         });
         let mut state = BridgeState::new(settings.clone());
-        state
-            .complete_registration(&settings, "instance".into())
-            .unwrap();
+        state.complete_registration(&settings, "instance".into()).unwrap();
         let state = Arc::new(Mutex::new(state));
         let (outbound, outputs) = tokio::sync::mpsc::unbounded_channel();
         let fake = Fake::new();
-        let (execution_coordinator, schedule, dispatcher) = ExecutionCoordinator::start(
-            OwnedExecutionBinding::new(fake.execution_binding()),
-            state.clone(),
-        )
-        .unwrap();
+        let (execution_coordinator, schedule, dispatcher) =
+            ExecutionCoordinator::start(OwnedExecutionBinding::new(fake.execution_binding()), state.clone()).unwrap();
         Self {
             fake,
             execution_coordinator,
@@ -108,10 +101,7 @@ impl Fixture {
             if let Some(Payload::ExecutionResult(result)) = self.messages().pop() {
                 return result;
             }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "no result was reported"
-            );
+            assert!(std::time::Instant::now() < deadline, "no result was reported");
             thread::sleep(Duration::from_millis(1));
         }
     }
@@ -127,10 +117,7 @@ impl Drop for Fixture {
 
 fn failed(result: &ExecutionResult, error: &str) {
     assert_eq!(result.status, ExecutionStatus::Failed as i32);
-    assert_eq!(
-        result.error.as_ref().map(|failure| failure.code.as_str()),
-        Some(error)
-    );
+    assert_eq!(result.error.as_ref().map(|failure| failure.code.as_str()), Some(error));
 }
 
 #[test]
@@ -154,11 +141,7 @@ fn preparation_completion_runs_the_value_and_reports_ordered_output() {
                 flint_step_succeed(step, result_id);
             });
             crate::tests::join_thread(completion, "asynchronous preparation", WAIT);
-            assert_eq!(
-                f.fake.calls(),
-                ["prepare"],
-                "completion must wait for the host thread"
-            );
+            assert_eq!(f.fake.calls(), ["prepare"], "completion must wait for the host thread");
             assert!(f.busy());
             f.run_posted();
         }
@@ -170,8 +153,7 @@ fn preparation_completion_runs_the_value_and_reports_ordered_output() {
         );
         assert_eq!(f.fake.take_request().unwrap()["code"], "code", "{case}");
         let messages: [Payload; 2] = f.messages().try_into().expect(case);
-        let [Payload::ExecutionOutputUpdate(output), Payload::ExecutionResult(result)] = messages
-        else {
+        let [Payload::ExecutionOutputUpdate(output), Payload::ExecutionResult(result)] = messages else {
             panic!("{case}: expected output before the result");
         };
         assert_eq!(output.stdout_delta, stdout, "{case}");
@@ -279,7 +261,7 @@ fn a_host_that_cannot_schedule_fails_the_execution() {
 
 #[test]
 fn destroying_a_core_releases_lost_steps_and_preserves_its_replacement() {
-    use crate::tests::{connected, execute, Backend};
+    use crate::tests::{Backend, connected, execute};
 
     for (case, prepare, run_posted) in [
         ("posted", Mode::Complete, false),
@@ -303,38 +285,23 @@ fn destroying_a_core_releases_lost_steps_and_preserves_its_replacement() {
         let (coordinator, state) = {
             let steps = STEPS.lock().unwrap();
             let coordinator = &steps.issued[&lost].execution_coordinator;
-            (
-                Arc::downgrade(coordinator),
-                Arc::downgrade(&coordinator.state),
-            )
+            (Arc::downgrade(coordinator), Arc::downgrade(&coordinator.state))
         };
         drop(core); // The helper calls the production flint_bridge_destroy.
-        assert!(
-            coordinator.upgrade().is_none(),
-            "{case}: coordinator retained"
-        );
-        assert!(
-            state.upgrade().is_none(),
-            "{case}: execution state retained"
-        );
+        assert!(coordinator.upgrade().is_none(), "{case}: coordinator retained");
+        assert!(state.upgrade().is_none(), "{case}: execution state retained");
 
         let replacement = connected(&mut backend);
         *replacement.fake.prepare.lock().unwrap() = prepare;
         backend.send(execute("new"));
         let current = take_step(&replacement.fake);
-        assert_ne!(
-            current, lost,
-            "{case}: reused a destroyed core's step number"
-        );
+        assert_ne!(current, lost, "{case}: reused a destroyed core's step number");
         let calls = replacement.fake.calls();
         assert!(!write(lost, "late output", ""), "{case}");
         flint_step_run(lost);
         flint_step_succeed(lost, PREPARED);
         unsafe { flint_step_fail(lost, ptr::null(), c"late failure".as_ptr(), ptr::null()) };
-        assert!(
-            replacement.busy(),
-            "{case}: stale step ended the new execution"
-        );
+        assert!(replacement.busy(), "{case}: stale step ended the new execution");
         assert_eq!(replacement.fake.calls(), calls, "{case}");
 
         if !run_posted {
@@ -347,10 +314,7 @@ fn destroying_a_core_releases_lost_steps_and_preserves_its_replacement() {
         } else {
             flint_step_succeed(current, 0);
         }
-        assert!(
-            !replacement.busy(),
-            "{case}: the current step must still complete"
-        );
+        assert!(!replacement.busy(), "{case}: the current step must still complete");
     }
 }
 
@@ -368,27 +332,16 @@ fn a_completed_preparation_step_cannot_affect_the_running_execution() {
 
     assert!(!write(completed, "late preparation output", ""));
     flint_step_succeed(completed, PREPARED);
-    unsafe {
-        flint_step_fail(
-            completed,
-            ptr::null(),
-            c"late failure".as_ptr(),
-            ptr::null(),
-        )
-    };
+    unsafe { flint_step_fail(completed, ptr::null(), c"late failure".as_ptr(), ptr::null()) };
     flint_step_run(completed);
     assert!(f.busy(), "the running step still owns completion");
-    assert_eq!(
-        f.fake.calls(),
-        ["prepare".to_string(), format!("run {PREPARED}")]
-    );
+    assert_eq!(f.fake.calls(), ["prepare".to_string(), format!("run {PREPARED}")]);
 
     assert!(write(running, "current output", ""));
     flint_step_succeed(running, 0);
     assert!(!f.busy());
     let messages: [Payload; 2] = f.messages().try_into().expect("output and one result");
-    let [Payload::ExecutionOutputUpdate(output), Payload::ExecutionResult(result)] = messages
-    else {
+    let [Payload::ExecutionOutputUpdate(output), Payload::ExecutionResult(result)] = messages else {
         panic!("expected output before the result");
     };
     assert_eq!(output.stdout_delta, "ran\ncurrent output");
@@ -470,10 +423,11 @@ fn revocation_releases_only_after_every_concurrent_call_returns() {
 
     f.execution_coordinator.revoke();
     f.execution_coordinator.revoke();
-    assert!(f
-        .execution_coordinator
-        .call(|_| panic!("revoked call entered"))
-        .is_none());
+    assert!(
+        f.execution_coordinator
+            .call(|_| panic!("revoked call entered"))
+            .is_none()
+    );
     assert_eq!(f.fake.released.load(Ordering::SeqCst), 0);
 
     let (resume, caller) = callers.pop().unwrap();

@@ -54,9 +54,7 @@ impl FailureCode {
             Self::BackendUnavailable => "the backend is not running or did not respond",
             Self::ConnectionFailed => "connection failed",
             Self::RegistrationRejected => "the backend rejected the Bridge registration",
-            Self::ExecutionTimeout => {
-                "execution response timed out; host code may still be running"
-            }
+            Self::ExecutionTimeout => "execution response timed out; host code may still be running",
             Self::ExecutionDisconnected => "host disconnected; execution outcome is unknown",
             Self::ExecutionInterrupted => "backend interrupted; host execution outcome is unknown",
             Self::ResultPersistenceFailed => "could not persist the execution result",

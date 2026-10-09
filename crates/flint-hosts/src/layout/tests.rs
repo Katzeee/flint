@@ -41,22 +41,12 @@ fn archives_are_reproducible_and_hold_the_sorted_files() {
         ("a/core".to_owned(), b"core".to_vec()),
         ("b/source.txt".to_owned(), b"source".to_vec()),
     ];
-    for (format, entries) in [
-        (Format::Zip, zip_entries as fn(&Path) -> _),
-        (Format::Tgz, tgz_entries),
-    ] {
-        let first = directory
-            .path()
-            .join(format!("first.{}", format.extension()));
-        let second = directory
-            .path()
-            .join(format!("second.{}", format.extension()));
+    for (format, entries) in [(Format::Zip, zip_entries as fn(&Path) -> _), (Format::Tgz, tgz_entries)] {
+        let first = directory.path().join(format!("first.{}", format.extension()));
+        let second = directory.path().join(format!("second.{}", format.extension()));
         write_archive(&layout(), format, &first).unwrap();
         write_archive(&layout(), format, &second).unwrap();
-        assert_eq!(
-            std::fs::read(&first).unwrap(),
-            std::fs::read(&second).unwrap()
-        );
+        assert_eq!(std::fs::read(&first).unwrap(), std::fs::read(&second).unwrap());
         assert_eq!(entries(&first), expected);
     }
 }

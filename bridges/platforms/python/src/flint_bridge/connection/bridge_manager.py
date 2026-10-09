@@ -1,4 +1,5 @@
 """Manage a host's Bridge using the execution and scheduling it supplies."""
+
 from dataclasses import dataclass
 from concurrent.futures import Future, TimeoutError as WaitTimeout
 import sys
@@ -82,11 +83,14 @@ class BridgeManager:
             elif attempt.cancel():
                 raise TimeoutError("Bridge initialization timed out and was cancelled before starting") from None
             else:
-                raise TimeoutError("Bridge initialization is still in progress; connection outcome is unknown") from None
+                raise TimeoutError(
+                    "Bridge initialization is still in progress; connection outcome is unknown"
+                ) from None
         if enabled and not bridge.wait_until_connected(max(0, deadline - time.monotonic())):
             obstacle = bridge.status["connection"].get("obstacle")
-            raise RuntimeError("Bridge registration did not complete" + (
-                ": " + obstacle["message"] if obstacle else ""))
+            raise RuntimeError(
+                "Bridge registration did not complete" + (": " + obstacle["message"] if obstacle else "")
+            )
         return bridge.instance_id
 
     def current(self):

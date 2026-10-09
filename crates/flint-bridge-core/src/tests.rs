@@ -1,14 +1,14 @@
 use super::*;
 use crate::claim::TestScope;
 use crate::execution_binding::OwnedExecutionBinding;
-use crate::execution_coordinator::fake::{write, Fake, Mode};
+use crate::execution_coordinator::fake::{Fake, Mode, write};
 use crate::settings::ApplyResult;
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::{SinkExt, StreamExt};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
-    ffi::{c_char, CStr, CString},
-    sync::{mpsc, Arc},
+    ffi::{CStr, CString, c_char},
+    sync::{Arc, mpsc},
     thread,
     time::{Duration, Instant},
 };
@@ -73,8 +73,7 @@ impl Core {
         unsafe { take(flint_bridge_instance_id(self.pointer)) }.unwrap()
     }
     fn status(&self) -> Value {
-        serde_json::from_str(&unsafe { take(flint_bridge_status_json(self.pointer)) }.unwrap())
-            .unwrap()
+        serde_json::from_str(&unsafe { take(flint_bridge_status_json(self.pointer)) }.unwrap()).unwrap()
     }
     fn wait_request(&self, timeout: Duration) -> Option<Value> {
         let deadline = Instant::now() + timeout;
@@ -91,9 +90,7 @@ impl Core {
         }
     }
     fn write(&self, stdout: &str, stderr: &str) -> bool {
-        self.fake
-            .held()
-            .is_some_and(|step| write(step, stdout, stderr))
+        self.fake.held().is_some_and(|step| write(step, stdout, stderr))
     }
     fn finish(&self) -> bool {
         let Some(step) = self.fake.take_held() else {
@@ -321,11 +318,7 @@ impl Backend {
         }
     }
     fn propagate_panic(&mut self) {
-        if self
-            .thread
-            .as_ref()
-            .is_some_and(|thread| thread.is_finished())
-        {
+        if self.thread.as_ref().is_some_and(|thread| thread.is_finished()) {
             join_thread(self.thread.take().unwrap(), "backend", WAIT);
         }
     }
@@ -361,26 +354,18 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
     assert_eq!(core.wait_request(WAIT).unwrap()["request_id"], "active");
     let mut second = Backend::start();
     let replacement = settings(second.port, "新场景", true);
-    assert_eq!(
-        core.apply_settings(replacement.clone()),
-        ApplyResult::Busy as u32
-    );
+    assert_eq!(core.apply_settings(replacement.clone()), ApplyResult::Busy as u32);
     assert!(core.connected());
     assert_eq!(core.status()["settings"]["name"], "场景");
     assert!(core.finish());
     let completed = first.until_result();
-    assert!(completed
-        .iter()
-        .all(|message| message.request_id == "active"));
+    assert!(completed.iter().all(|message| message.request_id == "active"));
     let Some(Payload::ExecutionResult(result)) = &completed.last().unwrap().payload else {
         panic!("expected the active execution result on the original connection");
     };
     assert_eq!(result.status, ExecutionStatus::Succeeded as i32);
 
-    assert_eq!(
-        core.apply_settings(replacement),
-        ApplyResult::Applied as u32
-    );
+    assert_eq!(core.apply_settings(replacement), ApplyResult::Applied as u32);
     wait_until(|| {
         second.propagate_panic();
         core.connected()
@@ -528,9 +513,7 @@ fn execution_is_delivered_and_its_output_and_result_are_reported() {
     assert!(!core.busy());
 
     let mut received = backend.until_result();
-    assert!(received
-        .iter()
-        .all(|envelope| envelope.request_id == "request-1"));
+    assert!(received.iter().all(|envelope| envelope.request_id == "request-1"));
     let Some(Payload::ExecutionResult(result)) = received.pop().unwrap().payload else {
         unreachable!()
     };

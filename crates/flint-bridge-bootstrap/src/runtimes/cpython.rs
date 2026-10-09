@@ -14,8 +14,7 @@ pub(crate) fn attach(plan: &CpythonPlan) -> Result<()> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         let python = loop {
             if let Some(python) = module_with_export(c"Py_IsInitialized") {
-                let is_initialized: unsafe extern "C" fn() -> i32 =
-                    transmute(export(python, b"Py_IsInitialized\0")?);
+                let is_initialized: unsafe extern "C" fn() -> i32 = transmute(export(python, b"Py_IsInitialized\0")?);
                 if is_initialized() != 0 {
                     break python;
                 }
@@ -28,22 +27,17 @@ pub(crate) fn attach(plan: &CpythonPlan) -> Result<()> {
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         };
-        let ensure: unsafe extern "C" fn() -> i32 =
-            transmute(export(python, b"PyGILState_Ensure\0")?);
-        let release: unsafe extern "C" fn(i32) =
-            transmute(export(python, b"PyGILState_Release\0")?);
+        let ensure: unsafe extern "C" fn() -> i32 = transmute(export(python, b"PyGILState_Ensure\0")?);
+        let release: unsafe extern "C" fn(i32) = transmute(export(python, b"PyGILState_Release\0")?);
         let run_string: unsafe extern "C" fn(*const c_char) -> i32 =
             transmute(export(python, b"PyRun_SimpleString\0")?);
 
-        let source =
-            CString::new(plan.source.as_str()).context("attach source contains a NUL byte")?;
+        let source = CString::new(plan.source.as_str()).context("attach source contains a NUL byte")?;
         let gil = ensure();
         let code = run_string(source.as_ptr());
         release(gil);
         if code != 0 {
-            return Err(anyhow::anyhow!(
-                "the host CPython runtime rejected the attach source"
-            ));
+            return Err(anyhow::anyhow!("the host CPython runtime rejected the attach source"));
         }
         Ok(())
     }

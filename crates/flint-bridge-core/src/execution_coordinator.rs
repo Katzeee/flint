@@ -9,7 +9,7 @@ use std::{
     collections::BTreeMap,
     ffi::CString,
     ptr,
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
 };
 
@@ -58,7 +58,7 @@ impl ExecutionCoordinator {
     pub(crate) fn start(
         execution_binding: OwnedExecutionBinding,
         state: Arc<Mutex<BridgeState>>,
-    ) -> Result<(Arc<Self>, mpsc::Sender<u64>, JoinHandle<()>), std::io::Error> {
+    ) -> std::io::Result<(Arc<Self>, mpsc::Sender<u64>, JoinHandle<()>)> {
         let (schedule, scheduled) = mpsc::channel();
         let execution_coordinator = Arc::new(Self {
             execution_binding: Mutex::new(Some(Arc::new(execution_binding))),
@@ -73,9 +73,8 @@ impl ExecutionCoordinator {
                     dispatch_execution_coordinator.post(execution_id);
                 }
             })
-            .map_err(|error| {
+            .inspect_err(|_| {
                 execution_coordinator.revoke();
-                error
             })?;
         Ok((execution_coordinator, schedule, thread))
     }
@@ -117,9 +116,8 @@ impl ExecutionCoordinator {
 
     fn post(self: &Arc<Self>, execution_id: u64) {
         let step = self.issue(execution_id);
-        let posted = self.call(|execution_binding| unsafe {
-            (execution_binding.post)(execution_binding.context, step)
-        });
+        let posted =
+            self.call(|execution_binding| unsafe { (execution_binding.post)(execution_binding.context, step) });
         if posted != Some(true) {
             Step::take(step);
             self.cancel(
@@ -137,10 +135,7 @@ impl ExecutionCoordinator {
     fn cancel(&self, execution_id: u64, error: ExecutionFailure) {
         let discard = {
             let mut state = self.state.lock().unwrap();
-            let discard = match state
-                .execution_mut(execution_id)
-                .map(|execution| execution.stage)
-            {
+            let discard = match state.execution_mut(execution_id).map(|execution| execution.stage) {
                 Some(Stage::Scheduled) => None,
                 Some(Stage::Prepared { result_id }) => Some(result_id),
                 _ => return,
@@ -149,9 +144,7 @@ impl ExecutionCoordinator {
             discard
         };
         if let Some(result_id) = discard {
-            self.call(|execution_binding| unsafe {
-                (execution_binding.discard)(execution_binding.context, result_id)
-            });
+            self.call(|execution_binding| unsafe { (execution_binding.discard)(execution_binding.context, result_id) });
         }
     }
 
@@ -182,8 +175,7 @@ impl ExecutionCoordinator {
                     Stage::Scheduled => {
                         execution.stage = Stage::Preparing;
                         Action::Prepare(
-                            CString::new(serde_json::to_string(&execution.request).unwrap())
-                                .expect("JSON escapes NUL"),
+                            CString::new(serde_json::to_string(&execution.request).unwrap()).expect("JSON escapes NUL"),
                         )
                     }
                     Stage::Prepared { result_id } => {
@@ -198,11 +190,7 @@ impl ExecutionCoordinator {
                 Action::Prepare(request) => {
                     let step = self.issue(execution_id);
                     let called = self.call(|execution_binding| unsafe {
-                        (execution_binding.prepare)(
-                            execution_binding.context,
-                            request.as_ptr(),
-                            step,
-                        )
+                        (execution_binding.prepare)(execution_binding.context, request.as_ptr(), step)
                     });
                     if called.is_none() {
                         Step::take(step);
@@ -295,17 +283,11 @@ impl Step {
 
     pub(crate) fn succeed(step: usize, result_id: usize) {
         if let Some(step) = Self::take(step) {
-            step.execution_coordinator
-                .complete(step.execution_id, Ok(result_id));
+            step.execution_coordinator.complete(step.execution_id, Ok(result_id));
         }
     }
 
-    pub(crate) fn fail(
-        step: usize,
-        code: Option<String>,
-        message: Option<String>,
-        traceback: Option<String>,
-    ) {
+    pub(crate) fn fail(step: usize, code: Option<String>, message: Option<String>, traceback: Option<String>) {
         if let Some(step) = Self::take(step) {
             step.execution_coordinator.complete(
                 step.execution_id,

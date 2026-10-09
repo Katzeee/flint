@@ -1,9 +1,9 @@
 use super::ipc::{self, DesktopOpened};
 use crate::application::Application;
 use tauri::{
+    Manager,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager,
 };
 use tauri_specta::Event;
 
@@ -22,13 +22,10 @@ pub(crate) fn run(application: Application) -> anyhow::Result<()> {
     {
         let info = application.info();
         let config = context.config_mut();
-        config.identifier = format!(
-            "dev.flint.test.{}",
-            info.control_endpoint.replace(['.', ':'], "-")
-        );
-        config.app.app_directories_override = Some(
-            tauri::utils::config::AppDirectoriesOverride::Root(info.state_dir.join("desktop")),
-        );
+        config.identifier = format!("dev.flint.test.{}", info.control_endpoint.replace(['.', ':'], "-"));
+        config.app.app_directories_override = Some(tauri::utils::config::AppDirectoriesOverride::Root(
+            info.state_dir.join("desktop"),
+        ));
     }
     // Keep window icons sharp regardless of the frame order inside the ICO.
     context.set_default_window_icon(Some(tauri::include_image!("icons/icon.png")));

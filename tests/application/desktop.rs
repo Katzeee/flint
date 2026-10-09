@@ -6,17 +6,11 @@ use std::{process::Stdio, time::Duration};
 fn desktop_survives_backend_stop_and_restart_and_reuses_its_window_process() -> Result<()> {
     let app = App::new();
     let mut command = app.command("gui");
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     hidden(&mut command);
     let mut desktop = OwnedProcess(command.spawn()?);
     wait_until(Duration::from_secs(30), || {
-        anyhow::ensure!(
-            desktop.0.try_wait()?.is_none(),
-            "desktop exited during startup"
-        );
+        anyhow::ensure!(desktop.0.try_wait()?.is_none(), "desktop exited during startup");
         Ok(app.call("status", &[], 0)?["ready"] == true)
     })?;
     let first = app.call("status", &[], 0)?["pid"].as_u64().unwrap();
@@ -26,10 +20,7 @@ fn desktop_survives_backend_stop_and_restart_and_reuses_its_window_process() -> 
     // A second launch returns to the existing GUI, which establishes the stopped backend again.
     checked(&mut app.command("gui"), Duration::from_secs(10))?;
     wait_until(Duration::from_secs(30), || {
-        anyhow::ensure!(
-            desktop.0.try_wait()?.is_none(),
-            "desktop exited on relaunch"
-        );
+        anyhow::ensure!(desktop.0.try_wait()?.is_none(), "desktop exited on relaunch");
         Ok(app.call("status", &[], 0)?["ready"] == true)
     })?;
     let reopened = app.call("status", &[], 0)?["pid"].as_u64().unwrap();

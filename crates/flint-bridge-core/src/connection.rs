@@ -9,7 +9,7 @@ use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use std::{
     convert::Infallible,
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
     time::Duration,
 };
 use tokio::{net::TcpStream, sync::watch};
@@ -32,10 +32,7 @@ async fn ack(wire: &mut Wire, request_id: &str) -> Result<InstanceAck> {
     let response = tokio::time::timeout(Duration::from_secs(10), read_envelope(wire))
         .await
         .context("response timed out")??;
-    anyhow::ensure!(
-        response.request_id == request_id,
-        "handshake request ID mismatch"
-    );
+    anyhow::ensure!(response.request_id == request_id, "handshake request ID mismatch");
     match response.payload {
         Some(Payload::InstanceAck(ack)) => Ok(ack),
         Some(Payload::Failure(failure)) => Err(failure.into()),
@@ -78,10 +75,9 @@ async fn run_session(
     let mut heartbeat_wire = connect(&settings_snapshot.settings)
         .await
         .map_err(obstacle(ObstacleKind::Unreachable))?;
-    let (execution_wire, instance_id) =
-        register(identity, settings_snapshot, bridge_id, &mut heartbeat_wire)
-            .await
-            .map_err(obstacle(ObstacleKind::Registration))?;
+    let (execution_wire, instance_id) = register(identity, settings_snapshot, bridge_id, &mut heartbeat_wire)
+        .await
+        .map_err(obstacle(ObstacleKind::Registration))?;
     state
         .lock()
         .unwrap()

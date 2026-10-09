@@ -13,7 +13,15 @@ import { tauriDragRegion } from "@cairn/host-tauri";
 import { AppWindow, CircleAlert, Layers, LoaderCircle, Settings as SettingsGlyph } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Applications } from "./applications.js";
-import { activateTitleBar, discoverHosts, onDesktopOpened, readSnapshot, restartBackend, startBackend, stopBackend } from "./backend.js";
+import {
+  activateTitleBar,
+  discoverHosts,
+  onDesktopOpened,
+  readSnapshot,
+  restartBackend,
+  startBackend,
+  stopBackend,
+} from "./backend.js";
 import { navigate, useRoute } from "./navigation.js";
 import { messageOf, useResource } from "./resource.js";
 import { Deferred } from "./shared.js";
@@ -85,16 +93,11 @@ export function App() {
   };
   const ready = snapshot.data?.backend?.ready === true && !snapshot.error;
   const connecting = !ready && (backendBusy !== null || (snapshot.loading && !snapshot.data));
-  const stoppedMessage = backendError
-    ? `Backend operation failed: ${backendError}`
-    : "The backend is stopped.";
+  const stoppedMessage = backendError ? `Backend operation failed: ${backendError}` : "The backend is stopped.";
   const instances = snapshot.data?.instances ?? [];
   return (
     <CairnTheme appearance={appearance}>
-      <AppShell.Root
-        scroll="panes"
-        windowChrome={chrome ? tauriDragRegion : undefined}
-      >
+      <AppShell.Root scroll="panes" windowChrome={chrome ? tauriDragRegion : undefined}>
         {!chrome ? (
           <AppShell.Header>
             <Flex align="center" gap="3">
@@ -105,19 +108,10 @@ export function App() {
         ) : null}
         <AppShell.Navigation collapsible label="Flint navigation">
           <AppShell.NavGroup>
-            <AppShell.NavItem
-              active={route.page === "apps"}
-              href="#/apps"
-              icon={AppWindow}
-              badge={instances.length}
-            >
+            <AppShell.NavItem active={route.page === "apps"} href="#/apps" icon={AppWindow} badge={instances.length}>
               Applications
             </AppShell.NavItem>
-            <AppShell.NavItem
-              active={route.page === "workflows"}
-              href="#/workflows"
-              icon={Layers}
-            >
+            <AppShell.NavItem active={route.page === "workflows"} href="#/workflows" icon={Layers}>
               Workflows
             </AppShell.NavItem>
           </AppShell.NavGroup>
@@ -151,13 +145,19 @@ export function App() {
                 <Icon glyph={CircleAlert} size="sm" />
               </Callout.Icon>
               <Callout.Body>
-                <Callout.Text>{snapshot.error ? `Cannot reach the backend: ${snapshot.error}` : stoppedMessage}</Callout.Text>
+                <Callout.Text>
+                  {snapshot.error ? `Cannot reach the backend: ${snapshot.error}` : stoppedMessage}
+                </Callout.Text>
               </Callout.Body>
               <Callout.Actions>
                 {snapshot.error ? (
                   <Callout.Action label="Try again" onSelect={snapshot.reload} priority="primary" />
                 ) : (
-                  <Callout.Action label="Start backend" onSelect={() => void changeBackend("start")} priority="primary" />
+                  <Callout.Action
+                    label="Start backend"
+                    onSelect={() => void changeBackend("start")}
+                    priority="primary"
+                  />
                 )}
               </Callout.Actions>
             </Callout.Root>
@@ -174,11 +174,7 @@ export function App() {
             />
           ) : null}
           {route.page === "workflows" ? (
-            <Workflows
-              selectedId={route.id}
-              executionId={route.execution}
-              instances={instances}
-            />
+            <Workflows selectedId={route.id} executionId={route.execution} instances={instances} />
           ) : null}
           {route.page === "settings" ? (
             <Settings
@@ -194,10 +190,7 @@ export function App() {
           {route.page === "legal" ? (
             <>
               <PageBar.Root>
-                <PageBar.Back
-                  label="Back to settings"
-                  onSelect={() => navigate("settings")}
-                />
+                <PageBar.Back label="Back to settings" onSelect={() => navigate("settings")} />
                 <PageBar.Title>Licenses</PageBar.Title>
               </PageBar.Root>
               <LegalPage embedded />

@@ -50,7 +50,8 @@ namespace Flint.Unity
                     "using System; using UnityEngine; using UnityEditor;");
                 var builder = Activator.CreateInstance(UnityRuntime.Builder,
                     Path.Combine(program.Folder, program.ClassName + ".dll"), new[] { source });
-                program.Unsubscribe = ReflectionApi.Subscribe(UnityRuntime.Builder, builder, "buildFinished", arguments => {
+                program.Unsubscribe = ReflectionApi.Subscribe(UnityRuntime.Builder, builder, "buildFinished", arguments =>
+                {
                     var errors = new StringBuilder();
                     foreach (var message in (Array)arguments[1])
                         if (ReflectionApi.Member(message, "type").ToString() == "Error")
@@ -82,7 +83,8 @@ namespace Flint.Unity
         {
             var program = (Program)preparedResult;
             var scope = new object();
-            var unsubscribe = ReflectionApi.Subscribe(UnityRuntime.Application, null, "logMessageReceivedThreaded", arguments => {
+            var unsubscribe = ReflectionApi.Subscribe(UnityRuntime.Application, null, "logMessageReceivedThreaded", arguments =>
+            {
                 if (logScope.Value != scope) return;
                 var type = arguments[2].ToString();
                 (type == "Error" || type == "Exception" || type == "Assert" ? stderr : stdout).WriteLine((string)arguments[0]);

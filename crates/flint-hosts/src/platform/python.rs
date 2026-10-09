@@ -5,7 +5,7 @@ use super::PlatformEntry;
 use crate::{
     attach::AttachRequest,
     bridge::Attach,
-    layout::{join, Layout, CORE, NATIVE_CORE, PYTHON_LIBRARY},
+    layout::{CORE, Layout, NATIVE_CORE, PYTHON_LIBRARY, join},
 };
 use flint_contracts::attach::{CpythonPlan, RuntimePlan};
 use std::path::Path;
@@ -29,19 +29,9 @@ pub(crate) fn attach(module: &'static str) -> Attach {
     }
 }
 
-pub(super) fn plan(
-    entry: &Entry,
-    root: &Path,
-    request: &AttachRequest,
-    error_path: &Path,
-) -> RuntimePlan {
+pub(super) fn plan(entry: &Entry, root: &Path, request: &AttachRequest, error_path: &Path) -> RuntimePlan {
     RuntimePlan::Cpython(CpythonPlan {
-        source: source(
-            entry.module,
-            &root.display().to_string(),
-            request,
-            error_path,
-        ),
+        source: source(entry.module, &root.display().to_string(), request, error_path),
     })
 }
 

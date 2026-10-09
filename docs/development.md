@@ -8,6 +8,10 @@ Install Git, Rust through rustup, Visual Studio Build Tools with the Desktop dev
 
 The first build needs network access to obtain toolchains and dependencies. The Python tests additionally need uv and Python 3.11 through 3.14, which you install yourself; uv discovers it on PATH, in the Windows registry, or among uv-managed installations, and never downloads one for this repository. Set `UV_PYTHON` if several interpreters qualify. The exported Python Bridge runs in the host's interpreter and supports Python 3.7 or later. To open the desktop window, install the runtime dependencies listed under [Run flint](../README.md#run-flint).
 
+## Install commit checks
+
+After preparing the frontend dependencies, run `cargo xtask hooks` once per checkout. The hook runner requires uv and Python 3.11 through 3.14; its dependencies are locked in `bridges/uv.lock`. Rust, Node.js, npm, and the .NET SDK must be available on PATH for their language checks. The hook runs format and lint checks for the languages touched by the commit and leaves fixes and staging to the author. See [formatting and lints](contributing.md#formatting-and-lints) for commands and scope.
+
 ## Build and run
 
 From the repository root in PowerShell, use the complete build entry point:

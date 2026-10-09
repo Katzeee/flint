@@ -1,6 +1,10 @@
+import os
+import sys
 from PySide2 import QtCore, QtWidgets
+
 assert QtCore.QThread.currentThread() is QtWidgets.QApplication.instance().thread()
-import pymxs
+import pymxs  # noqa: E402 - verify the host execution thread before importing its API
+
 rt = pymxs.runtime
 obj = rt.Point(name="FlintIntegrationTest")
 try:
@@ -9,6 +13,5 @@ try:
 finally:
     rt.delete(obj)
 assert rt.getNodeByName("FlintIntegrationTest") is None
-import os, sys
 print("SCENE_OK", os.getpid())
 print("STDERR_OK", file=sys.stderr)

@@ -19,10 +19,7 @@ fn base_interpreter() -> Result<PathBuf> {
             "import sys; print(getattr(sys, '_base_executable', sys.executable))",
         ])
         .output()?;
-    anyhow::ensure!(
-        output.status.success(),
-        "cannot resolve the base interpreter"
-    );
+    anyhow::ensure!(output.status.success(), "cannot resolve the base interpreter");
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
 }
 
@@ -30,8 +27,7 @@ fn base_interpreter() -> Result<PathBuf> {
 /// sleeps. Its stderr is captured so a failed injection can be diagnosed.
 fn start_target(app: &App, setup: &str) -> Result<OwnedProcess> {
     let ready = app.directory.join("target-ready");
-    let script =
-        format!("import sys, time\n{setup}\nopen(sys.argv[1], 'w').close()\ntime.sleep(120)\n");
+    let script = format!("import sys, time\n{setup}\nopen(sys.argv[1], 'w').close()\ntime.sleep(120)\n");
     let mut command = Command::new(base_interpreter()?);
     command
         .args(["-I", "-c", &script])
@@ -79,41 +75,23 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
             0,
         )
         .map_err(|error| {
-            let stderr =
-                fs::read_to_string(app.directory.join("target.stderr")).unwrap_or_default();
+            let stderr = fs::read_to_string(app.directory.join("target.stderr")).unwrap_or_default();
             anyhow::anyhow!("{error}\ntarget stderr: {stderr}")
         })?;
-    anyhow::ensure!(
-        attached["pid"].as_u64() == Some(pid as u64),
-        "wrong pid: {attached}"
-    );
+    anyhow::ensure!(attached["pid"].as_u64() == Some(pid as u64), "wrong pid: {attached}");
     let instance = attached["instance_id"].as_str().unwrap().to_string();
 
     // The injected Bridge executes host code and reports the target's own pid.
     let workflow = app.workflow("Attach")?;
-    let execution = app.execute(
-        &instance,
-        &workflow,
-        "import os; print('attached', os.getpid())",
-        0,
-    )?;
+    let execution = app.execute(&instance, &workflow, "import os; print('attached', os.getpid())", 0)?;
     let mut detail = Value::Null;
     wait_until(Duration::from_secs(30), || {
         detail = app.details(&workflow, &execution, 0)?;
-        Ok(matches!(
-            detail["status"].as_str(),
-            Some("succeeded" | "failed")
-        ))
+        Ok(matches!(detail["status"].as_str(), Some("succeeded" | "failed")))
     })?;
+    anyhow::ensure!(detail["status"] == "succeeded", "execution failed: {detail}");
     anyhow::ensure!(
-        detail["status"] == "succeeded",
-        "execution failed: {detail}"
-    );
-    anyhow::ensure!(
-        detail["stdout"]
-            .as_str()
-            .unwrap()
-            .contains(&format!("attached {pid}")),
+        detail["stdout"].as_str().unwrap().contains(&format!("attached {pid}")),
         "unexpected output: {detail}"
     );
 
@@ -131,10 +109,7 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
         ],
         0,
     )?;
-    anyhow::ensure!(
-        again["instance_id"] == instance,
-        "re-attach changed instance: {again}"
-    );
+    anyhow::ensure!(again["instance_id"] == instance, "re-attach changed instance: {again}");
     let instances = app.call("instances", &["--type", "standalone_python"], 0)?;
     anyhow::ensure!(
         instances["instances"].as_array().unwrap().len() == 1,
@@ -169,12 +144,7 @@ fn attach_reports_why_the_injected_bridge_could_not_start() -> Result<()> {
     )?;
     let failed = app.call(
         "attach",
-        &[
-            "--pid",
-            &target.0.id().to_string(),
-            "--host-kind",
-            "standalone_python",
-        ],
+        &["--pid", &target.0.id().to_string(), "--host-kind", "standalone_python"],
         1,
     )?;
     anyhow::ensure!(
@@ -183,8 +153,7 @@ fn attach_reports_why_the_injected_bridge_could_not_start() -> Result<()> {
     );
     let message = failed["error"]["message"].as_str().unwrap_or_default();
     anyhow::ensure!(
-        message.contains("another Bridge already owns this process")
-            && message.contains("runtime_version=holder"),
+        message.contains("another Bridge already owns this process") && message.contains("runtime_version=holder"),
         "unexpected attach failure: {failed}"
     );
     Ok(())

@@ -3,17 +3,11 @@ use super::{Application, Result};
 use flint_contracts::protocol::{envelope::Payload, *};
 
 impl Application {
-    pub async fn create_workflow(
-        &self,
-        request: StartWorkflowRequest,
-    ) -> Result<StartWorkflowResponse> {
-        self.query(
-            Payload::StartWorkflowRequest(request),
-            |response| match response {
-                Payload::StartWorkflowResponse(response) => Some(response),
-                _ => None,
-            },
-        )
+    pub async fn create_workflow(&self, request: StartWorkflowRequest) -> Result<StartWorkflowResponse> {
+        self.query(Payload::StartWorkflowRequest(request), |response| match response {
+            Payload::StartWorkflowResponse(response) => Some(response),
+            _ => None,
+        })
         .await
     }
 
@@ -41,13 +35,10 @@ impl Application {
 
     /// Code and its optional filename are already supplied; terminal and file input belong to the caller.
     pub async fn execute(&self, request: ExecuteRequest) -> Result<ExecutionResult> {
-        self.query(
-            Payload::ExecuteRequest(request),
-            |response| match response {
-                Payload::ExecutionResult(response) => Some(response),
-                _ => None,
-            },
-        )
+        self.query(Payload::ExecuteRequest(request), |response| match response {
+            Payload::ExecutionResult(response) => Some(response),
+            _ => None,
+        })
         .await
     }
 

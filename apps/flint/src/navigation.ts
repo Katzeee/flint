@@ -8,28 +8,18 @@ export type Route = Readonly<{
 }>;
 
 function readRoute(): Route {
-  const [page, ...segments] = window.location.hash
-    .replace(/^#\/?/, "")
-    .split("/");
+  const [page, ...segments] = window.location.hash.replace(/^#\/?/, "").split("/");
   try {
     if (page === "workflows")
       return {
         page,
         id: segments[0] ? decodeURIComponent(segments[0]) : undefined,
-        execution:
-          segments[1] === "executions" && segments[2]
-            ? decodeURIComponent(segments[2])
-            : undefined,
+        execution: segments[1] === "executions" && segments[2] ? decodeURIComponent(segments[2]) : undefined,
       };
     if (page === "settings" || page === "legal") return { page };
     return {
       page: "apps",
-      id:
-        segments[0] === "candidates"
-          ? segments[1]
-          : segments[0]
-            ? decodeURIComponent(segments[0])
-            : undefined,
+      id: segments[0] === "candidates" ? segments[1] : segments[0] ? decodeURIComponent(segments[0]) : undefined,
       candidate: segments[0] === "candidates",
     };
   } catch {

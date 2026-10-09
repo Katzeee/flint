@@ -1,4 +1,5 @@
 """A host's Bridge: its native core and the scheduler it runs callbacks on."""
+
 import platform
 import time
 from .native_core import NativeCore
@@ -9,10 +10,17 @@ class Bridge:
         self.host = host
         self._scheduler = capabilities.scheduler
         try:
-            self._core = NativeCore({
-                "host": host, "address": address, "port": port, "name": name, "enabled": enabled,
-                "runtime_version": platform.python_implementation() + " " + platform.python_version(),
-            }, capabilities)
+            self._core = NativeCore(
+                {
+                    "host": host,
+                    "address": address,
+                    "port": port,
+                    "name": name,
+                    "enabled": enabled,
+                    "runtime_version": platform.python_implementation() + " " + platform.python_version(),
+                },
+                capabilities,
+            )
         except BaseException:
             self._scheduler.close()
             raise

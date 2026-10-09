@@ -1,4 +1,5 @@
 """C ABI access to the shared host-side Bridge core."""
+
 import ctypes
 import hashlib
 import json
@@ -34,8 +35,7 @@ def _library_path():
     target = folder / _library_name()
     if target.exists():
         if target.read_bytes() != data:
-            raise BridgeCreationError(
-                "library_unavailable", "Extracted Bridge core does not match the package")
+            raise BridgeCreationError("library_unavailable", "Extracted Bridge core does not match the package")
     else:
         temporary = folder / (target.name + "." + str(os.getpid()) + ".tmp")
         temporary.write_bytes(data)
@@ -67,7 +67,11 @@ def _bind(bridge_api):
     bind_execution(bridge_api)
     bridge_api.flint_bridge_abi_version.restype = ctypes.c_uint32
     bridge_api.flint_bridge_create.argtypes = [
-        ctypes.c_char_p, ctypes.POINTER(ExecutionBinding), ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_void_p)]
+        ctypes.c_char_p,
+        ctypes.POINTER(ExecutionBinding),
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
     bridge_api.flint_bridge_create.restype = ctypes.c_void_p
     bridge_api.flint_bridge_connected.argtypes = [ctypes.c_void_p]
     bridge_api.flint_bridge_connected.restype = ctypes.c_bool
@@ -97,11 +101,13 @@ class NativeCore:
         kind = ctypes.c_uint32()
         error = ctypes.c_void_p()
         self._handle = self._bridge_api.flint_bridge_create(
-            encoded, ctypes.byref(execution_adapter.execution_binding), ctypes.byref(kind), ctypes.byref(error))
+            encoded, ctypes.byref(execution_adapter.execution_binding), ctypes.byref(kind), ctypes.byref(error)
+        )
         message = self._string(error.value)
         if not self._handle:
-            raise BridgeCreationError(_CREATION_ERRORS.get(kind.value, "system"),
-                                      message or "Cannot start native Bridge core")
+            raise BridgeCreationError(
+                _CREATION_ERRORS.get(kind.value, "system"), message or "Cannot start native Bridge core"
+            )
 
     def _string(self, pointer):
         if not pointer:

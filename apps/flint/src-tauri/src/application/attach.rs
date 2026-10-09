@@ -1,6 +1,6 @@
 //! Resolves the host, injects the Bridge, and waits for its backend registration.
 
-use super::{blocking, Application, Result};
+use super::{Application, Result, blocking};
 use flint_backend::config::Config;
 use flint_contracts::protocol::{Failure, FailureCode};
 use flint_hosts::{Attach, AttachRequest, HostKind};
@@ -73,12 +73,7 @@ fn pending(pid: u32, deadline: Instant) -> Result<()> {
 }
 
 impl Application {
-    pub async fn attach(
-        &self,
-        pid: u32,
-        host: Option<HostKind>,
-        name: Option<String>,
-    ) -> Result<AttachResult> {
+    pub async fn attach(&self, pid: u32, host: Option<HostKind>, name: Option<String>) -> Result<AttachResult> {
         let resolved = blocking(move || resolve(pid, host)).await?;
         let host = resolved.host;
         let name = name.unwrap_or_else(|| host.to_string());

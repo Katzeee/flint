@@ -33,9 +33,14 @@ default-groups = []
 
 [dependency-groups]
 test = ["pytest==9.0.3", "PySide6-Essentials==6.11.1"]
+lint = [
+    "pre-commit==4.6.2",
+    "ruff==0.16.10",
+]
 
 [tool.uv.dependency-groups]
 test = { requires-python = ">=3.11,<3.15" }
+lint = { requires-python = ">=3.11,<3.15" }
 
 [tool.pytest]
 minversion = "9.0"
@@ -45,3 +50,8 @@ testpaths = ["platforms/python/tests", "hosts/blender/tests"]
 
 [tool.ruff]
 line-length = 120
+include = ["*.py", "*.pyi", "*.ipynb"]
+extend-exclude = ["apps/flint/cairn"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

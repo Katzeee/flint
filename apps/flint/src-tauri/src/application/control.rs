@@ -1,6 +1,6 @@
 //! Backend lifecycle, observation, and control requests.
 use super::{Application, Result as ApplicationResult};
-use flint_backend::config::{lock_contended, Config};
+use flint_backend::config::{Config, lock_contended};
 use flint_contracts::protocol::{envelope::Payload, *};
 use fs2::FileExt;
 use futures_util::SinkExt;
@@ -46,11 +46,7 @@ async fn request(config: &Config, payload: Payload) -> Result<Payload> {
     )
     .await
 }
-async fn request_until(
-    endpoint: (&str, u16),
-    payload: Payload,
-    deadline: Instant,
-) -> Result<Payload> {
+async fn request_until(endpoint: (&str, u16), payload: Payload, deadline: Instant) -> Result<Payload> {
     let exchange = async {
         let socket = TcpStream::connect(endpoint).await?;
         let mut wire = framed(socket);
@@ -73,9 +69,7 @@ async fn request_until(
     };
     tokio::time::timeout_at(deadline, exchange)
         .await
-        .map_err(|_| {
-            Failure::with_message(FailureCode::BackendUnavailable, "backend request timed out")
-        })?
+        .map_err(|_| Failure::with_message(FailureCode::BackendUnavailable, "backend request timed out"))?
 }
 #[derive(Debug, serde::Serialize, specta::Type)]
 pub struct BackendStopped {
@@ -112,9 +106,7 @@ impl Application {
         {
             Ok(Payload::PingResponse(ping)) => Ok(Some(ping)),
             Ok(_) => Err(protocol("unexpected ping response")),
-            Err(ControlError::Io(error)) if error.kind() == io::ErrorKind::ConnectionRefused => {
-                Ok(None)
-            }
+            Err(ControlError::Io(error)) if error.kind() == io::ErrorKind::ConnectionRefused => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -166,11 +158,7 @@ impl Application {
                 #[link(name = "kernel32")]
                 extern "system" {
                     fn GetStdHandle(kind: u32) -> *mut std::ffi::c_void;
-                    fn SetHandleInformation(
-                        handle: *mut std::ffi::c_void,
-                        mask: u32,
-                        flags: u32,
-                    ) -> i32;
+                    fn SetHandleInformation(handle: *mut std::ffi::c_void, mask: u32, flags: u32) -> i32;
                 }
                 for kind in [-10i32, -11, -12] {
                     SetHandleInformation(GetStdHandle(kind as u32), 1, 0);
@@ -209,7 +197,7 @@ impl Application {
                 Ok(None) if self.lease_available()? => {
                     return Ok(BackendStopped {
                         stopped_pid: Some(status.pid),
-                    })
+                    });
                 }
                 Err(ControlError::Io(error))
                     if matches!(
@@ -231,11 +219,7 @@ impl Application {
 }
 async fn pause(deadline: Instant) -> Result<()> {
     if Instant::now() >= deadline {
-        return Err(Failure::with_message(
-            FailureCode::BackendUnavailable,
-            "backend lifecycle timed out",
-        )
-        .into());
+        return Err(Failure::with_message(FailureCode::BackendUnavailable, "backend lifecycle timed out").into());
     }
     tokio::time::sleep_until((Instant::now() + Duration::from_millis(50)).min(deadline)).await;
     Ok(())
@@ -281,20 +265,14 @@ impl Application {
                 instances,
             }),
             // The backend can stop between the two requests.
-            Err(failure)
-                if failure.is(FailureCode::BackendUnavailable)
-                    && self.backend_status().await?.is_none() =>
-            {
+            Err(failure) if failure.is(FailureCode::BackendUnavailable) && self.backend_status().await?.is_none() => {
                 Ok(stopped)
             }
             Err(failure) => Err(failure),
         }
     }
 
-    pub async fn instances(
-        &self,
-        instance_type: Option<String>,
-    ) -> ApplicationResult<Vec<InstanceInfo>> {
+    pub async fn instances(&self, instance_type: Option<String>) -> ApplicationResult<Vec<InstanceInfo>> {
         self.query(
             Payload::ListInstancesRequest(ListInstancesRequest { instance_type }),
             |response| match response {
@@ -305,14 +283,8 @@ impl Application {
         .await
     }
 
-    pub(super) async fn query<T>(
-        &self,
-        payload: Payload,
-        response: fn(Payload) -> Option<T>,
-    ) -> ApplicationResult<T> {
+    pub(super) async fn query<T>(&self, payload: Payload, response: fn(Payload) -> Option<T>) -> ApplicationResult<T> {
         let payload = request(&self.config, payload).await?;
-        response(payload).ok_or_else(|| {
-            Failure::with_message(FailureCode::InternalError, "invalid backend response")
-        })
+        response(payload).ok_or_else(|| Failure::with_message(FailureCode::InternalError, "invalid backend response"))
     }
 }

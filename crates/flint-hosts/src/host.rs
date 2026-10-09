@@ -7,19 +7,7 @@ use strum::{Display, EnumIter, EnumString, IntoStaticStr};
 /// is discoverable, attachable, or ready to execute on the current platform.
 /// Standalone variants identify their language-specific integration; application
 /// hosts choose their runtime inside their own implementation.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Display,
-    EnumString,
-    IntoStaticStr,
-    EnumIter,
-)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Display, EnumString, IntoStaticStr, EnumIter)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]

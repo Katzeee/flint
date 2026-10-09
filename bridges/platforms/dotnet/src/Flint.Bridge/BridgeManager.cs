@@ -52,9 +52,14 @@ namespace Flint.Bridge
                 var capabilities = createExecution();
                 try
                 {
-                    bridge = new NativeCore(library, Json.Write(new BridgeConfiguration {
-                        Host = host, RuntimeVersion = runtimeVersion(), Address = settings.Address,
-                        Port = settings.Port, Name = settings.Name, Enabled = settings.Enabled
+                    bridge = new NativeCore(library, Json.Write(new BridgeConfiguration
+                    {
+                        Host = host,
+                        RuntimeVersion = runtimeVersion(),
+                        Address = settings.Address,
+                        Port = settings.Port,
+                        Name = settings.Name,
+                        Enabled = settings.Enabled
                     }), capabilities);
                 }
                 catch { capabilities.Scheduler.Dispose(); throw; }

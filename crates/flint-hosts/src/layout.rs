@@ -46,9 +46,9 @@ impl Layout {
     }
 
     pub fn tree(self, root: &str, files: &[(&str, &'static [u8])]) -> Self {
-        files.iter().fold(self, |layout, (path, bytes)| {
-            layout.file(&join(root, path), bytes)
-        })
+        files
+            .iter()
+            .fold(self, |layout, (path, bytes)| layout.file(&join(root, path), bytes))
     }
 
     pub fn merge(self, other: Layout) -> Self {
@@ -65,17 +65,12 @@ impl Layout {
             .get_mut(path)
             .unwrap_or_else(|| panic!("no layout file {path}"));
         let text = std::str::from_utf8(bytes).expect("versioned files are UTF-8");
-        *bytes = Cow::Owned(
-            text.replace("{{version}}", env!("CARGO_PKG_VERSION"))
-                .into_bytes(),
-        );
+        *bytes = Cow::Owned(text.replace("{{version}}", env!("CARGO_PKG_VERSION")).into_bytes());
         self
     }
 
     pub fn files(&self) -> impl Iterator<Item = (&str, &[u8])> {
-        self.files
-            .iter()
-            .map(|(path, bytes)| (path.as_str(), bytes.as_ref()))
+        self.files.iter().map(|(path, bytes)| (path.as_str(), bytes.as_ref()))
     }
 }
 
@@ -97,8 +92,7 @@ impl Format {
 /// Archive entries are sorted and carry fixed times and permissions, so the
 /// same files always produce the same archive.
 pub(crate) fn write_archive(layout: &Layout, format: Format, output: &Path) -> Result<()> {
-    let file = std::fs::File::create(output)
-        .with_context(|| format!("cannot create {}", output.display()))?;
+    let file = std::fs::File::create(output).with_context(|| format!("cannot create {}", output.display()))?;
     match format {
         Format::Zip => {
             let mut archive = zip::ZipWriter::new(file);
@@ -139,11 +133,7 @@ pub(crate) fn stage(root: &Path, layout: &Layout) -> Result<PathBuf> {
     if target.is_dir() {
         return Ok(target);
     }
-    let temporary = root.join(format!(
-        "{:016x}.{}.tmp",
-        hasher.finish(),
-        std::process::id()
-    ));
+    let temporary = root.join(format!("{:016x}.{}.tmp", hasher.finish(), std::process::id()));
     let write = || -> Result<()> {
         for (path, bytes) in layout.files() {
             let destination = temporary.join(path);

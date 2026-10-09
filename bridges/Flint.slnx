@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="platforms/dotnet/src/Flint.Bridge/Flint.Bridge.csproj" />
+  <Project Path="platforms/dotnet/tests/Flint.Bridge.Tests/Flint.Bridge.Tests.csproj" />
+  <Project Path="hosts/unity/Flint.Unity.csproj" />
+</Solution>

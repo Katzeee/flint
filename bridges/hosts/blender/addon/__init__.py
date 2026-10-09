@@ -1,9 +1,12 @@
 """Blender Add-on entry point for the bundled Flint Python Bridge."""
+
 import bpy
 from bpy.props import BoolProperty, IntProperty, PointerProperty, StringProperty
 
 bl_info = {
-    "name": "Flint Bridge", "author": "Flint", "version": (0, 1, 0),
+    "name": "Flint Bridge",
+    "author": "Flint",
+    "version": (0, 1, 0),
     "blender": (4, 2, 0),
     "location": "Preferences > Add-ons; 3D View > Sidebar > Flint",
     "description": "Connect Blender to a running Flint backend",
@@ -34,11 +37,13 @@ def _draw_controls(layout, context):
     connection = layout.box()
     connection.label(text="Connection")
     _kv_row(connection, "Status", label_fraction).label(
-        text=snapshot["connection"]["state"].replace("_", " ").title() if snapshot else "Stopped")
+        text=snapshot["connection"]["state"].replace("_", " ").title() if snapshot else "Stopped"
+    )
     if snapshot:
         active = snapshot["settings"]
-        _kv_row(connection, "Active settings", label_fraction).label(text="{}:{} · {}".format(
-            active["address"], active["port"], active["name"]))
+        _kv_row(connection, "Active settings", label_fraction).label(
+            text="{}:{} · {}".format(active["address"], active["port"], active["name"])
+        )
         obstacle = snapshot["connection"].get("obstacle")
         if obstacle:
             warning = layout.box()
@@ -48,8 +53,12 @@ def _draw_controls(layout, context):
         _kv_row(connection, "Active settings", label_fraction).label(text="—")
     settings = layout.box()
     settings.label(text="Settings")
-    for label, field in (("Bridge address", "address"), ("Bridge port", "port"),
-                         ("Instance name", "instance_name"), ("Connect to Flint", "enabled")):
+    for label, field in (
+        ("Bridge address", "address"),
+        ("Bridge port", "port"),
+        ("Instance name", "instance_name"),
+        ("Connect to Flint", "enabled"),
+    ):
         _kv_row(settings, label, label_fraction).prop(draft, field, text="")
     row = layout.row()
     # Without a Bridge, Apply starts one from these settings.
@@ -82,8 +91,10 @@ class FLINT_OT_apply_settings(bpy.types.Operator):
         draft = context.window_manager.flint_bridge_draft
         try:
             manager.configure(
-                address=draft.address, port=draft.port,
-                name=draft.instance_name, enabled=draft.enabled,
+                address=draft.address,
+                port=draft.port,
+                name=draft.instance_name,
+                enabled=draft.enabled,
             )
         except (ValueError, RuntimeError) as error:
             self.report({"ERROR"}, str(error))
@@ -120,8 +131,7 @@ class FLINT_PT_connection(bpy.types.Panel):
         _draw_controls(self.layout, context)
 
 
-_CLASSES = (FlintBridgeDraft, FlintBridgePreferences, FLINT_OT_apply_settings,
-            FLINT_OT_reconnect, FLINT_PT_connection)
+_CLASSES = (FlintBridgeDraft, FlintBridgePreferences, FLINT_OT_apply_settings, FLINT_OT_reconnect, FLINT_PT_connection)
 
 
 def _refresh_ui():
@@ -146,8 +156,10 @@ def register():
     try:
         try:
             manager.connect(
-                address=preferences.address, port=preferences.port,
-                name=preferences.instance_name, enabled=preferences.enabled,
+                address=preferences.address,
+                port=preferences.port,
+                name=preferences.instance_name,
+                enabled=preferences.enabled,
             )
         except BridgeCreationError as error:
             # The panel stays available so the user can start it with Apply.

@@ -1,4 +1,5 @@
 """Drive the exported manager with controlled host capabilities; Rust judges it."""
+
 import json
 from pathlib import Path
 from queue import Queue, Empty
@@ -81,7 +82,9 @@ def call(command):
             manager.configure(**command["settings"])
             return {"applied": True}
         if operation == "attach":
-            return {"instance_id": manager.attach(**command["settings"], timeout=command.get("timeout_ms", 20000) / 1000)}
+            return {
+                "instance_id": manager.attach(**command["settings"], timeout=command.get("timeout_ms", 20000) / 1000)
+            }
         if operation == "status":
             bridge = manager.current()
             return bridge.status if bridge else None

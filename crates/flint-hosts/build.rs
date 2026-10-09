@@ -81,18 +81,12 @@ fn table(output: &mut String, name: &str, files: &[(String, PathBuf)]) {
 /// The Unity adapter assembly compiled from the Unity host and the .NET binding.
 fn unity_adapter(bridges: &Path, out: &Path) -> PathBuf {
     let project = bridges.join("hosts/unity");
-    for file in fs::read_dir(&project)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-    {
+    for file in fs::read_dir(&project).unwrap().map(|entry| entry.unwrap().path()) {
         if file.is_file() {
             println!("cargo:rerun-if-changed={}", file.display());
         }
     }
-    println!(
-        "cargo:rerun-if-changed={}",
-        bridges.join("global.json").display()
-    );
+    println!("cargo:rerun-if-changed={}", bridges.join("global.json").display());
     let build = out.join("unity-adapter");
     let status = std::process::Command::new("dotnet")
         .current_dir(&project)
@@ -119,11 +113,7 @@ fn workspace_library(root: &Path, out: &Path, package: &str, rustflags: &str) ->
     for input in ["Cargo.toml", "Cargo.lock"] {
         println!("cargo:rerun-if-changed={}", root.join(input).display());
     }
-    for directory in [
-        "flint-contracts",
-        "flint-bridge-core",
-        "flint-bridge-bootstrap",
-    ] {
+    for directory in ["flint-contracts", "flint-bridge-core", "flint-bridge-bootstrap"] {
         println!(
             "cargo:rerun-if-changed={}",
             root.join("crates").join(directory).display()
@@ -136,15 +126,7 @@ fn workspace_library(root: &Path, out: &Path, package: &str, rustflags: &str) ->
         // Cargo gives build scripts CARGO_ENCODED_RUSTFLAGS, which overrides RUSTFLAGS.
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env("RUSTFLAGS", rustflags)
-        .args([
-            "build",
-            "--locked",
-            "--release",
-            "-p",
-            package,
-            "--target",
-            &target,
-        ])
+        .args(["build", "--locked", "--release", "-p", package, "--target", &target])
         .arg("--target-dir")
         .arg(&target_dir)
         .status()
@@ -182,11 +164,7 @@ fn main() {
         "DOTNET_BINDING",
         &sources(&bridges.join("platforms/dotnet/src/Flint.Bridge"), "cs", ""),
     );
-    table(
-        &mut output,
-        "UNITY_PACKAGE",
-        &tree(&bridges.join("hosts/unity/upm")),
-    );
+    table(&mut output, "UNITY_PACKAGE", &tree(&bridges.join("hosts/unity/upm")));
     let root = bridges.parent().unwrap();
     let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     binary(
@@ -198,12 +176,7 @@ fn main() {
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     if os == "windows" {
         // The bootstrap links the C runtime statically so it needs none in the target host.
-        let bootstrap = workspace_library(
-            root,
-            &out,
-            "flint-bridge-bootstrap",
-            "-C target-feature=+crt-static",
-        );
+        let bootstrap = workspace_library(root, &out, "flint-bridge-bootstrap", "-C target-feature=+crt-static");
         binary(&mut output, "BOOTSTRAP", &bootstrap);
     }
     if os == "windows" && arch == "x86_64" {

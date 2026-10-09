@@ -7,12 +7,12 @@
 //! registered, or reads [`attach_error`] for why the injected side could not start it.
 
 use crate::{
-    bridge::{bridge, Attach},
-    layout::stage,
     HostKind,
+    bridge::{Attach, bridge},
+    layout::stage,
 };
 use anyhow::Result;
-use flint_contracts::attach::{attach_directory, error_path, plan_path, RuntimePlan};
+use flint_contracts::attach::{RuntimePlan, attach_directory, error_path, plan_path};
 use strum::IntoEnumIterator;
 
 pub struct AttachRequest {
@@ -27,11 +27,7 @@ pub struct Unsupported(pub HostKind);
 
 /// Only the Windows bootstrap can enter a host.
 fn declaration(host: HostKind) -> Option<Attach> {
-    if cfg!(windows) {
-        bridge(host).attach
-    } else {
-        None
-    }
+    if cfg!(windows) { bridge(host).attach } else { None }
 }
 
 pub fn attachment(host: HostKind) -> Result<Attach, Unsupported> {
@@ -94,19 +90,19 @@ mod os {
 #[cfg(windows)]
 mod os {
     use super::*;
-    use crate::layout::{Layout, BOOTSTRAP};
+    use crate::layout::{BOOTSTRAP, Layout};
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
     use windows_sys::Win32::System::Diagnostics::Debug::WriteProcessMemory;
     use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
     use windows_sys::Win32::System::Memory::{
-        VirtualAllocEx, VirtualFreeEx, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
+        MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx, VirtualFreeEx,
     };
     use windows_sys::Win32::System::Threading::{
-        CreateRemoteThread, GetExitCodeThread, IsWow64Process2, OpenProcess, WaitForSingleObject,
-        LPTHREAD_START_ROUTINE, PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION,
-        PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
+        CreateRemoteThread, GetExitCodeThread, IsWow64Process2, LPTHREAD_START_ROUTINE, OpenProcess,
+        PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION, PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
+        WaitForSingleObject,
     };
 
     /// Owns a handle and closes it on drop so early returns cannot leak it.
@@ -182,7 +178,7 @@ mod os {
         anyhow::ensure!(!kernel32.is_null(), "cannot locate kernel32");
         let load_library = GetProcAddress(kernel32, c"LoadLibraryW".as_ptr().cast());
         let start: LPTHREAD_START_ROUTINE = Some(std::mem::transmute::<
-            _,
+            unsafe extern "system" fn() -> isize,
             unsafe extern "system" fn(*mut core::ffi::c_void) -> u32,
         >(
             load_library.ok_or_else(|| anyhow::anyhow!("cannot locate LoadLibraryW"))?,
@@ -197,10 +193,7 @@ mod os {
             0,
             std::ptr::null_mut(),
         );
-        anyhow::ensure!(
-            !thread.is_null(),
-            "cannot start the loader thread in process {pid}"
-        );
+        anyhow::ensure!(!thread.is_null(), "cannot start the loader thread in process {pid}");
         let thread = Handle(thread);
 
         // 30s covers a busy host; the loader itself is quick once scheduled.

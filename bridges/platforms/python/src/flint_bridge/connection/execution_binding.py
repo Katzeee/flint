@@ -1,4 +1,5 @@
 """The execution binding layout and native step signatures."""
+
 import ctypes as c
 
 POST = c.CFUNCTYPE(c.c_bool, c.c_size_t, c.c_void_p)
@@ -9,8 +10,14 @@ RELEASE = c.CFUNCTYPE(None, c.c_size_t)
 
 
 class ExecutionBinding(c.Structure):
-    _fields_ = [("context", c.c_size_t), ("post", POST), ("prepare", PREPARE), ("run", RUN),
-                ("discard", DISCARD), ("release", RELEASE)]
+    _fields_ = [
+        ("context", c.c_size_t),
+        ("post", POST),
+        ("prepare", PREPARE),
+        ("run", RUN),
+        ("discard", DISCARD),
+        ("release", RELEASE),
+    ]
 
 
 def bind(bridge_api):

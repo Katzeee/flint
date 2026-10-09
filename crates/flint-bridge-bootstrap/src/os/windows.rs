@@ -8,9 +8,7 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 
 use anyhow::Result;
 use windows_sys::Win32::Foundation::{CloseHandle, HMODULE};
-use windows_sys::Win32::System::LibraryLoader::{
-    FreeLibraryAndExitThread, GetModuleHandleW, GetProcAddress,
-};
+use windows_sys::Win32::System::LibraryLoader::{FreeLibraryAndExitThread, GetModuleHandleW, GetProcAddress};
 use windows_sys::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameW};
 use windows_sys::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows_sys::Win32::System::Threading::{CreateThread, GetCurrentProcess, GetCurrentProcessId};
@@ -20,11 +18,7 @@ static MODULE: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
 /// Loader entry point. Do the minimum here — spawn a worker and return — so no
 /// real work runs while the process holds the loader lock.
 #[no_mangle]
-pub extern "system" fn DllMain(
-    module: HMODULE,
-    reason: u32,
-    _reserved: *mut core::ffi::c_void,
-) -> i32 {
+pub extern "system" fn DllMain(module: HMODULE, reason: u32, _reserved: *mut core::ffi::c_void) -> i32 {
     if reason == DLL_PROCESS_ATTACH {
         MODULE.store(module, Ordering::Release);
         unsafe {
@@ -78,18 +72,12 @@ pub(crate) unsafe fn list_modules() -> Vec<String> {
     let process = GetCurrentProcess();
     let mut needed = 0u32;
     if EnumProcessModules(process, null_mut(), 0, &mut needed) == 0 || needed == 0 {
-        return vec![format!(
-            "<enumeration failed: {}>",
-            std::io::Error::last_os_error()
-        )];
+        return vec![format!("<enumeration failed: {}>", std::io::Error::last_os_error())];
     }
     let count = needed as usize / size_of::<HMODULE>();
     let mut modules: Vec<HMODULE> = vec![null_mut(); count];
     if EnumProcessModules(process, modules.as_mut_ptr(), needed, &mut needed) == 0 {
-        return vec![format!(
-            "<enumeration failed: {}>",
-            std::io::Error::last_os_error()
-        )];
+        return vec![format!("<enumeration failed: {}>", std::io::Error::last_os_error())];
     }
     let mut names = vec![];
     for &module in &modules {

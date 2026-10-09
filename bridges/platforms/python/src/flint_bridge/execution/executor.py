@@ -1,4 +1,5 @@
 """Compile and run submitted Python in a namespace kept across requests."""
+
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 from .output import ThreadScopedTextProxy

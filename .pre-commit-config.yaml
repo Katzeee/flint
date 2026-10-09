@@ -1,0 +1,31 @@
+minimum_pre_commit_version: '4.4.0'
+default_install_hook_types: [pre-commit]
+default_stages: [pre-commit]
+repos:
+  - repo: local
+    hooks:
+      - id: rust
+        name: Rust format and lint
+        entry: cargo xtask check rust
+        language: unsupported
+        pass_filenames: false
+        files: '(\.rs$|(^|/)Cargo\.(toml|lock)$|^rust(fmt|-toolchain)\.toml$|^\.cargo/|^\.(pre-commit-config\.yaml|gitattributes)$)'
+      - id: frontend
+        name: Frontend format and lint
+        entry: cargo xtask check gui
+        language: unsupported
+        pass_filenames: false
+        files: '^(apps/flint/|tools/xtask/|\.(pre-commit-config\.yaml|gitattributes|editorconfig)$)'
+        exclude: '^apps/flint/(src-tauri/|cairn/)'
+      - id: python
+        name: Python format and lint
+        entry: cargo xtask check python
+        language: unsupported
+        pass_filenames: false
+        files: '(\.py$|^bridges/(pyproject\.toml|uv\.lock)$|^tools/xtask/|^\.(pre-commit-config\.yaml|gitattributes)$)'
+      - id: csharp
+        name: C# format and lint
+        entry: cargo xtask check csharp
+        language: unsupported
+        pass_filenames: false
+        files: '(\.cs$|\.csproj$|\.slnx$|^bridges/(global\.json|Directory\.Build\.props)$|/packages\.lock\.json$|^\.editorconfig$|^tools/xtask/|^\.(pre-commit-config\.yaml|gitattributes)$)'

@@ -1,4 +1,5 @@
 """Maya user settings and connection controls for the Flint plug-in."""
+
 import maya.cmds as cmds
 import maya.utils
 from flint_bridge import BridgeCreationError
@@ -28,8 +29,7 @@ def apply_settings(address, port, name, enabled):
     """Apply a complete endpoint configuration, then persist it for Maya."""
     port = int(port)
     enabled = bool(enabled)
-    bridge = manager.configure(
-        address=address, port=port, name=name, enabled=enabled)
+    bridge = manager.configure(address=address, port=port, name=name, enabled=enabled)
     cmds.optionVar(stringValue=(_KEYS["address"][0], address))
     cmds.optionVar(intValue=(_KEYS["port"][0], port))
     cmds.optionVar(stringValue=(_KEYS["name"][0], name))
@@ -43,9 +43,11 @@ def reconnect():
 
 def show_settings(*_):
     from flint_bridge.qt import resolve_qt
+
     qt = resolve_qt(fallback="PySide2")
     QtWidgets = qt.QtWidgets
     from maya import OpenMayaUI
+
     if qt.binding == "PySide6":
         from shiboken6 import wrapInstance
     else:
@@ -57,8 +59,8 @@ def show_settings(*_):
         _dialog.close()
     parent = wrapInstance(int(OpenMayaUI.MQtUtil.mainWindow()), QtWidgets.QWidget)
     _dialog = ConnectionPanel(
-        settings(), lambda: manager.current().status if manager.current() else None,
-        apply_settings, reconnect, parent)
+        settings(), lambda: manager.current().status if manager.current() else None, apply_settings, reconnect, parent
+    )
     _dialog.show()
 
 
@@ -73,8 +75,7 @@ def initialize():
     global _loaded
     values = settings()
     try:
-        manager.connect(address=values["address"], port=values["port"],
-                        name=values["name"], enabled=values["enabled"])
+        manager.connect(address=values["address"], port=values["port"], name=values["name"], enabled=values["enabled"])
     except BridgeCreationError as error:
         # The settings panel stays available so the user can start it with Apply.
         cmds.warning("Flint Bridge did not start: {}".format(error))

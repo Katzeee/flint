@@ -20,16 +20,12 @@ fn attach_survives_a_script_reload_and_reports_refused_settings() -> Result<()> 
     let app = App::evidence("attach-unity");
     app.call("start", &[], 0)?;
 
-    let unity_path =
-        |path: &Path| PathBuf::from(path.to_string_lossy().trim_start_matches(r"\\?\"));
+    let unity_path = |path: &Path| PathBuf::from(path.to_string_lossy().trim_start_matches(r"\\?\"));
     let project = app.directory.join("unity-project");
     for folder in ["Assets/Editor", "ProjectSettings", "Packages"] {
         fs::create_dir_all(project.join(folder))?;
     }
-    fs::write(
-        project.join("Packages/manifest.json"),
-        r#"{"dependencies":{}}"#,
-    )?;
+    fs::write(project.join("Packages/manifest.json"), r#"{"dependencies":{}}"#)?;
     // Records ready scripting domains in the main Editor, excluding import workers.
     let loads = app.directory.join("loads.txt");
     let trigger = app.directory.join("reload");
@@ -69,11 +65,7 @@ public static class FlintReload
             unity_path(&trigger).display()
         ),
     )?;
-    let load_count = || -> usize {
-        fs::read_to_string(&loads)
-            .map(|text| text.lines().count())
-            .unwrap_or(0)
-    };
+    let load_count = || -> usize { fs::read_to_string(&loads).map(|text| text.lines().count()).unwrap_or(0) };
 
     let log = app.directory.join("unity.log");
     let mut command = Command::new(executable);
@@ -90,20 +82,12 @@ public static class FlintReload
     let mut host = OwnedProcess(command.spawn()?);
     let pid = host.0.id();
     wait_until(Duration::from_secs(300), || {
-        anyhow::ensure!(
-            host.0.try_wait()?.is_none(),
-            "Unity exited; inspect {}",
-            log.display()
-        );
+        anyhow::ensure!(host.0.try_wait()?.is_none(), "Unity exited; inspect {}", log.display());
         Ok(load_count() >= 1)
     })?;
 
     let attach = || -> Result<String> {
-        let attached = app.call(
-            "attach",
-            &["--pid", &pid.to_string(), "--host-kind", "unity"],
-            0,
-        )?;
+        let attached = app.call("attach", &["--pid", &pid.to_string(), "--host-kind", "unity"], 0)?;
         Ok(attached["instance_id"].as_str().unwrap().to_string())
     };
     let first = attach().context("initial Unity attach")?;
@@ -111,10 +95,7 @@ public static class FlintReload
 
     let before_reload = load_count();
     fs::write(&trigger, "")?;
-    wait_until(
-        Duration::from_secs(120),
-        || Ok(load_count() > before_reload),
-    )?;
+    wait_until(Duration::from_secs(120), || Ok(load_count() > before_reload))?;
     // The unloaded domain must take its Bridge with it.
     wait_until(Duration::from_secs(30), || {
         let instances = app.call("instances", &["--type", "unity"], 0)?;
@@ -129,14 +110,7 @@ public static class FlintReload
     // leave that Bridge connected.
     let refused = app.call(
         "attach",
-        &[
-            "--pid",
-            &pid.to_string(),
-            "--host-kind",
-            "unity",
-            "--name",
-            "",
-        ],
+        &["--pid", &pid.to_string(), "--host-kind", "unity", "--name", ""],
         1,
     )?;
     anyhow::ensure!(

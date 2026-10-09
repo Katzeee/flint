@@ -26,8 +26,12 @@ namespace Flint.Bridge
                 var property = type.GetProperty("Manager", BindingFlags.Public | BindingFlags.Static);
                 var manager = property?.GetValue(null) as BridgeManager;
                 if (manager == null) throw new MissingMemberException(attach.Manager, "Manager");
-                manager.Attach(attach.NativeLibrary, new BridgeSettings {
-                    Address = attach.Address, Port = attach.Port, Name = attach.Name, Enabled = true
+                manager.Attach(attach.NativeLibrary, new BridgeSettings
+                {
+                    Address = attach.Address,
+                    Port = attach.Port,
+                    Name = attach.Name,
+                    Enabled = true
                 });
                 return null;
             }

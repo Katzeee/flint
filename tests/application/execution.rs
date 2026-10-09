@@ -15,21 +15,12 @@ fn execution_errors_are_recorded_without_terminating_host() -> Result<()> {
     assert_eq!(details["error"]["code"], "execution_failed");
     assert_eq!(details["error"]["message"], "EXPECTED");
     assert_eq!(execution["error"], details["error"]);
-    assert!(details["traceback"]
-        .as_str()
-        .unwrap()
-        .contains("ValueError: EXPECTED"));
+    assert!(details["traceback"].as_str().unwrap().contains("ValueError: EXPECTED"));
     let execution = app.execute(id, &workflow, "if :", 1)?;
     let details = app.details(&workflow, &execution, 1)?;
     assert_eq!(details["error"]["code"], "preparation_failed");
-    assert!(details["traceback"]
-        .as_str()
-        .unwrap()
-        .contains("SyntaxError"));
-    assert_eq!(
-        app.execute(id, &workflow, "print('alive')", 0)?["status"],
-        "succeeded"
-    );
+    assert!(details["traceback"].as_str().unwrap().contains("SyntaxError"));
+    assert_eq!(app.execute(id, &workflow, "print('alive')", 0)?["status"], "succeeded");
     Ok(())
 }
 
@@ -61,10 +52,7 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
     wait_until(Duration::from_secs(15), || {
         Ok(app.details(&workflow, &execution, 0)?["status"] == "succeeded")
     })?;
-    assert_eq!(
-        app.details(&workflow, &execution, 0)?["stdout"],
-        "BEGIN\nDONE\n"
-    );
+    assert_eq!(app.details(&workflow, &execution, 0)?["stdout"], "BEGIN\nDONE\n");
     let next = app.execute(id, &workflow, "print('NEXT')", 0)?;
     assert_eq!(next["status"], "succeeded");
     Ok(())
@@ -74,13 +62,7 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
 fn execution_lookup_distinguishes_missing_records_from_storage_failures() -> Result<()> {
     let app = App::new();
     app.call("start", &[], 0)?;
-    let lookup = |workflow: &str| {
-        app.call(
-            "execution",
-            &["--workflow-id", workflow, "--execution-id", "0001"],
-            1,
-        )
-    };
+    let lookup = |workflow: &str| app.call("execution", &["--workflow-id", workflow, "--execution-id", "0001"], 1);
     assert_eq!(lookup("missing")?["error"]["code"], "workflow_not_found");
     let workflow = app.workflow("empty")?;
     assert_eq!(lookup(&workflow)?["error"]["code"], "execution_not_found");
@@ -90,10 +72,7 @@ fn execution_lookup_distinguishes_missing_records_from_storage_failures() -> Res
     let failure = &lookup("unreadable")?["error"];
     assert_eq!(failure["code"], "workflow_unreadable", "{failure}");
     assert!(
-        failure["message"]
-            .as_str()
-            .unwrap()
-            .contains("unreadable.json"),
+        failure["message"].as_str().unwrap().contains("unreadable.json"),
         "{failure}"
     );
     Ok(())

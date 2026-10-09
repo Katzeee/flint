@@ -4,6 +4,7 @@ The status area shows the Bridge's own snapshot, including why its connection
 is retrying. A refused Apply or Reconnect is that action's result: it appears
 beside the buttons until the next action or edit, and polling never replaces it.
 """
+
 from ..qt import resolve_qt
 
 _qt = resolve_qt()
@@ -83,8 +84,7 @@ class ConnectionPanel(QtWidgets.QDialog):
 
         self.apply_button.clicked.connect(self.apply)
         self.retry_button.clicked.connect(self.retry)
-        for signal in (self.address.textEdited, self.port.valueChanged,
-                       self.name.textEdited, self.enabled.toggled):
+        for signal in (self.address.textEdited, self.port.valueChanged, self.name.textEdited, self.enabled.toggled):
             signal.connect(self._clear_action_error)
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.refresh)
@@ -95,8 +95,7 @@ class ConnectionPanel(QtWidgets.QDialog):
         snapshot = self._snapshot()
         active = snapshot["settings"] if snapshot else None
         self.status.setText(connection_label(snapshot))
-        self.active.setText("{}:{} · {}".format(
-            active["address"], active["port"], active["name"]) if active else "—")
+        self.active.setText("{}:{} · {}".format(active["address"], active["port"], active["name"]) if active else "—")
         obstacle = connection_obstacle(snapshot)
         self.warning_text.setText(obstacle or "")
         self.warning.setVisible(bool(obstacle))
@@ -114,8 +113,7 @@ class ConnectionPanel(QtWidgets.QDialog):
 
     def apply(self):
         try:
-            self._apply_settings(
-                self.address.text(), self.port.value(), self.name.text(), self.enabled.isChecked())
+            self._apply_settings(self.address.text(), self.port.value(), self.name.text(), self.enabled.isChecked())
             self._action_error = None
         except Exception as problem:
             self._action_error = str(problem)

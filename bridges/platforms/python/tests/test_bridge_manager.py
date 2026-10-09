@@ -35,8 +35,9 @@ def integration(monkeypatch):
 
 def test_another_host_cannot_replace_or_control_the_existing_bridge(integration):
     first = integration.connect()
-    other = BridgeManager("another-host", lambda: pytest.fail("Created another host's capabilities"),
-                       integration.dispatch_initialization)
+    other = BridgeManager(
+        "another-host", lambda: pytest.fail("Created another host's capabilities"), integration.dispatch_initialization
+    )
     with pytest.raises(RuntimeError):
         other.connect()
     with pytest.raises(RuntimeError):
@@ -57,8 +58,7 @@ def test_registration_wait_uses_the_budget_remaining_after_initialization(monkey
         clock.now += 6
         callback()
 
-    monkeypatch.setattr("flint_bridge.connection.bridge_manager.time",
-                        SimpleNamespace(monotonic=lambda: clock.now))
+    monkeypatch.setattr("flint_bridge.connection.bridge_manager.time", SimpleNamespace(monotonic=lambda: clock.now))
     owner = BridgeManager(integration.host, integration.create_execution, dispatch)
     assert owner.attach(timeout=10) == first.instance_id
     assert waits == [4]

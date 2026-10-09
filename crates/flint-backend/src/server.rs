@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::store::{now, Store};
+use crate::store::{Store, now};
 use anyhow::{Context, Result};
 use flint_contracts::protocol::timing::HEARTBEAT_IDLE_TIMEOUT;
 use flint_contracts::protocol::{envelope::Payload, *};
@@ -36,9 +36,7 @@ impl From<BindError> for Failure {
     fn from(error: BindError) -> Self {
         match error {
             BindError::Locked => Failure::new(FailureCode::BackendLocked),
-            BindError::Startup(error) => {
-                Failure::caused_by(FailureCode::InternalError, error.as_ref())
-            }
+            BindError::Startup(error) => Failure::caused_by(FailureCode::InternalError, error.as_ref()),
         }
     }
 }
@@ -146,8 +144,7 @@ impl Backend {
             .ok_or(BindError::Locked)?;
         let control = listen(&config.address, config.control_port).await?;
         let bridge = listen(&config.address, config.bridge_port).await?;
-        let store =
-            Store::open(config.workflows_dir()).context("cannot open the workflow store")?;
+        let store = Store::open(config.workflows_dir()).context("cannot open the workflow store")?;
         let shared = Shared {
             config,
             state: Mutex::new(State::default()),
@@ -186,16 +183,7 @@ impl Backend {
                 _ = tasks.join_next(), if !tasks.is_empty() => {}
             }
         }
-        let ids: Vec<_> = self
-            .handle
-            .0
-            .state
-            .lock()
-            .unwrap()
-            .sessions
-            .keys()
-            .cloned()
-            .collect();
+        let ids: Vec<_> = self.handle.0.state.lock().unwrap().sessions.keys().cloned().collect();
         for id in ids {
             disconnect(&self.handle, &id);
         }
@@ -209,15 +197,12 @@ fn finish(backend: &BackendHandle, request: &str, result: ExecutionResult) {
     let mut state = backend.0.state.lock().unwrap();
     if let Some(job) = state.jobs.remove(request) {
         job.timer.cancel();
-        let persisted = backend
-            .0
-            .store
-            .update(&job.workflow, &job.execution, |entry| {
-                entry.status = result.status();
-                entry.finished_at = Some(now());
-                entry.traceback = result.traceback.clone();
-                entry.error = result.error.clone();
-            });
+        let persisted = backend.0.store.update(&job.workflow, &job.execution, |entry| {
+            entry.status = result.status();
+            entry.finished_at = Some(now());
+            entry.traceback = result.traceback.clone();
+            entry.error = result.error.clone();
+        });
         let result = match persisted {
             Ok(()) => result,
             Err(e) => ExecutionResult {

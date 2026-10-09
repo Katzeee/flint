@@ -9,11 +9,11 @@ mod bridge;
 mod layout;
 mod platform;
 mod window;
-pub use attach::{attach_error, attach_supported, attachment, AttachRequest, Unsupported};
+pub use attach::{AttachRequest, Unsupported, attach_error, attach_supported, attachment};
 pub use bridge::Attach;
-pub use bridge::{export, ExportTarget};
+pub use bridge::{ExportTarget, export};
 pub use platform::Platform;
-pub use window::{focus_application, host_info, HostInfo, WindowInfo, WindowPreview};
+pub use window::{HostInfo, WindowInfo, WindowPreview, focus_application, host_info};
 
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
@@ -60,10 +60,7 @@ fn collect(processes: ProcessesToUpdate<'_>) -> Vec<HostCandidate> {
         found.push(HostCandidate {
             pid: pid.as_u32(),
             host,
-            executable: process
-                .exe()
-                .map(|p| p.display().to_string())
-                .unwrap_or_default(),
+            executable: process.exe().map(|p| p.display().to_string()).unwrap_or_default(),
         });
     }
     found.sort_by_key(|p| p.pid);

@@ -5,7 +5,7 @@ use super::PlatformEntry;
 use crate::{
     attach::AttachRequest,
     bridge::Attach,
-    layout::{join, Layout, CORE, DOTNET_BINDING, NATIVE_CORE},
+    layout::{CORE, DOTNET_BINDING, Layout, NATIVE_CORE, join},
 };
 use flint_contracts::attach::{MonoPlan, RuntimePlan};
 use std::path::Path;
@@ -29,9 +29,7 @@ pub(super) fn library(root: &str) -> Layout {
 /// Attach loads the host assembly with the native core beside it.
 pub(crate) fn attach(entry: Entry, assembly: &'static [u8]) -> Attach {
     Attach {
-        layout: Layout::default()
-            .file(entry.assembly, assembly)
-            .file(CORE, NATIVE_CORE),
+        layout: Layout::default().file(entry.assembly, assembly).file(CORE, NATIVE_CORE),
         entry: PlatformEntry::Dotnet(entry),
     }
 }

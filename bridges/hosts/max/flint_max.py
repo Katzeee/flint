@@ -1,14 +1,13 @@
 """3ds Max user settings and connection controls for Flint Bridge."""
+
 from pymxs import runtime as rt
 from pathlib import Path
 from flint_bridge import BridgeCreationError
 from flint_bridge.max import manager
 
 _SECTION = "Flint Bridge"
-_DEFAULTS = {"address": "127.0.0.1", "port": 6321,
-             "name": "3ds Max", "enabled": True}
-_KEYS = {"address": "BridgeAddress", "port": "BridgePort",
-         "name": "InstanceName", "enabled": "Enabled"}
+_DEFAULTS = {"address": "127.0.0.1", "port": 6321, "name": "3ds Max", "enabled": True}
+_KEYS = {"address": "BridgeAddress", "port": "BridgePort", "name": "InstanceName", "enabled": "Enabled"}
 _dialog = None
 
 
@@ -29,10 +28,8 @@ def settings():
 def apply_settings(address, port, name, enabled):
     port = int(port)
     enabled = bool(enabled)
-    bridge = manager.configure(
-        address=address, port=port, name=name, enabled=enabled)
-    for field, value in {"address": address, "port": port, "name": name,
-                         "enabled": int(enabled)}.items():
+    bridge = manager.configure(address=address, port=port, name=name, enabled=enabled)
+    for field, value in {"address": address, "port": port, "name": name, "enabled": int(enabled)}.items():
         rt.setINISetting(_ini(), _SECTION, _KEYS[field], str(value))
     return bridge
 
@@ -52,6 +49,7 @@ def initialize():
 def show_settings():
     from qtmax import GetQMaxMainWindow
     from flint_bridge.qt import resolve_qt
+
     resolve_qt(fallback="PySide2")
     from flint_bridge.ui.connection_panel import ConnectionPanel
 
@@ -59,6 +57,10 @@ def show_settings():
     if _dialog is not None:
         _dialog.close()
     _dialog = ConnectionPanel(
-        settings(), lambda: manager.current().status if manager.current() else None,
-        apply_settings, reconnect, GetQMaxMainWindow())
+        settings(),
+        lambda: manager.current().status if manager.current() else None,
+        apply_settings,
+        reconnect,
+        GetQMaxMainWindow(),
+    )
     _dialog.show()

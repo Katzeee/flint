@@ -58,24 +58,14 @@ fn list_instances(backend: &BackendHandle, req: ListInstancesRequest) -> Payload
         instances: backend
             .instances()
             .into_iter()
-            .filter(|i| {
-                req.instance_type
-                    .as_ref()
-                    .map_or(true, |t| t == &i.instance_type)
-            })
+            .filter(|i| req.instance_type.as_ref().is_none_or(|t| t == &i.instance_type))
             .collect(),
     })
 }
 
 fn get_execution(backend: &BackendHandle, req: GetExecutionRequest) -> Result<Payload, Failure> {
-    let e = backend
-        .0
-        .store
-        .execution(&req.workflow_id, &req.execution_id)?;
-    Ok(Payload::GetExecutionResponse(execution_response(
-        e,
-        req.view(),
-    )))
+    let e = backend.0.store.execution(&req.workflow_id, &req.execution_id)?;
+    Ok(Payload::GetExecutionResponse(execution_response(e, req.view())))
 }
 
 fn execution_response(e: crate::store::Execution, view: ExecutionView) -> GetExecutionResponse {
@@ -122,12 +112,11 @@ async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<Executi
         if state.jobs.values().any(|j| j.instance == req.instance_id) {
             return Err(Failure::new(FailureCode::InstanceBusy));
         }
-        execution_id = backend.0.store.append(
-            &req.workflow_id,
-            &req.instance_id,
-            req.code.clone(),
-            req.name.clone(),
-        )?;
+        execution_id =
+            backend
+                .0
+                .store
+                .append(&req.workflow_id, &req.instance_id, req.code.clone(), req.name.clone())?;
         let command = HostExecuteRequest {
             execution_id: execution_id.clone(),
             code: req.code,
@@ -147,10 +136,7 @@ async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<Executi
             },
         );
         if sender
-            .try_send(envelope(
-                request_id.clone(),
-                Payload::HostExecuteRequest(command),
-            ))
+            .try_send(envelope(request_id.clone(), Payload::HostExecuteRequest(command)))
             .is_err()
         {
             drop(state);

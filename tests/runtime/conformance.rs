@@ -7,7 +7,7 @@
 
 use crate::support::*;
 use anyhow::{Context, Result};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Write},
     process::{ChildStdin, Command, Stdio},
@@ -100,23 +100,16 @@ pub fn verify(app: &App, host: &str, mut driver: Driver, code: &str, stdout: &st
         let taken = driver.call(json!({"op": "take"}))?;
         assert!(taken["request_id"].is_string(), "{taken}");
         assert_eq!(driver.call(json!({"op": "status"}))?["busy"], true);
-        let busy =
-            driver.call(json!({"op": "apply", "settings": settings(free_port(), "moved")}))?;
+        let busy = driver.call(json!({"op": "apply", "settings": settings(free_port(), "moved")}))?;
         assert_eq!(busy, json!({"rejected": "busy"}));
-        assert_eq!(
-            driver.call(json!({"op": "finish"}))?,
-            json!({"reported": true})
-        );
+        assert_eq!(driver.call(json!({"op": "finish"}))?, json!({"reported": true}));
         submitted.join().unwrap()
     })?;
     assert_eq!(execution["status"], "succeeded", "{execution}");
     assert_eq!(app.details(&workflow, &execution, 0)?["stdout"], stdout);
 
     verify_binding_settings(&mut driver)?;
-    assert_eq!(
-        driver.call(json!({"op": "close"}))?,
-        json!({"closed": true})
-    );
+    assert_eq!(driver.call(json!({"op": "close"}))?, json!({"closed": true}));
     Ok(())
 }
 
@@ -133,24 +126,17 @@ pub fn verify_host_entry(app: &App, host: &str, mut driver: Driver) -> Result<()
     // registration must move to a different backend.
     let destination = App::new();
     destination.call("start", &[], 0)?;
-    let attached = driver.call(
-        json!({"op": "attach", "settings": settings(destination.bridge_port, "reattached")}),
-    )?;
+    let attached = driver.call(json!({"op": "attach", "settings": settings(destination.bridge_port, "reattached")}))?;
     let moved = destination.await_instance(host, None)?;
     assert_eq!(attached["instance_id"], moved["instance_id"]);
     assert_eq!(
-        driver.call(
-            json!({"op": "attach", "settings": settings(destination.bridge_port, "reattached")})
-        )?,
+        driver.call(json!({"op": "attach", "settings": settings(destination.bridge_port, "reattached")}))?,
         attached
     );
     driver.call(json!({"op": "attach", "settings": settings(app.bridge_port, "conformance")}))?;
 
     verify_invalid_settings(app, &mut driver)?;
-    assert_eq!(
-        driver.call(json!({"op": "close"}))?,
-        json!({"closed": true})
-    );
+    assert_eq!(driver.call(json!({"op": "close"}))?, json!({"closed": true}));
     verify_manager_lifecycle(app, host, &mut driver)
 }
 
@@ -199,7 +185,8 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     assert!(driver.call(json!({"op": "status"}))?.is_null());
 
     // The host eventually drains a timed-out callback. It must do no work.
-    driver.call(json!({"op": "attach_begin", "settings": settings(app.bridge_port, "conformance"), "timeout_ms": 0}))?;
+    driver
+        .call(json!({"op": "attach_begin", "settings": settings(app.bridge_port, "conformance"), "timeout_ms": 0}))?;
     let timed_out = driver.call(json!({"op": "attach_result"}))?;
     assert!(
         timed_out["error"]["message"]
@@ -212,14 +199,13 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     driver.call(json!({"op": "drain"}))?;
     assert_eq!(driver.call(json!({"op": "probe"}))?["created"], created);
 
-    driver.call(json!({"op": "attach_begin", "settings": settings(app.bridge_port, "conformance"), "timeout_ms": 10000}))?;
+    driver.call(
+        json!({"op": "attach_begin", "settings": settings(app.bridge_port, "conformance"), "timeout_ms": 10000}),
+    )?;
     driver.call(json!({"op": "drain"}))?;
     let attached = driver.call(json!({"op": "attach_result"}))?;
     let connected = driver.status_until("connected")?;
-    assert_eq!(
-        attached["instance_id"],
-        connected["connection"]["instance_id"]
-    );
+    assert_eq!(attached["instance_id"], connected["connection"]["instance_id"]);
     let probe = driver.call(json!({"op": "probe"}))?;
     assert_eq!(probe["created"], created + 1);
     assert_eq!(probe["factory_thread"], probe["dispatch_thread"]);
@@ -237,10 +223,7 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     let execution = std::thread::scope(|scope| -> Result<Value> {
         // The backend loses the outcome, while the host execution remains held.
         let submitted = scope.spawn(|| app.execute(instance, &workflow, "held", 1));
-        assert_eq!(
-            driver.call(json!({"op": "wait_started"}))?,
-            json!({"started": true})
-        );
+        assert_eq!(driver.call(json!({"op": "wait_started"}))?, json!({"started": true}));
         assert_eq!(
             driver.call_with_timeout(json!({"op": "close"}), Duration::from_secs(2))?,
             json!({"closed": false})
@@ -248,10 +231,7 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
         let stopped = driver.call(json!({"op": "status"}))?;
         assert_eq!(stopped["connection"], json!({"state": "stopped"}));
         assert_eq!(stopped["busy"], true);
-        assert_eq!(
-            driver.call(json!({"op": "probe"}))?["released"],
-            before["released"]
-        );
+        assert_eq!(driver.call(json!({"op": "probe"}))?["released"], before["released"]);
         for command in [
             json!({"op": "create", "config": options}),
             json!({"op": "apply", "settings": settings(app.bridge_port, "changed")}),
@@ -264,10 +244,7 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
             driver.call(json!({"op": "claim", "config": options}))?["error"]["kind"],
             "claimed"
         );
-        assert_eq!(
-            driver.call(json!({"op": "probe"}))?["finished"],
-            before["finished"]
-        );
+        assert_eq!(driver.call(json!({"op": "probe"}))?["finished"], before["finished"]);
         driver.call(json!({"op": "release"}))?;
         wait_until(Duration::from_secs(5), || {
             Ok(driver.call(json!({"op": "status"}))?["busy"] == false)
@@ -278,10 +255,7 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
         submitted.join().unwrap()
     })?;
     assert_eq!(execution["status"], "failed", "{execution}");
-    assert_eq!(
-        driver.call(json!({"op": "close"}))?,
-        json!({"closed": true})
-    );
+    assert_eq!(driver.call(json!({"op": "close"}))?, json!({"closed": true}));
     let probe = driver.call(json!({"op": "probe"}))?;
     assert_eq!(probe["created"], created + 1);
     assert_eq!(probe["released"], released + 1);
@@ -291,10 +265,7 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     );
 
     driver.call(json!({"op": "create", "config": options}))?;
-    assert_ne!(
-        driver.status_until("connected")?["connection"]["instance_id"],
-        instance
-    );
+    assert_ne!(driver.status_until("connected")?["connection"]["instance_id"], instance);
     driver.call(json!({"op": "close"}))?;
     let probe = driver.call(json!({"op": "probe"}))?;
     assert_eq!(probe["created"], created + 2);

@@ -25,11 +25,12 @@ fn offline_queries_and_unsupported_attach_do_not_start_backend() -> Result<()> {
         let snapshot = api.snapshot().await?;
         assert!(snapshot.backend.is_none());
         assert!(snapshot.instances.is_empty());
-        assert!(api
-            .instances(None)
-            .await
-            .unwrap_err()
-            .is(FailureCode::BackendUnavailable));
+        assert!(
+            api.instances(None)
+                .await
+                .unwrap_err()
+                .is(FailureCode::BackendUnavailable)
+        );
         assert_eq!(
             api.attach(1, Some(HostKind::StandaloneCsharp), None)
                 .await
@@ -56,10 +57,7 @@ fn snapshot_preserves_query_errors_when_backend_disappears() -> Result<()> {
         };
         for (reply, expected) in [
             (None, None),
-            (
-                Some(Payload::Failure(rejected.clone())),
-                Some(rejected.code.clone()),
-            ),
+            (Some(Payload::Failure(rejected.clone())), Some(rejected.code.clone())),
         ] {
             let directory = tempfile::tempdir()?;
             let mut api = application(directory.path())?;
@@ -76,10 +74,7 @@ fn snapshot_preserves_query_errors_when_backend_disappears() -> Result<()> {
                 .await?;
                 let mut query = framed(listener.accept().await?.0);
                 let request = read_envelope(&mut query).await?;
-                assert!(matches!(
-                    request.payload,
-                    Some(Payload::ListInstancesRequest(_))
-                ));
+                assert!(matches!(request.payload, Some(Payload::ListInstancesRequest(_))));
                 // The backend is gone before the query's outcome reaches the client.
                 drop(listener);
                 if let Some(reply) = reply {

@@ -90,6 +90,25 @@ Files gain structure only when they leave the executable, through a [host layout
 
 Attach and export are classified in three layers, each named in its types: host (`HostKind`), platform (`Platform`), and runtime (`RuntimePlan`). Data a layer carries for one use is a data enum named for its layer, such as `PlatformEntry`, and behavior that depends only on the layer is a method on its fieldless enum. When a data enum covers every variant of its layer, it declares the fieldless enum through strum's `EnumDiscriminants`, so the variants have one source. Files a host's own tools read, such as Unity `.meta` files, are committed beside their sources, with GUIDs that stay fixed across releases.
 
+## Formatting and lints
+
+`rust-toolchain.toml` pins Rust and installs rustfmt and Clippy. `rustfmt.toml` selects the 2024 formatting style and a 120-column target width; run `cargo fmt --all` to format workspace sources. The workspace Clippy policy lives in `Cargo.toml`, and every member inherits it through `[lints] workspace = true`. It enables the default `clippy::all` group; additional opinionated groups are not enabled.
+
+Run `cargo xtask test lint` to check formatting and run Clippy on every workspace target with all features enabled. Warnings fail this check. The `lint` suite is part of the default `cargo xtask test` command used by CI and uses `target/lint` for build artifacts. Fix diagnostics at their source; a lint exception belongs at the smallest applicable scope with its reason. Generated Rust remains owned by `cargo codegen` rather than hand-edited to satisfy a check.
+
+`cargo xtask check` runs the format and lint checks without tests or dependency preparation. Select languages with `cargo xtask check rust gui python csharp`. The language test suites in `cargo xtask test` run these same checks before their tests; the default `lint` suite owns the Rust checks.
+
+| Language | Formatter | Lint |
+|---|---|---|
+| Rust | rustfmt, 2024 style and 120 columns | workspace Clippy rules, warnings are errors |
+| TypeScript / JavaScript / CSS | Prettier, 120 columns | ESLint and Stylelint with Cairn's application rules |
+| Python | Ruff, 120 columns | Ruff's `E4`, `E7`, `E9`, and `F` rules; runtime Python support follows `bridges/pyproject.toml` |
+| C# | `dotnet format` and `.editorconfig` | SDK analyzers and compiler warnings, checked with the locked `bridges/Flint.slnx` projects |
+
+Generated frontend bindings and the Cairn submodule are excluded from application formatting. C# files outside the .NET projects, namely Unity UPM Editor sources and product-test fixtures, receive whitespace checks; their compilation remains with the Unity and runtime tests. `.gitattributes` keeps text files on LF across platforms. Tool versions come from the Rust toolchain, npm lockfile, uv lockfile, and .NET SDK declaration.
+
+Install the checkout's pre-commit hook with `cargo xtask hooks`. `.pre-commit-config.yaml` selects language checks from staged paths. pre-commit temporarily hides unstaged tracked changes and restores them after checking; each selected check validates its project and only reports problems, without formatting or staging files. Hooks use prepared dependencies and the tools on PATH; they do not run the dependency preparation or application tests. CI runs the same language checks through the default test suites. To check every tracked file through the hook runner, use `uv run --project bridges --locked --group lint --python ">=3.11,<3.15" pre-commit run --all-files`.
+
 ## Tests
 
 Run `cargo xtask test` from the repository root; CI runs the same command. Select suites by name when needed, for example `cargo xtask test rust gui`. Every automated suite, including a new platform's, is registered in [xtask](../tools/xtask/src/main.rs), and test prerequisites and execution details live in the test drivers and configuration. The product integration tests use a dedicated application build with an isolated runtime. The test driver selects this build and keeps its artifacts separate from normal application builds; test processes never fall back to the user's backend. See the runtime configuration in `flint-backend::config` and the shared fixtures in `tests/support.rs` for the isolation contract.

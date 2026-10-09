@@ -19,3 +19,6 @@ prost = { workspace = true, optional = true }
 tokio-util = { workspace = true, features = ["codec"], optional = true }
 tokio = { workspace = true, features = ["io-util", "time"], optional = true }
 futures-util = { workspace = true, features = ["sink"], optional = true }
+
+[lints]
+workspace = true

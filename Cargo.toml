@@ -8,6 +8,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
 [workspace.dependencies]
 flint-contracts = { path = "crates/flint-contracts", default-features = false }
 flint-backend = { path = "crates/flint-backend" }

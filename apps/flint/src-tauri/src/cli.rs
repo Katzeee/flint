@@ -1,8 +1,8 @@
 use crate::application::{
-    self, Application, ExecuteRequest, ExecutionStatus, ExecutionView, ExportTarget, Failure,
-    FailureCode, HostKind, Result, StartWorkflowRequest,
+    self, Application, ExecuteRequest, ExecutionStatus, ExecutionView, ExportTarget, Failure, FailureCode, HostKind,
+    Result, StartWorkflowRequest,
 };
-use clap::{builder::TypedValueParser, Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, builder::TypedValueParser};
 use serde::Serialize;
 use std::{io::Read, path::PathBuf};
 use strum::IntoEnumIterator;
@@ -63,10 +63,7 @@ struct Attach {
         help = "Override the detected host kind"
     )]
     host_kind: Option<HostKind>,
-    #[arg(
-        long,
-        help = "Instance name for the injected Bridge; defaults to the host kind"
-    )]
+    #[arg(long, help = "Instance name for the injected Bridge; defaults to the host kind")]
     name: Option<String>,
 }
 fn host_kind_parser() -> impl TypedValueParser<Value = HostKind> {
@@ -99,20 +96,13 @@ enum BridgeCommand {
     Export {
         #[arg(value_parser = export_target_parser())]
         target: ExportTarget,
-        #[arg(
-            long,
-            help = "Defaults to flint-<target>.<format> in the current directory"
-        )]
+        #[arg(long, help = "Defaults to flint-<target>.<format> in the current directory")]
         output: Option<PathBuf>,
     },
 }
 fn export_target_parser() -> impl TypedValueParser<Value = ExportTarget> {
-    clap::builder::PossibleValuesParser::new(
-        Application::export_targets()
-            .into_iter()
-            .map(ExportTarget::name),
-    )
-    .map(|value| value.parse().expect("validated export target"))
+    clap::builder::PossibleValuesParser::new(Application::export_targets().into_iter().map(ExportTarget::name))
+        .map(|value| value.parse().expect("validated export target"))
 }
 
 /// A command that needs the backend is an explicit request to use it.
@@ -189,8 +179,7 @@ fn print_failure(failure: &Failure, json: bool) {
     if json {
         println!(
             "{}",
-            serde_json::to_string(&ErrorOutput { error: failure })
-                .expect("failure is serializable")
+            serde_json::to_string(&ErrorOutput { error: failure }).expect("failure is serializable")
         );
     } else {
         eprintln!("{failure}");
@@ -221,11 +210,7 @@ pub fn run() -> i32 {
         Ok(code) => code,
         Err(failure) => {
             print_failure(&failure, json);
-            if failure.is(FailureCode::Interrupted) {
-                130
-            } else {
-                1
-            }
+            if failure.is(FailureCode::Interrupted) { 130 } else { 1 }
         }
     }
 }
@@ -266,8 +251,8 @@ fn run_command(command: Command) -> Result<Option<Output>> {
     } else {
         None
     };
-    let runtime = tokio::runtime::Runtime::new()
-        .map_err(|error| Failure::caused_by(FailureCode::CommandFailed, &error))?;
+    let runtime =
+        tokio::runtime::Runtime::new().map_err(|error| Failure::caused_by(FailureCode::CommandFailed, &error))?;
     let result = runtime.block_on(async {
         if matches!(&command, Command::Serve) {
             Application::load()?.serve().await?;
@@ -290,10 +275,7 @@ async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<O
         Command::Stop => Output::Stopped(Application::load()?.stop_backend().await?),
         Command::Restart => Output::Status(Some(Application::load()?.restart_backend().await?)),
         Command::Instances { instance_type } => Output::Instances {
-            instances: running_application()
-                .await?
-                .instances(instance_type)
-                .await?,
+            instances: running_application().await?.instances(instance_type).await?,
         },
         Command::Workflow { name, description } => Output::Workflow(
             running_application()
@@ -326,11 +308,7 @@ async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<O
                     .await?,
             )
         }
-        Command::Attach(a) => Output::Attached(
-            Application::load()?
-                .attach(a.pid, a.host_kind, a.name)
-                .await?,
-        ),
+        Command::Attach(a) => Output::Attached(Application::load()?.attach(a.pid, a.host_kind, a.name).await?),
         Command::Bridge {
             command: BridgeCommand::Export { target, output },
         } => Output::Exported(Application::export_bridge(target, output).await?),
@@ -338,9 +316,7 @@ async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<O
             None => Output::Hosts {
                 hosts: Application::hosts().await?,
             },
-            Some(HostCommand::Info { pid, preview }) => {
-                Output::Host(Application::host_info(pid, preview).await?)
-            }
+            Some(HostCommand::Info { pid, preview }) => Output::Host(Application::host_info(pid, preview).await?),
             Some(HostCommand::Focus { pid }) => {
                 Application::focus_application(pid).await?;
                 Output::Focused { pid, focused: true }

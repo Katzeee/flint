@@ -19,10 +19,7 @@ pub enum StoreError {
     #[error("workflow {0} does not exist")]
     WorkflowNotFound(String),
     #[error("execution {execution_id} does not exist in workflow {workflow_id}")]
-    ExecutionNotFound {
-        workflow_id: String,
-        execution_id: String,
-    },
+    ExecutionNotFound { workflow_id: String, execution_id: String },
     #[error("cannot read workflow {}", .path.display())]
     Unreadable {
         path: PathBuf,
@@ -129,8 +126,7 @@ impl Store {
     /// Marks executions interrupted by the previous backend. Unreadable records stay
     /// untouched and fail only the operations that need them.
     pub fn open(root: PathBuf) -> Result<Self> {
-        fs::create_dir_all(&root)
-            .with_context(|| format!("cannot create workflow directory {}", root.display()))?;
+        fs::create_dir_all(&root).with_context(|| format!("cannot create workflow directory {}", root.display()))?;
         let store = Self {
             root,
             gate: Mutex::new(()),
@@ -145,10 +141,7 @@ impl Store {
             };
             let mut changed = false;
             for entry in &mut workflow.execs {
-                if matches!(
-                    entry.status,
-                    ExecutionStatus::Pending | ExecutionStatus::Running
-                ) {
+                if matches!(entry.status, ExecutionStatus::Pending | ExecutionStatus::Running) {
                     entry.status = ExecutionStatus::Failed;
                     entry.error = Some(Failure::new(FailureCode::ExecutionInterrupted));
                     entry.finished_at = Some(now());
@@ -172,12 +165,7 @@ impl Store {
         Ok(list().with_context(|| format!("cannot list workflows in {}", self.root.display()))?)
     }
     fn path(&self, id: &str) -> Result<PathBuf> {
-        if id.is_empty()
-            || id.len() > 180
-            || !id
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
-        {
+        if id.is_empty() || id.len() > 180 || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_') {
             return Err(StoreError::InvalidWorkflowId(id.into()));
         }
         Ok(self.root.join(format!("{id}.json")))
@@ -195,9 +183,7 @@ impl Store {
     pub fn load(&self, id: &str) -> Result<Workflow> {
         let path = self.path(id)?;
         match fs::read(&path) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                Err(StoreError::WorkflowNotFound(id.into()))
-            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Err(StoreError::WorkflowNotFound(id.into())),
             bytes => decode(&path, bytes),
         }
     }
@@ -240,12 +226,7 @@ impl Store {
                 running_count: workflow
                     .execs
                     .iter()
-                    .filter(|e| {
-                        matches!(
-                            e.status,
-                            ExecutionStatus::Pending | ExecutionStatus::Running
-                        )
-                    })
+                    .filter(|e| matches!(e.status, ExecutionStatus::Pending | ExecutionStatus::Running))
                     .count() as u64,
                 failed_count: workflow
                     .execs
@@ -278,13 +259,7 @@ impl Store {
         )?;
         Ok(id)
     }
-    pub fn append(
-        &self,
-        workflow_id: &str,
-        instance_id: &str,
-        code: String,
-        name: String,
-    ) -> Result<String> {
+    pub fn append(&self, workflow_id: &str, instance_id: &str, code: String, name: String) -> Result<String> {
         let _guard = self.gate.lock().unwrap();
         let mut workflow = self.load(workflow_id)?;
         workflow.latest_execution_id += 1;
@@ -307,12 +282,7 @@ impl Store {
         self.write(&self.path(workflow_id)?, &workflow)?;
         Ok(id)
     }
-    pub fn update(
-        &self,
-        workflow_id: &str,
-        execution_id: &str,
-        change: impl FnOnce(&mut Execution),
-    ) -> Result<()> {
+    pub fn update(&self, workflow_id: &str, execution_id: &str, change: impl FnOnce(&mut Execution)) -> Result<()> {
         let _guard = self.gate.lock().unwrap();
         let mut workflow = self.load(workflow_id)?;
         let entry = workflow

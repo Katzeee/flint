@@ -46,19 +46,8 @@ fn loader_hands_the_request_to_the_platform_entry() {
     let stderr = tempfile::tempfile().unwrap();
     let mut process = PythonProcess(
         Command::new("python")
-            .args([
-                "-I",
-                "-X",
-                "utf8",
-                "-c",
-                include_str!("tests/python_bootstrap.py"),
-            ])
-            .arg(source(
-                "flint_bridge.maya",
-                root,
-                &request,
-                Path::new(error_path),
-            ))
+            .args(["-I", "-X", "utf8", "-c", include_str!("tests/python_bootstrap.py")])
+            .arg(source("flint_bridge.maya", root, &request, Path::new(error_path)))
             .stdin(Stdio::null())
             .stdout(stdout.try_clone().unwrap())
             .stderr(stderr.try_clone().unwrap())
@@ -77,8 +66,7 @@ fn loader_hands_the_request_to_the_platform_entry() {
     });
     let stdout = captured(stdout);
     let stderr = captured(stderr);
-    let diagnostics =
-        format!(
+    let diagnostics = format!(
         "program=python, status={status}, timed_out={timed_out}\nPATH={}\nstdout:\n{}\nstderr:\n{}",
         std::env::var_os("PATH").unwrap_or_default().to_string_lossy(),
         String::from_utf8_lossy(&stdout),

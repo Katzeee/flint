@@ -35,9 +35,11 @@ fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
         assert_eq!(info["executable"], fixture.to_string_lossy().as_ref());
         assert_eq!(info["window"], Value::Null);
         if preview {
-            assert!(info["preview"]["unavailable_reason"]
-                .as_str()
-                .is_some_and(|reason| !reason.is_empty()));
+            assert!(
+                info["preview"]["unavailable_reason"]
+                    .as_str()
+                    .is_some_and(|reason| !reason.is_empty())
+            );
         } else {
             assert!(info.get("preview").is_none());
         }

@@ -1,4 +1,5 @@
 """Resolve the Qt binding shared by a host's execution and UI components."""
+
 from importlib import import_module
 import sys
 from types import SimpleNamespace

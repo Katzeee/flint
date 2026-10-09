@@ -1,4 +1,5 @@
 """Run the generated loader against a controlled platform entry and report what it received."""
+
 import json
 import sys
 from types import ModuleType
