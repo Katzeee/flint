@@ -16,7 +16,6 @@ use flint_contracts::attach::{attach_directory, error_path, plan_path, RuntimePl
 use strum::IntoEnumIterator;
 
 pub struct AttachRequest {
-    pub host: HostKind,
     pub address: String,
     pub port: u16,
     pub name: String,
@@ -35,8 +34,8 @@ fn declaration(host: HostKind) -> Option<Attach> {
     }
 }
 
-pub fn attachable(host: HostKind) -> Result<(), Unsupported> {
-    declaration(host).map(|_| ()).ok_or(Unsupported(host))
+pub fn attachment(host: HostKind) -> Result<Attach, Unsupported> {
+    declaration(host).ok_or(Unsupported(host))
 }
 
 pub fn attach_supported() -> bool {
@@ -65,22 +64,23 @@ fn write_plan(pid: u32, plan: &RuntimePlan) -> Result<()> {
 ///
 /// Returns once the bootstrap library is loaded; the Bridge then connects
 /// asynchronously and the caller confirms it through the backend.
-pub fn attach(pid: u32, request: &AttachRequest) -> Result<()> {
-    let attach = declaration(request.host).ok_or(Unsupported(request.host))?;
-    let root = stage(&staging(), &attach.layout)?;
-    let plan = attach.entry.plan(&root, request, &error_path(pid));
-    // A previous attempt's outcome must not be mistaken for this one's.
-    match std::fs::remove_file(error_path(pid)) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
-        _ => {}
-    }
-    write_plan(pid, &plan)?;
-    match os::inject(pid) {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            // Leave no stale plan if the bootstrap never loaded to read it.
-            let _ = std::fs::remove_file(plan_path(pid));
-            Err(error)
+impl Attach {
+    pub fn inject(self, pid: u32, request: &AttachRequest) -> Result<()> {
+        let root = stage(&staging(), &self.layout)?;
+        let plan = self.entry.plan(&root, request, &error_path(pid));
+        // A previous attempt's outcome must not be mistaken for this one's.
+        match std::fs::remove_file(error_path(pid)) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        }
+        write_plan(pid, &plan)?;
+        match os::inject(pid) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                // Leave no stale plan if the bootstrap never loaded to read it.
+                let _ = std::fs::remove_file(plan_path(pid));
+                Err(error)
+            }
         }
     }
 }

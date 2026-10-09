@@ -312,10 +312,11 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
                     Command::Stop(_) => lifecycle.stop().await?,
                     Command::Restart(_) => status_json(lifecycle.restart().await?),
                     Command::Attach(args) => {
-                        let host = crate::attach::resolve(args.pid, args.host_kind)?;
+                        let resolved = crate::attach::resolve(args.pid, args.host_kind)?;
+                        let host = resolved.host;
                         let name = args.name.clone().unwrap_or_else(|| host.to_string());
                         lifecycle.ensure().await?;
-                        crate::attach::inject(&config, args.pid, host, &name)?;
+                        resolved.inject(&config, &name)?;
                         // The injected Bridge connects asynchronously; wait for the
                         // backend to register an instance for this process under the
                         // requested name, or for the injected side to report why it

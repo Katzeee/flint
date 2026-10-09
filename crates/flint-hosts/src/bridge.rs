@@ -37,9 +37,9 @@ impl Install {
     }
 }
 
-pub(crate) struct Attach {
-    pub layout: Layout,
-    pub entry: PlatformEntry,
+pub struct Attach {
+    pub(crate) layout: Layout,
+    pub(crate) entry: PlatformEntry,
 }
 
 /// Standalone hosts install their platform library directly, so they declare no install.

@@ -63,9 +63,10 @@ async fn attach(
 ) -> Result<serde_json::Value, Failure> {
     let backend = state.inner().clone();
     blocking(move || {
-        let host = crate::attach::resolve(pid, host_kind)?;
+        let resolved = crate::attach::resolve(pid, host_kind)?;
+        let host = resolved.host;
         let name: &str = host.into();
-        crate::attach::inject(backend.config(), pid, host, name)?;
+        resolved.inject(backend.config(), name)?;
         // The injected Bridge connects to this in-process backend; wait for it,
         // or for the injected side to report why it could not.
         let deadline = Instant::now() + Duration::from_secs(30);

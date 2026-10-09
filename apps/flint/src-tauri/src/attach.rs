@@ -4,7 +4,7 @@
 
 use flint_backend::config::Config;
 use flint_contracts::protocol::{Failure, FailureCode};
-use flint_hosts::{AttachRequest, HostKind};
+use flint_hosts::{Attach, AttachRequest, HostKind};
 use std::time::Instant;
 
 #[derive(Debug, thiserror::Error)]
@@ -37,7 +37,13 @@ impl From<AttachError> for Failure {
 
 /// Resolves the host kind of `pid`, rejecting integrations without an attach
 /// implementation before any files are prepared.
-pub fn resolve(pid: u32, host: Option<HostKind>) -> Result<HostKind, AttachError> {
+pub struct ResolvedAttach {
+    pub host: HostKind,
+    pid: u32,
+    attach: Attach,
+}
+
+pub fn resolve(pid: u32, host: Option<HostKind>) -> Result<ResolvedAttach, AttachError> {
     let host = match host {
         Some(host) => host,
         None => {
@@ -46,19 +52,25 @@ pub fn resolve(pid: u32, host: Option<HostKind>) -> Result<HostKind, AttachError
                 .host
         }
     };
-    flint_hosts::attachable(host)?;
-    Ok(host)
+    Ok(ResolvedAttach {
+        host,
+        pid,
+        attach: flint_hosts::attachment(host)?,
+    })
 }
 
 /// Inject the Bridge into host process `pid`, connecting to `config`'s Bridge endpoint.
-pub fn inject(config: &Config, pid: u32, host: HostKind, name: &str) -> Result<(), AttachError> {
-    let request = AttachRequest {
-        host,
-        address: config.address.clone(),
-        port: config.bridge_port,
-        name: name.to_string(),
-    };
-    flint_hosts::attach(pid, &request).map_err(AttachError::Injection)
+impl ResolvedAttach {
+    pub fn inject(self, config: &Config, name: &str) -> Result<(), AttachError> {
+        let request = AttachRequest {
+            address: config.address.clone(),
+            port: config.bridge_port,
+            name: name.to_string(),
+        };
+        self.attach
+            .inject(self.pid, &request)
+            .map_err(AttachError::Injection)
+    }
 }
 
 /// Ends a wait for the injected Bridge to register once its side reports why it

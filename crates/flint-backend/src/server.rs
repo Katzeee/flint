@@ -54,12 +54,10 @@ impl From<BackendBusy> for Failure {
 }
 
 struct Session {
-    info: InstanceInfo,
-    bridge_id: String,
+    registration: RegisterInstance,
     token: String,
     cancel: CancellationToken,
     sender: Option<mpsc::Sender<Envelope>>,
-    exec_generation: String,
     heartbeat: Instant,
 }
 struct Job {
@@ -104,7 +102,19 @@ impl BackendHandle {
     }
     pub fn instances(&self) -> Vec<InstanceInfo> {
         let state = self.0.state.lock().unwrap();
-        let mut result: Vec<_> = state.sessions.values().map(|s| s.info.clone()).collect();
+        let mut result: Vec<_> = state
+            .sessions
+            .iter()
+            .map(|(id, s)| InstanceInfo {
+                instance_id: id.clone(),
+                instance_name: s.registration.instance_name.clone(),
+                instance_type: s.registration.instance_type.clone(),
+                pid: s.registration.pid,
+                runtime_version: s.registration.runtime_version.clone(),
+                bridge_version: s.registration.bridge_version.clone(),
+                execution_ready: s.sender.is_some(),
+            })
+            .collect();
         result.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
         result
     }

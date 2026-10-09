@@ -45,7 +45,7 @@ async fn heartbeat_connection(
         .unwrap()
         .sessions
         .iter()
-        .filter(|(_, s)| s.bridge_id == req.bridge_id || s.info.pid == req.pid)
+        .filter(|(_, s)| s.registration.bridge_id == req.bridge_id || s.registration.pid == req.pid)
         .map(|(id, _)| id.clone())
         .collect();
     for id in superseded {
@@ -67,20 +67,10 @@ async fn heartbeat_connection(
     backend.0.state.lock().unwrap().sessions.insert(
         id.clone(),
         Session {
-            info: InstanceInfo {
-                instance_id: id.clone(),
-                instance_name: req.instance_name,
-                instance_type: req.instance_type,
-                pid: req.pid,
-                runtime_version: req.runtime_version,
-                bridge_version: req.bridge_version,
-                execution_ready: false,
-            },
-            bridge_id: req.bridge_id,
+            registration: req,
             token: token.clone(),
             cancel: cancel.clone(),
             sender: None,
-            exec_generation: String::new(),
             heartbeat: Instant::now(),
         },
     );
@@ -108,12 +98,13 @@ async fn execution_connection(
     req: RegisterExecutionChannel,
 ) -> Result<()> {
     let (sender, mut receiver) = mpsc::channel(16);
-    let generation = Uuid::new_v4().simple().to_string();
     let admitted = {
         let mut state = backend.0.state.lock().unwrap();
         match state.sessions.get_mut(&req.instance_id) {
             None => Err("the instance is not registered"),
-            Some(session) if session.info.pid != req.pid || session.token != req.session_token => {
+            Some(session)
+                if session.registration.pid != req.pid || session.token != req.session_token =>
+            {
                 Err("the execution channel identity does not match its registration")
             }
             Some(session) if session.sender.is_some() => {
@@ -121,8 +112,6 @@ async fn execution_connection(
             }
             Some(session) => {
                 session.sender = Some(sender);
-                session.exec_generation = generation.clone();
-                session.info.execution_ready = true;
                 Ok(session.cancel.clone())
             }
         }
@@ -145,17 +134,7 @@ async fn execution_connection(
         }
         Ok(())
     }.await;
-    let owns = backend
-        .0
-        .state
-        .lock()
-        .unwrap()
-        .sessions
-        .get(&req.instance_id)
-        .map_or(false, |s| s.exec_generation == generation);
-    if owns {
-        disconnect(&backend, &req.instance_id);
-    }
+    disconnect(&backend, &req.instance_id);
     result
 }
 

@@ -1,5 +1,4 @@
 use super::*;
-use crate::HostKind;
 use serde_json::json;
 use std::{
     fs::File,
@@ -37,7 +36,6 @@ fn captured(mut file: File) -> Vec<u8> {
 #[ignore = "requires Python; run `cargo xtask test python`"]
 fn loader_hands_the_request_to_the_platform_entry() {
     let request = AttachRequest {
-        host: HostKind::Maya,
         address: "127.0.0.1".into(),
         port: 6321,
         name: "a\"b\\c\n场景".into(),
