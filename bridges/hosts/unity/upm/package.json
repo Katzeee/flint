@@ -1,6 +1,6 @@
 {
   "name": "com.flint.bridge",
-  "version": "0.1.0",
+  "version": "{{version}}",
   "displayName": "Flint Bridge",
   "description": "Connect the Unity Editor to flint."
 }

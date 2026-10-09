@@ -8,19 +8,20 @@ build = "build.rs"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-test-runtime = ["flint-config/test-runtime"]
+test-runtime = ["flint-backend/test-runtime"]
 
 [dependencies]
 thiserror.workspace = true
 flint-backend.workspace = true
-flint-config.workspace = true
-flint-control-client.workspace = true
 flint-hosts.workspace = true
 flint-contracts = { workspace = true, features = ["protocol"] }
 tauri = { workspace = true, features = ["tray-icon"] }
 tauri-plugin-decoration.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }
 serde_json.workspace = true
+futures-util = { workspace = true, features = ["sink"] }
+fs2.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 strum.workspace = true
 clap = { workspace = true, features = ["derive"] }
 anyhow.workspace = true
@@ -30,7 +31,6 @@ base64 = "0.22"
 tauri-build.workspace = true
 
 [dev-dependencies]
-futures-util = { workspace = true, features = ["sink"] }
 tempfile.workspace = true
 wait-timeout.workspace = true
 

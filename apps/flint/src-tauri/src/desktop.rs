@@ -1,7 +1,7 @@
+use crate::control::{instance_json, status_json};
 use flint_backend::{Backend, BackendHandle};
-use flint_contracts::host::HostKind;
 use flint_contracts::protocol::{Failure, FailureCode};
-use flint_control_client::{instance_json, status_json};
+use flint_hosts::HostKind;
 use std::time::{Duration, Instant};
 use tauri::{
     menu::{Menu, MenuItem},
@@ -109,7 +109,7 @@ fn desktop_info(state: tauri::State<'_, BackendHandle>) -> serde_json::Value {
         "control_endpoint": format!("{}:{}", config.address, config.control_port),
         "bridge_endpoint": format!("{}:{}", config.address, config.bridge_port),
         "state_dir": config.state_dir,
-        "attach_supported": cfg!(windows),
+        "attach_supported": flint_hosts::attach_supported(),
     })
 }
 #[tauri::command]

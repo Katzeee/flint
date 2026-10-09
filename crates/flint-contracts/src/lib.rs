@@ -1,5 +1,5 @@
-//! Shared contracts between Flint components.
+//! What separately built Flint binaries exchange.
 
-pub mod host;
+pub mod attach;
 #[cfg(feature = "protocol")]
 pub mod protocol;

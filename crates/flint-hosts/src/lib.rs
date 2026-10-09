@@ -1,13 +1,18 @@
-use flint_contracts::host::HostKind;
+mod host;
+pub use host::HostKind;
 use serde::Serialize;
 use std::ffi::OsString;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 mod attach;
+mod bridge;
+mod layout;
+mod platform;
 mod window;
-pub use attach::{attach, attach_error, AttachRequest, Runtime};
+pub use attach::{attach, attach_error, attach_supported, attachable, AttachRequest, Unsupported};
+pub use bridge::{export, ExportTarget};
+pub use platform::Platform;
 pub use window::{focus_application, host_info, HostInfo, WindowInfo, WindowPreview};
-
 
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {

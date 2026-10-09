@@ -237,56 +237,16 @@ impl App {
         }
         Ok(response)
     }
-    pub fn export(&self) -> Result<PathBuf> {
-        let bundle = self.directory.join("flint-python.zip");
-        checked(
+    /// Export `target` with its default file name and return the written path.
+    pub fn export(&self, target: &str) -> Result<PathBuf> {
+        let output = checked(
             Command::new(&self.binary)
                 .current_dir(&self.directory)
-                .args(["bridge", "export", "python"]),
+                .args(["bridge", "export", target]),
             Duration::from_secs(15),
         )?;
-        Ok(bundle)
-    }
-    pub fn export_unity(&self) -> Result<PathBuf> {
-        let bundle = self.directory.join("flint-unity.tgz");
-        checked(
-            Command::new(&self.binary)
-                .current_dir(&self.directory)
-                .args(["bridge", "export", "unity"]),
-            Duration::from_secs(15),
-        )?;
-        Ok(bundle)
-    }
-    #[cfg(windows)]
-    pub fn export_csharp(&self) -> Result<PathBuf> {
-        let bundle = self.directory.join("flint-csharp.zip");
-        checked(
-            Command::new(&self.binary)
-                .current_dir(&self.directory)
-                .args(["bridge", "export", "csharp"]),
-            Duration::from_secs(15),
-        )?;
-        Ok(bundle)
-    }
-    pub fn export_blender(&self) -> Result<PathBuf> {
-        let bundle = self.directory.join("flint-blender.zip");
-        checked(
-            Command::new(&self.binary)
-                .current_dir(&self.directory)
-                .args(["bridge", "export", "blender"]),
-            Duration::from_secs(15),
-        )?;
-        Ok(bundle)
-    }
-    pub fn export_host(&self, host: &str) -> Result<PathBuf> {
-        let bundle = self.directory.join(format!("flint-{host}.zip"));
-        checked(
-            Command::new(&self.binary)
-                .current_dir(&self.directory)
-                .args(["bridge", "export", host]),
-            Duration::from_secs(15),
-        )?;
-        Ok(bundle)
+        let written: serde_json::Value = serde_json::from_str(&output.stdout)?;
+        Ok(self.directory.join(written["path"].as_str().unwrap()))
     }
     pub fn workflow(&self, name: &str) -> Result<String> {
         Ok(self.call("workflow", &["--name", name], 0)?["workflow_id"]
@@ -384,7 +344,7 @@ pub struct PythonHost {
 impl PythonHost {
     pub fn start(app: &App, interpreter: &Path) -> Result<Self> {
         app.call("start", &[], 0)?;
-        let bundle = app.export()?;
+        let bundle = app.export("python")?;
         let config_path = app.directory.join("host-config.json");
         fs::write(
             &config_path,

@@ -152,7 +152,7 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
 fn attach_reports_why_the_injected_bridge_could_not_start() -> Result<()> {
     let app = App::evidence("attach-python-claimed");
     app.call("start", &[], 0)?;
-    let bundle = serde_json::to_string(&app.export()?.to_string_lossy())?;
+    let bundle = serde_json::to_string(&app.export("python")?.to_string_lossy())?;
     // A core created directly, not through the interpreter's Bridge, holds the
     // claim where the injected host Bridge cannot reuse it.
     let target = start_target(

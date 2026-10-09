@@ -52,11 +52,7 @@ pub(super) fn verify_host(
         data: json!({"host":kind,"checks":[],"passed":false}),
     };
     app.call("start", &[], 0)?;
-    let bundle = if kind == "blender" {
-        app.export_blender()?
-    } else {
-        app.export_host(kind)?
-    };
+    let bundle = app.export(kind)?;
     let installation = app.directory.join("host-plugins");
     if kind != "blender" {
         fs::create_dir_all(&installation)?;

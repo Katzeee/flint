@@ -22,6 +22,7 @@ namespace Flint.Unity
             return new BridgeSettings { Address = address, Port = port, Name = name, Enabled = enabled };
         }
 
+        public static BridgeManager Manager { get { return manager; } }
         public static bool Connected { get { return manager.Connected; } }
         public static bool Busy { get { return manager.Busy; } }
         public static string StatusJson { get { return manager.StatusJson; } }
@@ -34,11 +35,6 @@ namespace Flint.Unity
         public static void ApplySettings(string address, int port, string name, bool enabled)
         {
             manager.Configure(Settings(address, port, name, enabled));
-        }
-
-        public static string Attach(string nativeLibrary, string address, int port, string name)
-        {
-            return manager.Attach(nativeLibrary, Settings(address, port, name, true));
         }
 
         public static void Reconnect() { manager.Reconnect(); }

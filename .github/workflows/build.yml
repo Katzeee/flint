@@ -23,7 +23,7 @@ jobs:
       - name: Export Python Bridge
         run: target/release/flint.exe bridge export python --output target/release/flint-python.zip
       - name: Export C# Bridge
-        run: target/release/flint.exe bridge export csharp --output target/release/flint-csharp.zip
+        run: target/release/flint.exe bridge export dotnet --output target/release/flint-dotnet.zip
       - name: Export Unity Bridge
         run: target/release/flint.exe bridge export unity --output target/release/flint-unity.tgz
       - name: Build environments stay under target
@@ -38,7 +38,7 @@ jobs:
           path: |
             target/release/flint.exe
             target/release/flint-python.zip
-            target/release/flint-csharp.zip
+            target/release/flint-dotnet.zip
             target/release/flint-unity.tgz
   test:
     runs-on: windows-2022

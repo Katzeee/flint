@@ -14,7 +14,7 @@ use std::{
 fn build_against_export(app: &App, program: &str) -> Result<(PathBuf, PathBuf)> {
     let bundle = app.directory.join("bundle");
     if !bundle.is_dir() {
-        let archive = app.export_csharp()?;
+        let archive = app.export("dotnet")?;
         fs::create_dir_all(&bundle)?;
         checked(
             Command::new("tar")

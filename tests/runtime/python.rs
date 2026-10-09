@@ -8,7 +8,7 @@ use std::process::Command;
 fn exported_zip_conforms_to_the_runtime_scenarios() -> Result<()> {
     let app = App::new();
     app.call("start", &[], 0)?;
-    let bundle = app.export()?;
+    let bundle = app.export("python")?;
     let mut command = Command::new(python());
     command
         .args(["-I", "-S", "-X", "utf8"])
@@ -31,7 +31,7 @@ fn exported_zip_conforms_to_the_runtime_scenarios() -> Result<()> {
 fn exported_host_entry_preserves_the_connection_contract() -> Result<()> {
     let app = App::new();
     app.call("start", &[], 0)?;
-    let bundle = app.export()?;
+    let bundle = app.export("python")?;
     let mut command = Command::new(python());
     command
         .args(["-I", "-S", "-X", "utf8"])

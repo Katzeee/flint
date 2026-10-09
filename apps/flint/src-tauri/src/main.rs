@@ -1,6 +1,6 @@
 mod attach;
-mod bridge_export;
 mod cli;
+mod control;
 mod desktop;
 mod failure;
 mod hosts;

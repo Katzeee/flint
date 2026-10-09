@@ -1,6 +1,6 @@
 # .NET platform
 
-This platform supplies the managed binding and reusable execution capabilities. Export its sources and native core with `flint bridge export csharp`. For Unity installation and use, follow the [Unity guide](../../hosts/unity/README.md).
+This platform supplies the managed binding and reusable execution capabilities. Export its sources and native core with `flint bridge export dotnet`. For Unity installation and use, follow the [Unity guide](../../hosts/unity/README.md).
 
 A host retains one [BridgeManager](src/Flint.Bridge/BridgeManager.cs), composed from its registration identity, runtime description, execution-capability factory, and initialization dispatcher. The factory runs when a Bridge is created and supplies an executor and a scheduler through [ExecutionCapabilities](src/Flint.Bridge/ExecutionCapabilities.cs); configuring or reusing a Bridge retains them. A Bridge that cannot be created disposes the scheduler it was given.
 

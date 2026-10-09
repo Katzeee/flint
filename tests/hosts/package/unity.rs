@@ -14,7 +14,7 @@ fn exported_package_registers_and_executes() -> Result<()> {
     let executable = host_executable("FLINT_UNITY_EXE")?;
     let app = App::evidence("unity");
     app.call("start", &[], 0)?;
-    let bundle = app.export_unity()?;
+    let bundle = app.export("unity")?;
     let unity_path =
         |path: &std::path::Path| PathBuf::from(path.to_string_lossy().trim_start_matches(r"\\?\"));
     checked(

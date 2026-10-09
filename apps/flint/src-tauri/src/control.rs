@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use flint_config::{lock_contended, Config};
+use flint_backend::config::{lock_contended, Config};
 use flint_contracts::protocol::{envelope::Payload, *};
 use fs2::FileExt;
 use futures_util::SinkExt;

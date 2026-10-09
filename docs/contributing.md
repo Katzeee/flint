@@ -4,20 +4,26 @@ Conventions for where code belongs, how errors and protocols evolve, how builds 
 
 ## Ownership
 
-Each Rust crate owns one concept from the [glossary](../CONTEXT.md). Place a feature in the crate that owns its concept, not in the crate that happens to call it:
+Place a type or behavior in the component that defines its meaning, using the [glossary](../CONTEXT.md) to resolve terms; callers depend on that owner. Within a crate, modules and visibility express ownership.
 
-| Crate | Owns | Depends on |
+A crate exists for one of three reasons, named in its row below:
+
+- **Artifact**: it builds into a separate binary.
+- **Contract**: it holds what separately built binaries exchange. `flint-contracts` is the only one.
+- **Service**: a domain the executable composes, which builds and tests without Tauri.
+
+Everything else is a module of the crate that owns its meaning, including code several crates call. A linked artifact contains only the code it reaches, so dependency weight alone justifies no crate. A new crate adds its row here.
+
+| Crate | Reason | Owns |
 |---|---|---|
-| `crates/flint-contracts` | Shared contracts between Flint components; the `protocol` module owns wire messages, framing, heartbeat timing, and the failure code catalog, with message schemas in `protocol/` | — |
-| `crates/flint-config` | Local backend deployment conventions: control and Bridge endpoints, state directory, and runtime lock files | — |
-| `crates/flint-backend` | The backend service: control and Bridge listeners, request dispatch, connected instances, executions, and workflow records | contracts, config |
-| `crates/flint-control-client` | Control client requests and the local backend lifecycle: start, stop, and restart | contracts, config |
-| `crates/flint-bridge-core` | Bridge core and its C ABI for host adapters, and the process claim that limits a host process to one Bridge | contracts |
-| `crates/flint-bridge-bootstrap` | The library flint injects to attach a Bridge into a running host: it drives the host runtime to start the Bridge | — |
-| `crates/flint-hosts` | Local host candidates: process discovery, window information, window previews, window focus, and injecting the attach bootstrap | contracts |
-| `apps/flint/src-tauri` | The executable: CLI commands, Tauri window, tray, and IPC that compose the crates above | all crates except bridge-core and bridge-bootstrap |
+| `crates/flint-contracts` | Contract | `protocol`: wire messages generated from the schemas in `protocol/`, framing, heartbeat timing, and the failure code catalog, behind the `protocol` feature. `attach`: the runtime plan and the files the injector and bootstrap exchange |
+| `crates/flint-backend` | Service | The backend service: control and Bridge listeners, request dispatch, connected instances, executions, and workflow records. `config`: its deployment conventions, namely control and Bridge endpoints, state directory, and runtime lock files |
+| `crates/flint-hosts` | Service | Built-in host identities (`HostKind`), process discovery, window information, previews, focus, language platforms (`Platform`) with their libraries and attach entries, each host's layouts with the Bridge files and binaries they embed and the assembler that writes them, and bootstrap injection |
+| `crates/flint-bridge-core` | Artifact | Bridge core and its C ABI for host adapters, and the process claim that limits a host process to one Bridge |
+| `crates/flint-bridge-bootstrap` | Artifact | The injected library: it executes a runtime plan through the host runtime and knows no host or platform |
+| `apps/flint/src-tauri` | Artifact | The executable: CLI commands, the control client and local backend lifecycle, Tauri window, tray, and IPC |
 
-Dependencies point from the executable toward shared contracts and never between peers: the backend and control client share only contracts and config, and the Bridge core never depends on the backend. A feature that needs a new dependency between crates signals misplaced ownership; move the shared concept down instead. Contracts hold shared definitions and their encoding rules, while behavior stays in the implementing crates. Tauri and UI dependencies stay in `apps/flint`.
+Dependencies stay acyclic and follow ownership. Tauri and UI dependencies stay in `apps/flint`; the Bridge core and bootstrap depend only on `flint-contracts`, the bootstrap without its `protocol` feature.
 
 Every application capability and its data are reachable through the CLI, which talks to the backend through the control client; the desktop adapts the same services for presentation. CLI and Tauri call `flint-hosts` directly, without a Bridge or backend connection. Discovery identifies host processes, including batch-mode editors, and excludes recognized internal workers; a visible window does not make a process a host candidate.
 
@@ -59,17 +65,28 @@ Foreign input is validated and normalized once, where it enters through the C AB
 
 ## Protocol and builds
 
-Protocol changes start in the owning schema. Keep wire semantics beside the corresponding fields and framing implementation. Generated files come only from [`tools/contracts-codegen`](../tools/contracts-codegen/src/main.rs): `cargo codegen` regenerates protocol bindings and the frontend host type in the same change as their sources, and `cargo codegen --check` verifies that they match. A change to the shape or meaning of a wire message raises `PROTOCOL_VERSION` in the framing module, and a change to workflow records raises the workflow schema version in `flint-backend::store`.
+Each boundary between separately built parts has one source, and its other side receives the contract from that source:
 
-Built-in host identities and their external names belong to [`flint-contracts::host`](../crates/flint-contracts/src/host.rs). Discovery and attach inputs use that type; registered Bridge identifiers remain open strings. The `protocol` feature enables wire support for consumers that need it.
+| Boundary | Source | Other side receives it as |
+|---|---|---|
+| Wire protocol: backend, control client, Bridge core | Schemas in `protocol/` | prost bindings in `flint-contracts::protocol` |
+| Tauri IPC: executable and React | Rust types that commands accept and return | TypeScript in `apps/flint/src/generated` |
+| Bridge core C ABI: core and language bindings | The header, as described under [Bridge](#bridge) | Hand-written bindings, verified by conformance tests |
+| Attach: injector and bootstrap | Rust types in `flint-contracts::attach` | The same types, through the dependency |
 
-Builds use declared, locked dependencies and remain independent of developer-local environments. xtask owns dependency preparation; application build scripts compile and package prepared sources. Tooling declares the interpreters it requires but never provisions them; a missing prerequisite fails with an error naming the requirement.
+A type belongs in a protobuf schema only when it travels on the wire; `HostKind` and IPC types stay Rust-sourced. Protocol changes start in the owning schema, with wire semantics beside the corresponding fields and framing implementation. Generated files come only from [`tools/contracts-codegen`](../tools/contracts-codegen/src/main.rs): `cargo codegen` regenerates them in the same change as their sources, and `cargo codegen --check` verifies that they match. A change to the shape or meaning of a wire message raises `PROTOCOL_VERSION` in the framing module, and a change to workflow records raises the workflow schema version in `flint-backend::store`.
 
-The application build compiles the native Bridge core and, on Windows, the attach bootstrap from the locked workspace, and embeds both in the executable: the core in each Bridge package, and the bootstrap for injection. The bootstrap links the C runtime statically so it needs no runtime present in the target host.
+Builds use declared, locked dependencies and remain independent of developer-local environments. xtask owns dependency preparation; application build scripts compile and embed prepared sources. Tooling declares the interpreters it requires but never provisions them; a missing prerequisite fails with an error naming the requirement.
+
+Bridge files reach the executable as a flat set keyed by path, all embedded by `flint-hosts` at compile time: the Python library, the .NET binding, and the Unity package sources, together with the binaries its build compiles from the locked workspace, namely the native Bridge core and, on Windows, the attach bootstrap and the Unity adapter. Those nested builds use their own target directories under the build's output. The bootstrap links the C runtime statically so it needs no runtime present in the target host.
+
+Files gain structure only when they leave the executable, through a [host layout](../CONTEXT.md). Each `HostKind` declares its layouts in `flint-hosts`: an install layout that `flint bridge export` writes in the host's native format, and an attach layout that attach stages for the bootstrap together with its entry. One assembler in `flint-hosts` writes every layout, so a host changes its files or format through its declaration. A host builds on its [platform](../CONTEXT.md): the platform supplies its library with the native core and its attach entry, which it turns into a runtime plan, and the host adds only its own files and entry parameters. A platform's attach entry is written in the platform's language, as `flint_bridge.attach` and `Flint.Bridge.Attach`; Rust passes it a JSON request and adds only what the runtime needs to reach it, such as the Python import root. Processes that host a platform directly use the platform library, which `flint bridge export` writes by platform name.
+
+Attach and export are classified in three layers, each named in its types: host (`HostKind`), platform (`Platform`), and runtime (`RuntimePlan`). Data a layer carries for one use is a data enum named for its layer, such as `PlatformEntry`, and behavior that depends only on the layer is a method on its fieldless enum. When a data enum covers every variant of its layer, it declares the fieldless enum through strum's `EnumDiscriminants`, so the variants have one source. Files a host's own tools read, such as Unity `.meta` files, are committed beside their sources, with GUIDs that stay fixed across releases.
 
 ## Tests
 
-Run `cargo xtask test` from the repository root; CI runs the same command. Select suites by name when needed, for example `cargo xtask test rust gui`. Every automated suite, including a new platform's, is registered in [xtask](../tools/xtask/src/main.rs), and test prerequisites and execution details live in the test drivers and configuration. The product integration tests use a dedicated application build with an isolated runtime. The test driver selects this build and keeps its artifacts separate from normal application builds; test processes never fall back to the user's backend. See the runtime configuration in `flint-config` and the shared fixtures in `tests/support.rs` for the isolation contract.
+Run `cargo xtask test` from the repository root; CI runs the same command. Select suites by name when needed, for example `cargo xtask test rust gui`. Every automated suite, including a new platform's, is registered in [xtask](../tools/xtask/src/main.rs), and test prerequisites and execution details live in the test drivers and configuration. The product integration tests use a dedicated application build with an isolated runtime. The test driver selects this build and keeps its artifacts separate from normal application builds; test processes never fall back to the user's backend. See the runtime configuration in `flint-backend::config` and the shared fixtures in `tests/support.rs` for the isolation contract.
 
 Test behavior at the lowest layer that owns it, then check one representative path through higher layers instead of repeating the lower layer's cases. A test of one Rust crate belongs beside its implementation in that crate's `src`, following Rust's module layout: `src/<module>/tests.rs` for a module or `src/tests.rs` for the crate root. Platform-local tests cover language resource cleanup, marshaling, and execution and dispatch mechanisms, using the language's own test runner and locked dependencies. Python platform tests live beside `src`; .NET projects under `bridges/platforms/dotnet/src` have sibling `<Project>.Tests` projects under `bridges/platforms/dotnet/tests`. Host adapters that require an application's runtime are covered by real-host tests.
 

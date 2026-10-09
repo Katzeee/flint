@@ -9,7 +9,7 @@ A running application process whose own language runtime executes code submitted
 _Avoid_: Host for a network address; use endpoint address.
 
 **Host kind**:
-A built-in host integration recognized by Flint, represented by `HostKind` in the shared contracts. An application integration owns its runtime selection and execution behavior; a standalone integration identifies a fixed source language. Recognizing a kind does not imply that Flint can discover or attach it. Bridge registration identifiers remain open strings, so independently loaded Bridges can identify hosts outside this built-in set.
+A built-in host integration recognized by Flint, represented by `HostKind` in `flint-hosts`. An application integration owns its runtime selection and execution behavior; a standalone integration identifies a fixed source language. Recognizing a kind does not imply that Flint can discover or attach it. Bridge registration identifiers remain open strings, so independently loaded Bridges can identify hosts outside this built-in set.
 _Avoid_: Language or runtime kind for this integration identity.
 
 **Host runtime**:
@@ -54,6 +54,18 @@ The platform component that creates, reuses, configures, and releases a host's B
 **Attach**:
 Starting a Bridge from outside its host process by injecting the Bridge into the running process, rather than the host loading the Bridge itself. Both paths connect the same Bridge to the backend; attach lets flint connect a host without the user running flint's code inside it. Attaching to a process whose Bridge it can reach applies the new settings to that Bridge, and a failure is reported back to the requester.
 _Avoid_: Inject for the whole operation; injection is only the entry step.
+
+**Host layout**:
+A host's declaration of which embedded Bridge files it needs and where each goes, for one use: installing the Bridge by the host's own mechanism, or attaching it. The installed form is a Bridge package in the host's native format, such as a Maya module or a UPM package.
+_Avoid_: Package for the declaration; a package is what an install layout produces.
+
+**Platform**:
+A language platform that host integrations build their Bridges on, such as Python or .NET, represented by `Platform` in `flint-hosts`. It supplies the library, Bridge manager, and attach entry its hosts share; a host chooses one platform and supplies its own adapter. A platform is not the host runtime that executes code: the .NET platform runs on Mono inside Unity.
+_Avoid_: Language or runtime for this layer.
+
+**Runtime plan**:
+The startup instructions for one host runtime that the injected bootstrap executes to start a Bridge. A host names its entry into its platform; the platform turns that entry into the runtime plan; the bootstrap executes it inside the host process and knows neither hosts nor platforms.
+_Avoid_: Attach plan.
 
 **Process claim**:
 The host process's exclusive right to run one Bridge, held by its Bridge core through an operating-system lock keyed by the process. It prevents a second Bridge, whatever runtime or Bridge version attempts it, and releases when that Bridge is destroyed or the process exits.

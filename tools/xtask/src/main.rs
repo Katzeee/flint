@@ -110,8 +110,9 @@ fn python(root: &Path) -> Result<()> {
             "test",
             "--locked",
             "--package",
-            "flint-bridge-bootstrap",
+            "flint-hosts",
             "--",
+            "platform::python::",
             "--ignored",
         ],
     )?;

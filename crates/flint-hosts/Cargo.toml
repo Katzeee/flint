@@ -5,14 +5,26 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-flint-contracts = { workspace = true, default-features = false }
+flint-contracts.workspace = true
+serde_with.workspace = true
+strum = { workspace = true, features = ["derive"] }
 sysinfo = { workspace = true, features = ["system", "multithread"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "sync", "time"] }
+zip = { version = "9.0.0", default-features = false, features = ["deflate-flate2"] }
+tar = { version = "0.4.46", default-features = false }
+flate2 = "1.1"
+
+[dev-dependencies]
+tempfile.workspace = true
+wait-timeout.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_System_Memory", "Win32_System_LibraryLoader", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_Debug", "Win32_System_SystemInformation", "Win32_Security"] }
 png = "0.17"
+
+[build-dependencies]
+toml = "0.9"

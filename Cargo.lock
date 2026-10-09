@@ -476,7 +476,7 @@ name = "contracts-codegen"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "flint-contracts",
+ "flint-hosts",
  "prost-build",
  "strum",
  "tempfile",
@@ -974,6 +974,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1004,10 +1014,9 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "flint-backend",
- "flint-config",
  "flint-contracts",
- "flint-control-client",
  "flint-hosts",
+ "fs2",
  "futures-util",
  "serde_json",
  "strum",
@@ -1017,6 +1026,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "uuid",
  "wait-timeout",
 ]
 
@@ -1026,8 +1036,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "flint-config",
+ "dirs",
  "flint-contracts",
+ "fs2",
  "futures-util",
  "serde",
  "serde_json",
@@ -1043,10 +1054,8 @@ name = "flint-bridge-bootstrap"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "serde",
+ "flint-contracts",
  "serde_json",
- "tempfile",
- "wait-timeout",
  "windows-sys 0.61.2",
 ]
 
@@ -1067,15 +1076,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "flint-config"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dirs",
- "fs2",
-]
-
-[[package]]
 name = "flint-contracts"
 version = "0.1.0"
 dependencies = [
@@ -1083,24 +1083,9 @@ dependencies = [
  "futures-util",
  "prost",
  "serde",
- "serde_with",
  "strum",
  "tokio",
  "tokio-util",
-]
-
-[[package]]
-name = "flint-control-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "flint-config",
- "flint-contracts",
- "fs2",
- "futures-util",
- "serde_json",
- "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -1108,14 +1093,22 @@ name = "flint-hosts"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "flate2",
  "flint-contracts",
  "png 0.17.16",
  "serde",
  "serde_json",
+ "serde_with",
+ "strum",
  "sysinfo",
+ "tar",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
+ "wait-timeout",
  "windows-sys 0.61.2",
+ "zip",
 ]
 
 [[package]]
@@ -3625,6 +3618,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+]
+
+[[package]]
 name = "target-lexicon"
 version = "0.12.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4241,6 +4244,12 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "typed-path"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
 
 [[package]]
 name = "typeid"
@@ -5167,6 +5176,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "zip"
+version = "9.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "711e8c9646791c49b7eb799a19c4ae70a9b8372ddc6a1fa4778defd1e2aa5d5e"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "indexmap 2.14.2",
+ "memchr",
+ "typed-path",
 ]
 
 [[package]]

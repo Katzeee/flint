@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/flint-contracts", "crates/flint-config", "crates/flint-backend", "crates/flint-control-client", "crates/flint-hosts", "crates/flint-bridge-core", "crates/flint-bridge-bootstrap", "apps/flint/src-tauri", "tools/contracts-codegen", "tools/xtask"]
+members = ["crates/flint-contracts", "crates/flint-backend", "crates/flint-hosts", "crates/flint-bridge-core", "crates/flint-bridge-bootstrap", "apps/flint/src-tauri", "tools/contracts-codegen", "tools/xtask"]
 default-members = ["apps/flint/src-tauri"]
 resolver = "2"
 
@@ -10,9 +10,7 @@ publish = false
 
 [workspace.dependencies]
 flint-contracts = { path = "crates/flint-contracts", default-features = false }
-flint-config = { path = "crates/flint-config" }
 flint-backend = { path = "crates/flint-backend" }
-flint-control-client = { path = "crates/flint-control-client" }
 flint-hosts = { path = "crates/flint-hosts" }
 
 anyhow = "1"

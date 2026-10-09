@@ -9,7 +9,6 @@
     <Deterministic>true</Deterministic>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="attach/Attach.cs" />
     <Compile Include="*.cs" />
     <Compile Include="../../platforms/dotnet/src/Flint.Bridge/*.cs" />
   </ItemGroup>

@@ -1,11 +1,10 @@
-use crate::bridge_export::BridgeExport;
+use crate::control::{payload_json, request, status_json, Lifecycle};
 use anyhow::Result;
 use clap::{builder::TypedValueParser, Args, Parser, Subcommand};
+use flint_backend::config::Config;
 use flint_backend::Backend;
-use flint_config::Config;
-use flint_contracts::host::HostKind;
 use flint_contracts::protocol::{envelope::Payload, *};
-use flint_control_client::{payload_json, request, status_json, Lifecycle};
+use flint_hosts::{ExportTarget, HostKind};
 use std::{io::Read, path::PathBuf};
 use strum::IntoEnumIterator;
 
@@ -105,10 +104,20 @@ enum HostCommand {
 
 #[derive(Subcommand)]
 enum BridgeCommand {
+    /// Write a host's install package or a platform library.
     Export {
-        #[command(subcommand)]
-        format: BridgeExport,
+        #[arg(value_parser = export_target_parser())]
+        target: ExportTarget,
+        #[arg(
+            long,
+            help = "Defaults to flint-<target>.<format> in the current directory"
+        )]
+        output: Option<PathBuf>,
     },
+}
+fn export_target_parser() -> impl TypedValueParser<Value = ExportTarget> {
+    clap::builder::PossibleValuesParser::new(ExportTarget::available().map(ExportTarget::name))
+        .map(|value| value.parse().expect("validated export target"))
 }
 
 fn seconds(value: &str) -> std::result::Result<f64, String> {
@@ -212,10 +221,13 @@ pub fn run() -> i32 {
 }
 fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
     if let Command::Bridge {
-        command: BridgeCommand::Export { format },
+        command: BridgeCommand::Export { target, output },
     } = &command
     {
-        return Ok(Some(format.write()?));
+        let path = flint_hosts::export(*target, output.as_deref())?;
+        return Ok(Some(
+            serde_json::json!({"path": path, "version": env!("CARGO_PKG_VERSION")}),
+        ));
     }
     if let Command::Hosts { command, .. } = &command {
         let value = match command {

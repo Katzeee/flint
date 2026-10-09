@@ -1,64 +1,46 @@
 //! Attach: start a Bridge inside a running host by injecting the bootstrap.
 //!
-//! This is the injector that runs in flint's own process. It loads the small
-//! bootstrap library into the target and leaves a config file the bootstrap
-//! reads to start the Bridge. It performs pure operating-system injection and
-//! knows nothing about the backend; the caller confirms the Bridge registered,
-//! or reads [`attach_error`] for why the injected side could not start it.
+//! This is the injector that runs in flint's own process. It stages the host's
+//! attach layout, has the host's platform turn its entry into a runtime plan, and
+//! loads the bootstrap into the target, which executes that plan to start the Bridge.
+//! Injection knows nothing about the backend; the caller confirms the Bridge
+//! registered, or reads [`attach_error`] for why the injected side could not start it.
 
-use std::path::PathBuf;
-
+use crate::{
+    bridge::{bridge, Attach},
+    layout::stage,
+    HostKind,
+};
 use anyhow::Result;
-use flint_contracts::host::HostKind;
-use serde::Serialize;
+use flint_contracts::attach::{attach_directory, error_path, plan_path, RuntimePlan};
+use strum::IntoEnumIterator;
 
-/// The host runtime the bootstrap drives once injected.
-#[derive(Clone, Copy, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Runtime {
-    Cpython,
-    /// A managed runtime (Mono today, CoreCLR later), resolved in-process.
-    Dotnet,
-}
-
-/// Everything the injector needs to place a Bridge into one host process.
 pub struct AttachRequest {
     pub host: HostKind,
-    pub runtime: Runtime,
-    /// The bootstrap library flint injects into the host.
-    pub bootstrap: PathBuf,
-    /// The Bridge package the host runtime loads: the Python ZIP or a managed assembly.
-    pub payload: PathBuf,
-    /// The native core the managed runtime loads itself; unused for CPython.
-    pub core: Option<PathBuf>,
     pub address: String,
     pub port: u16,
     pub name: String,
 }
 
-/// The config the injector writes for the injected bootstrap to read once.
-#[derive(Serialize)]
-struct AttachConfig<'a> {
-    runtime: Runtime,
-    host: HostKind,
-    address: &'a str,
-    port: u16,
-    name: &'a str,
-    payload: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    core_path: Option<String>,
+#[derive(Debug, thiserror::Error)]
+#[error("attach is not implemented for host kind {0}")]
+pub struct Unsupported(pub HostKind);
+
+/// Only the Windows bootstrap can enter a host.
+fn declaration(host: HostKind) -> Option<Attach> {
+    if cfg!(windows) {
+        bridge(host).attach
+    } else {
+        None
+    }
 }
 
-fn attach_directory() -> PathBuf {
-    std::env::temp_dir().join("flint-bridge").join("attach")
+pub fn attachable(host: HostKind) -> Result<(), Unsupported> {
+    declaration(host).map(|_| ()).ok_or(Unsupported(host))
 }
 
-fn config_path(pid: u32) -> PathBuf {
-    attach_directory().join(format!("{pid}.json"))
-}
-
-fn error_path(pid: u32) -> PathBuf {
-    attach_directory().join(format!("{pid}.error"))
+pub fn attach_supported() -> bool {
+    HostKind::iter().any(|host| declaration(host).is_some())
 }
 
 /// Why the most recent attach to `pid` could not start or re-point its Bridge,
@@ -68,30 +50,14 @@ pub fn attach_error(pid: u32) -> Option<String> {
     std::fs::read_to_string(error_path(pid)).ok()
 }
 
-/// Write the per-process config the bootstrap reads after it is injected.
-fn write_config(pid: u32, request: &AttachRequest) -> Result<()> {
-    let directory = attach_directory();
-    std::fs::create_dir_all(&directory)?;
-    let payload = request
-        .payload
-        .canonicalize()
-        .unwrap_or_else(|_| request.payload.clone());
-    let core_path = request.core.as_ref().map(|core| {
-        core.canonicalize()
-            .unwrap_or_else(|_| core.clone())
-            .display()
-            .to_string()
-    });
-    let config = AttachConfig {
-        runtime: request.runtime,
-        host: request.host,
-        address: &request.address,
-        port: request.port,
-        name: &request.name,
-        payload: payload.display().to_string(),
-        core_path,
-    };
-    std::fs::write(config_path(pid), serde_json::to_vec(&config)?)?;
+fn staging() -> std::path::PathBuf {
+    attach_directory().join("staged")
+}
+
+/// Publish the host's startup instructions for the injected bootstrap.
+fn write_plan(pid: u32, plan: &RuntimePlan) -> Result<()> {
+    std::fs::create_dir_all(attach_directory())?;
+    std::fs::write(plan_path(pid), serde_json::to_vec(plan)?)?;
     Ok(())
 }
 
@@ -100,39 +66,35 @@ fn write_config(pid: u32, request: &AttachRequest) -> Result<()> {
 /// Returns once the bootstrap library is loaded; the Bridge then connects
 /// asynchronously and the caller confirms it through the backend.
 pub fn attach(pid: u32, request: &AttachRequest) -> Result<()> {
-    anyhow::ensure!(
-        request.bootstrap.is_file(),
-        "Bridge bootstrap is missing: {}",
-        request.bootstrap.display()
-    );
+    let attach = declaration(request.host).ok_or(Unsupported(request.host))?;
+    let root = stage(&staging(), &attach.layout)?;
+    let plan = attach.entry.plan(&root, request, &error_path(pid));
     // A previous attempt's outcome must not be mistaken for this one's.
     match std::fs::remove_file(error_path(pid)) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
         _ => {}
     }
-    write_config(pid, request)?;
-    match platform::inject(pid, &request.bootstrap) {
+    write_plan(pid, &plan)?;
+    match os::inject(pid) {
         Ok(()) => Ok(()),
         Err(error) => {
-            // Leave no stale config if the bootstrap never loaded to read it.
-            let _ = std::fs::remove_file(config_path(pid));
+            // Leave no stale plan if the bootstrap never loaded to read it.
+            let _ = std::fs::remove_file(plan_path(pid));
             Err(error)
         }
     }
 }
 
 #[cfg(not(windows))]
-mod platform {
-    use super::*;
-
-    pub fn inject(_pid: u32, _bootstrap: &std::path::Path) -> Result<()> {
-        anyhow::bail!("attach is only supported on Windows")
+mod os {
+    pub fn inject(_pid: u32) -> anyhow::Result<()> {
+        unreachable!("no host declares attach off Windows")
     }
 }
-
 #[cfg(windows)]
-mod platform {
+mod os {
     use super::*;
+    use crate::layout::{Layout, BOOTSTRAP};
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
@@ -159,8 +121,10 @@ mod platform {
         text.encode_wide().chain(std::iter::once(0)).collect()
     }
 
-    pub fn inject(pid: u32, bootstrap: &Path) -> Result<()> {
-        unsafe { inject_windows(pid, bootstrap) }
+    pub fn inject(pid: u32) -> Result<()> {
+        let bootstrap = Layout::default().file("flint-bootstrap.dll", BOOTSTRAP);
+        let bootstrap = stage(&staging(), &bootstrap)?.join("flint-bootstrap.dll");
+        unsafe { inject_windows(pid, &bootstrap) }
     }
 
     unsafe fn inject_windows(pid: u32, bootstrap: &Path) -> Result<()> {
@@ -173,8 +137,9 @@ mod platform {
         anyhow::ensure!(!process.is_null(), "cannot open process {pid} for attach");
         let process = Handle(process);
 
-        // The bootstrap is x64; refuse a 32-bit (WOW64) target rather than
-        // load a mismatched image. A native x64 process reports UNKNOWN (0).
+        // The bootstrap is built for flint's own 64-bit target; refuse a 32-bit
+        // (WOW64) target rather than load a mismatched image. A process that
+        // is not under WOW64 reports UNKNOWN (0).
         let mut process_machine = 0u16;
         let mut native_machine = 0u16;
         anyhow::ensure!(

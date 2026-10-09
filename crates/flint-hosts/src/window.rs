@@ -1,7 +1,7 @@
 //! Local application windows are shared by CLI and desktop callers, independently of Bridges.
+use crate::HostError;
 #[cfg(not(windows))]
 use anyhow::bail;
-use crate::HostError;
 use anyhow::{Context, Result};
 
 #[cfg(all(test, windows))]

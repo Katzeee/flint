@@ -11,12 +11,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 anyhow.workspace = true
-serde = { workspace = true, features = ["derive"] }
+flint-contracts.workspace = true
 serde_json.workspace = true
-
-[dev-dependencies]
-tempfile.workspace = true
-wait-timeout.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

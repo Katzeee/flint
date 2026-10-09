@@ -1,4 +1,5 @@
 use super::*;
+use crate::HostKind;
 use serde_json::json;
 use std::{
     fs::File,
@@ -32,23 +33,16 @@ fn captured(mut file: File) -> Vec<u8> {
     output
 }
 
-fn config() -> AttachConfig {
-    AttachConfig {
-        runtime: "cpython".into(),
-        host: "maya".into(),
-        address: "127.0.0.1".into(),
-        port: 6321,
-        name: "Injected Maya".into(),
-        payload: r"C:\tools\flint-python.zip".into(),
-        core_path: None,
-    }
-}
-
 #[test]
 #[ignore = "requires Python; run `cargo xtask test python`"]
-fn python_bootstrap_dispatches_attach_and_reports_its_failure() {
-    let mut config = config();
-    config.name = "a\"b\\c\n场景".into();
+fn loader_hands_the_request_to_the_platform_entry() {
+    let request = AttachRequest {
+        host: HostKind::Maya,
+        address: "127.0.0.1".into(),
+        port: 6321,
+        name: "a\"b\\c\n场景".into(),
+    };
+    let root = r"C:\tools\flint-bridge";
     let error_path = r"C:\temp\42.error";
     let stdout = tempfile::tempfile().unwrap();
     let stderr = tempfile::tempfile().unwrap();
@@ -61,7 +55,12 @@ fn python_bootstrap_dispatches_attach_and_reports_its_failure() {
                 "-c",
                 include_str!("tests/python_bootstrap.py"),
             ])
-            .arg(python_bootstrap(&config, Path::new(error_path)))
+            .arg(source(
+                "flint_bridge.maya",
+                root,
+                &request,
+                Path::new(error_path),
+            ))
             .stdin(Stdio::null())
             .stdout(stdout.try_clone().unwrap())
             .stderr(stderr.try_clone().unwrap())
@@ -93,11 +92,14 @@ fn python_bootstrap_dispatches_attach_and_reports_its_failure() {
     assert_eq!(
         observed,
         json!({
-            "arguments": {"address": config.address, "port": config.port, "name": config.name},
-            "payload": config.payload,
-            "background": true,
-            "daemon": true,
-            "report": {"path": error_path, "mode": "w", "encoding": "utf-8", "message": "attach failed 场景"},
+            "import_root": root,
+            "request": {
+                "module": "flint_bridge.maya",
+                "address": request.address,
+                "port": request.port,
+                "name": request.name,
+                "error_path": error_path,
+            },
         })
     );
 }
