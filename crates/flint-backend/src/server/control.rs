@@ -21,18 +21,31 @@ async fn dispatch(backend: &BackendHandle, request: Payload) -> Result<Payload, 
     }
     Ok(match request {
         Payload::PingRequest(_) => Payload::PingResponse(backend.status()),
-        Payload::ShowWindowRequest(_) => {
-            backend.0.show_window.notify_one();
-            Payload::ShowWindowResponse(ShowWindowResponse { accepted: true })
-        }
         Payload::StopBackendRequest(_) => {
             backend.begin_stop()?;
-            Payload::StopBackendResponse(StopBackendResponse { stopping: true })
+            Payload::StopBackendResponse(StopBackendResponse {})
         }
         Payload::ListInstancesRequest(req) => list_instances(backend, req),
         Payload::StartWorkflowRequest(req) => {
             let workflow_id = backend.0.store.create(req.name, req.description)?;
             Payload::StartWorkflowResponse(StartWorkflowResponse { workflow_id })
+        }
+        Payload::ListWorkflowsRequest(_) => Payload::ListWorkflowsResponse(ListWorkflowsResponse {
+            workflows: backend.0.store.list()?,
+        }),
+        Payload::GetWorkflowRequest(req) => {
+            let workflow = backend.0.store.load(&req.workflow_id)?;
+            Payload::GetWorkflowResponse(GetWorkflowResponse {
+                workflow_id: workflow.workflow_id,
+                name: workflow.name,
+                description: workflow.description,
+                created_at: workflow.created_at,
+                execs: workflow
+                    .execs
+                    .into_iter()
+                    .map(|execution| execution_response(execution, ExecutionView::Full))
+                    .collect(),
+            })
         }
         Payload::ExecuteRequest(req) => Payload::ExecutionResult(execute(backend, req).await?),
         Payload::GetExecutionRequest(req) => get_execution(backend, req)?,
@@ -59,17 +72,19 @@ fn get_execution(backend: &BackendHandle, req: GetExecutionRequest) -> Result<Pa
         .0
         .store
         .execution(&req.workflow_id, &req.execution_id)?;
-    Ok(Payload::GetExecutionResponse(GetExecutionResponse {
+    Ok(Payload::GetExecutionResponse(execution_response(
+        e,
+        req.view(),
+    )))
+}
+
+fn execution_response(e: crate::store::Execution, view: ExecutionView) -> GetExecutionResponse {
+    GetExecutionResponse {
         execution_id: e.execution_id,
         workflow_id: e.workflow_id,
         name: e.name,
         instance_id: e.instance_id,
-        status: match e.status.as_str() {
-            "succeeded" => ExecutionStatus::Succeeded,
-            "failed" => ExecutionStatus::Failed,
-            "pending" => ExecutionStatus::Pending,
-            _ => ExecutionStatus::Running,
-        } as i32,
+        status: e.status as i32,
         stdout: e.stdout,
         stderr: e.stderr,
         started_at: e.started_at,
@@ -77,12 +92,12 @@ fn get_execution(backend: &BackendHandle, req: GetExecutionRequest) -> Result<Pa
         traceback: e.traceback,
         error: e.error,
         updated_at: e.updated_at,
-        code: if req.view == ExecutionView::Full as i32 {
+        code: if view == ExecutionView::Full {
             Some(e.code)
         } else {
             None
         },
-    }))
+    }
 }
 
 async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<ExecutionResult, Failure> {
@@ -112,7 +127,6 @@ async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<Executi
             &req.instance_id,
             req.code.clone(),
             req.name.clone(),
-            request_id.clone(),
         )?;
         let command = HostExecuteRequest {
             execution_id: execution_id.clone(),

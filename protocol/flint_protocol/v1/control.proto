@@ -10,9 +10,7 @@ message PingResponse {
   uint32 bridge_port = 5;
 }
 message StopBackendRequest {}
-message StopBackendResponse { bool stopping = 1; }
-message ShowWindowRequest {}
-message ShowWindowResponse { bool accepted = 1; }
+message StopBackendResponse {}
 
 message ListInstancesRequest { optional string instance_type = 1; }
 message ListInstancesResponse { repeated InstanceInfo instances = 1; }
@@ -22,6 +20,28 @@ message StartWorkflowRequest {
   string description = 2;
 }
 message StartWorkflowResponse { string workflow_id = 1; }
+
+message ListWorkflowsRequest {}
+message WorkflowSummary {
+  string workflow_id = 1;
+  string name = 2;
+  string description = 3;
+  string updated_at = 4;
+  uint64 execution_count = 5;
+  repeated string instance_ids = 6;
+  uint64 running_count = 7;
+  uint64 failed_count = 8;
+}
+message ListWorkflowsResponse { repeated WorkflowSummary workflows = 1; }
+message GetWorkflowRequest { string workflow_id = 1; }
+// Product data only; storage schema and internal request bookkeeping stay in the backend.
+message GetWorkflowResponse {
+  string workflow_id = 1;
+  string name = 2;
+  string description = 3;
+  string created_at = 4;
+  repeated GetExecutionResponse execs = 5;
+}
 
 message ExecuteRequest {
   string instance_id = 1;

@@ -22,8 +22,10 @@ message Envelope {
     GetExecutionRequest get_execution_request = 19;
     GetExecutionResponse get_execution_response = 20;
     Failure failure = 21;
-    ShowWindowRequest show_window_request = 22;
-    ShowWindowResponse show_window_response = 23;
+    ListWorkflowsRequest list_workflows_request = 24;
+    ListWorkflowsResponse list_workflows_response = 25;
+    GetWorkflowRequest get_workflow_request = 26;
+    GetWorkflowResponse get_workflow_response = 27;
     RegisterInstance register_instance = 30;
     RegisterExecutionChannel register_execution_channel = 31;
     Heartbeat heartbeat = 32;

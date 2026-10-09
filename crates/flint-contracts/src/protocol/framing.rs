@@ -6,7 +6,7 @@ use std::{io, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Decoder, Encoder, Framed, LengthDelimitedCodec};
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 4;
 pub const MAX_FRAME_BYTES: usize = 100 * 1024 * 1024;
 
 pub type Wire<T> = Framed<T, EnvelopeCodec>;
@@ -57,15 +57,6 @@ pub fn validate(envelope: &Envelope) -> io::Result<()> {
     }
     if envelope.payload.is_none() {
         return Err(invalid("missing or unsupported payload"));
-    }
-    let failure = match envelope.payload.as_ref() {
-        Some(Payload::Failure(failure)) => Some(failure),
-        Some(Payload::ExecutionResult(result)) => result.error.as_ref(),
-        Some(Payload::GetExecutionResponse(result)) => result.error.as_ref(),
-        _ => None,
-    };
-    if failure.is_some_and(|failure| failure.code.trim().is_empty()) {
-        return Err(invalid("failure code is empty"));
     }
     Ok(())
 }

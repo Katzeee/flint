@@ -6,8 +6,8 @@ use std::{process::Command, time::Duration};
 #[cfg(windows)]
 #[test]
 fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
-    let directory = tempfile::tempdir()?;
-    let fixture = directory.path().join("maya.exe");
+    let app = App::new();
+    let fixture = app.directory.join("maya.exe");
     // A disposable recognized process without a window exercises headless host inspection.
     std::fs::copy(
         std::env::var_os("ComSpec").expect("Windows command interpreter"),
@@ -23,10 +23,8 @@ fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
     let host = OwnedProcess(command.spawn()?);
     let pid = host.0.id().to_string();
     for preview in [false, true] {
-        let mut command = Command::new(binary());
-        command
-            .args(["hosts", "info", "--pid", &pid, "--json"])
-            .env("FLINT_TEST_ROOT", directory.path());
+        let mut command = app.command("hosts");
+        command.args(["info", "--pid", &pid]);
         if preview {
             command.arg("--preview");
         }
@@ -37,7 +35,6 @@ fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
         assert_eq!(info["executable"], fixture.to_string_lossy().as_ref());
         assert_eq!(info["window"], Value::Null);
         if preview {
-            assert_eq!(info["preview"]["image"], Value::Null);
             assert!(info["preview"]["unavailable_reason"]
                 .as_str()
                 .is_some_and(|reason| !reason.is_empty()));
@@ -45,7 +42,7 @@ fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
             assert!(info.get("preview").is_none());
         }
     }
-    assert!(!directory.path().join("workflows").exists());
-    assert!(!directory.path().join("runtime").exists());
+    assert!(!app.directory.join("workflows").exists());
+    assert!(!app.directory.join("runtime").exists());
     Ok(())
 }

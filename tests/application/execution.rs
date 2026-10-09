@@ -82,23 +82,19 @@ fn execution_lookup_distinguishes_missing_records_from_storage_failures() -> Res
         )
     };
     assert_eq!(lookup("missing")?["error"]["code"], "workflow_not_found");
-    assert_eq!(lookup("../outside")?["error"]["code"], "invalid_arguments");
     let workflow = app.workflow("empty")?;
     assert_eq!(lookup(&workflow)?["error"]["code"], "execution_not_found");
     let folder = app.directory.join("workflows");
-    fs::write(folder.join("corrupt.json"), "not json")?;
     // A directory is deterministically unreadable as a record, without changing OS permissions.
     fs::create_dir(folder.join("unreadable.json"))?;
-    for record in ["corrupt", "unreadable"] {
-        let failure = &lookup(record)?["error"];
-        assert_eq!(failure["code"], "workflow_unreadable", "{failure}");
-        assert!(
-            failure["message"]
-                .as_str()
-                .unwrap()
-                .contains(&format!("{record}.json")),
-            "{failure}"
-        );
-    }
+    let failure = &lookup("unreadable")?["error"];
+    assert_eq!(failure["code"], "workflow_unreadable", "{failure}");
+    assert!(
+        failure["message"]
+            .as_str()
+            .unwrap()
+            .contains("unreadable.json"),
+        "{failure}"
+    );
     Ok(())
 }

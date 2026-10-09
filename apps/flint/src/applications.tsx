@@ -76,11 +76,12 @@ function ApplicationCard({
     revision,
   );
   const title = preview.data?.window?.title || instance?.instance_name || hostName(host);
+  const windowPreview = preview.data?.preview;
   return (
     <Card as="article">
       <Card.Media>
         <Image
-          src={preview.data?.preview?.image ?? undefined}
+          src={windowPreview && "image" in windowPreview ? windowPreview.image : undefined}
           alt=""
           aspectRatio="16/10"
           fit="contain"
@@ -90,7 +91,9 @@ function ApplicationCard({
               <Text size="label" tone="muted">
                 {preview.loading
                   ? "Loading preview"
-                  : preview.data?.preview?.unavailable_reason || preview.error || "Window preview unavailable"}
+                  : windowPreview && "unavailable_reason" in windowPreview
+                    ? windowPreview.unavailable_reason
+                    : preview.error || "Window preview unavailable"}
               </Text>
             </>
           }
@@ -223,6 +226,7 @@ function ApplicationDetail({
       (item) => instance && item.instance_ids.includes(instance.instance_id),
     ) ?? [];
   const hostWindow = preview.data?.window;
+  const windowPreview = preview.data?.preview;
   const application = host ? hostName(host) : "Application";
   const name = instance?.instance_name || application;
   const executable = preview.data?.executable || candidate?.executable;
@@ -283,7 +287,7 @@ function ApplicationDetail({
               <Box width="280px" maxWidth="100%" flexShrink="0">
                 <Image
                   key={pid}
-                  src={preview.data?.preview?.image ?? undefined}
+                  src={windowPreview && "image" in windowPreview ? windowPreview.image : undefined}
                   alt={`Window preview of ${hostWindow?.title || name}`}
                   aspectRatio="16/10"
                   fit="contain"
@@ -294,8 +298,9 @@ function ApplicationDetail({
                       <Text size="label" tone="muted">
                         {preview.loading
                           ? "Loading preview"
-                          : preview.data?.preview?.unavailable_reason ||
-                            "Window preview unavailable"}
+                          : windowPreview && "unavailable_reason" in windowPreview
+                            ? windowPreview.unavailable_reason
+                            : "Window preview unavailable"}
                       </Text>
                     </>
                   }

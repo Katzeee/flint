@@ -17,7 +17,9 @@ flint-hosts.workspace = true
 flint-contracts = { workspace = true, features = ["protocol"] }
 tauri = { workspace = true, features = ["tray-icon"] }
 tauri-plugin-decoration.workspace = true
+tauri-plugin-single-instance.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 futures-util = { workspace = true, features = ["sink"] }
 fs2.workspace = true

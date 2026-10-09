@@ -81,15 +81,19 @@ A request to a Bridge, or to start one, that was refused without changing any st
 The host-side code that supplies its application's execution capabilities, along with its startup, settings storage, and teardown.
 
 **Backend**:
-The single local service for the current user that accepts control commands and Bridge connections, coordinates executions, and owns workflow records. CLI sessions reuse this service independently of their working directory.
+The single local service for the current user that accepts control commands and Bridge connections, coordinates executions, and owns workflow records. CLI sessions and the desktop reuse this service independently of their working directory.
 _Avoid_: Server or core when referring to this service as a whole.
+
+**Desktop**:
+Flint's window and tray, running in a process separate from the backend. It controls the backend as a control client, and neither its exit nor a backend stop or restart ends the other.
+_Avoid_: GUI backend, tray service.
 
 **Connected instance**:
 A transient backend registration of a Bridge in a host application, identified by an instance ID. Reconnection can produce a new instance ID for the same Bridge.
 _Avoid_: Host application for the registered connection.
 
 **Control client**:
-The CLI-side component that sends a command to the backend and receives its response. It is separate from the host-side Bridge.
+The component of the CLI and desktop that sends a command to the backend and receives its response. It is separate from the host-side Bridge.
 _Avoid_: Client without qualification.
 
 **Control endpoint**:

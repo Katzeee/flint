@@ -9,6 +9,7 @@ pub struct Failure {
     #[prost(string, tag = "2")]
     pub message: ::prost::alloc::string::String,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct InstanceInfo {
     #[prost(string, tag = "1")]
@@ -28,17 +29,23 @@ pub struct InstanceInfo {
     pub execution_ready: bool,
 }
 /// A running response is an early return; terminal results retain this execution ID.
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecutionResult {
     #[prost(string, tag = "1")]
     pub execution_id: ::prost::alloc::string::String,
     #[prost(enumeration = "ExecutionStatus", tag = "2")]
+    #[serde(with = "serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>")]
     pub status: i32,
     #[prost(string, optional, tag = "3")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub traceback: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, optional, tag = "4")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: ::core::option::Option<Failure>,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ExecutionStatus {
@@ -74,8 +81,10 @@ impl ExecutionStatus {
         }
     }
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct PingRequest {}
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PingResponse {
     #[prost(bool, tag = "1")]
@@ -87,30 +96,25 @@ pub struct PingResponse {
     #[prost(uint32, tag = "5")]
     pub bridge_port: u32,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StopBackendRequest {}
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct StopBackendResponse {
-    #[prost(bool, tag = "1")]
-    pub stopping: bool,
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct ShowWindowRequest {}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct ShowWindowResponse {
-    #[prost(bool, tag = "1")]
-    pub accepted: bool,
-}
+pub struct StopBackendResponse {}
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListInstancesRequest {
     #[prost(string, optional, tag = "1")]
     pub instance_type: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListInstancesResponse {
     #[prost(message, repeated, tag = "1")]
     pub instances: ::prost::alloc::vec::Vec<InstanceInfo>,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StartWorkflowRequest {
     #[prost(string, tag = "1")]
@@ -118,11 +122,63 @@ pub struct StartWorkflowRequest {
     #[prost(string, tag = "2")]
     pub description: ::prost::alloc::string::String,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StartWorkflowResponse {
     #[prost(string, tag = "1")]
     pub workflow_id: ::prost::alloc::string::String,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ListWorkflowsRequest {}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WorkflowSummary {
+    #[prost(string, tag = "1")]
+    pub workflow_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub description: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub updated_at: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "5")]
+    pub execution_count: u64,
+    #[prost(string, repeated, tag = "6")]
+    pub instance_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(uint64, tag = "7")]
+    pub running_count: u64,
+    #[prost(uint64, tag = "8")]
+    pub failed_count: u64,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListWorkflowsResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub workflows: ::prost::alloc::vec::Vec<WorkflowSummary>,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetWorkflowRequest {
+    #[prost(string, tag = "1")]
+    pub workflow_id: ::prost::alloc::string::String,
+}
+/// Product data only; storage schema and internal request bookkeeping stay in the backend.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetWorkflowResponse {
+    #[prost(string, tag = "1")]
+    pub workflow_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub description: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub created_at: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "5")]
+    pub execs: ::prost::alloc::vec::Vec<GetExecutionResponse>,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecuteRequest {
     #[prost(string, tag = "1")]
@@ -136,6 +192,7 @@ pub struct ExecuteRequest {
     #[prost(string, optional, tag = "5")]
     pub filename: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetExecutionRequest {
     #[prost(string, tag = "1")]
@@ -146,6 +203,7 @@ pub struct GetExecutionRequest {
     pub view: i32,
 }
 /// Timestamps preserve the workflow's ISO 8601 text representation.
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetExecutionResponse {
     #[prost(string, tag = "1")]
@@ -157,6 +215,7 @@ pub struct GetExecutionResponse {
     #[prost(string, tag = "4")]
     pub instance_id: ::prost::alloc::string::String,
     #[prost(enumeration = "ExecutionStatus", tag = "5")]
+    #[serde(with = "serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>")]
     pub status: i32,
     #[prost(string, tag = "6")]
     pub stdout: ::prost::alloc::string::String,
@@ -173,8 +232,10 @@ pub struct GetExecutionResponse {
     #[prost(string, optional, tag = "12")]
     pub updated_at: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "13")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub code: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ExecutionView {
@@ -206,6 +267,7 @@ impl ExecutionView {
     }
 }
 /// Opens the registration/heartbeat connection; execution uses a separate connection.
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterInstance {
     #[prost(uint32, tag = "1")]
@@ -224,6 +286,7 @@ pub struct RegisterInstance {
     #[prost(string, tag = "7")]
     pub bridge_version: ::prost::alloc::string::String,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterExecutionChannel {
     #[prost(string, tag = "1")]
@@ -234,12 +297,14 @@ pub struct RegisterExecutionChannel {
     #[prost(string, tag = "3")]
     pub session_token: ::prost::alloc::string::String,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Heartbeat {
     #[prost(string, tag = "1")]
     pub instance_id: ::prost::alloc::string::String,
 }
 /// Accepts a registration or heartbeat. A rejection is a Failure payload instead.
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct InstanceAck {
     #[prost(string, tag = "4")]
@@ -248,6 +313,7 @@ pub struct InstanceAck {
     #[prost(string, tag = "5")]
     pub session_token: ::prost::alloc::string::String,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HostExecuteRequest {
     #[prost(string, tag = "1")]
@@ -261,6 +327,7 @@ pub struct HostExecuteRequest {
     #[prost(string, optional, tag = "5")]
     pub filename: ::core::option::Option<::prost::alloc::string::String>,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecutionOutputUpdate {
     #[prost(string, tag = "1")]
@@ -277,6 +344,7 @@ pub struct ExecutionOutputUpdate {
 }
 /// Each frame carries one envelope. Responses and output updates echo request_id.
 /// Any request may be answered with a Failure payload instead of its response.
+#[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Envelope {
     #[prost(uint32, tag = "1")]
@@ -285,12 +353,13 @@ pub struct Envelope {
     pub request_id: ::prost::alloc::string::String,
     #[prost(
         oneof = "envelope::Payload",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 30, 31, 32, 33, 34, 35, 36"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 24, 25, 26, 27, 30, 31, 32, 33, 34, 35, 36"
     )]
     pub payload: ::core::option::Option<envelope::Payload>,
 }
 /// Nested message and enum types in `Envelope`.
 pub mod envelope {
+    #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Payload {
         #[prost(message, tag = "10")]
@@ -317,10 +386,14 @@ pub mod envelope {
         GetExecutionResponse(super::GetExecutionResponse),
         #[prost(message, tag = "21")]
         Failure(super::Failure),
-        #[prost(message, tag = "22")]
-        ShowWindowRequest(super::ShowWindowRequest),
-        #[prost(message, tag = "23")]
-        ShowWindowResponse(super::ShowWindowResponse),
+        #[prost(message, tag = "24")]
+        ListWorkflowsRequest(super::ListWorkflowsRequest),
+        #[prost(message, tag = "25")]
+        ListWorkflowsResponse(super::ListWorkflowsResponse),
+        #[prost(message, tag = "26")]
+        GetWorkflowRequest(super::GetWorkflowRequest),
+        #[prost(message, tag = "27")]
+        GetWorkflowResponse(super::GetWorkflowResponse),
         #[prost(message, tag = "30")]
         RegisterInstance(super::RegisterInstance),
         #[prost(message, tag = "31")]

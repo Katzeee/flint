@@ -11,8 +11,8 @@ import {
   type CairnAppearance,
 } from "@cairn/ui";
 import { useState } from "react";
-import { readDesktopInfo, stopBackend } from "./backend.js";
-import { messageOf, useResource } from "./resource.js";
+import { readDesktopInfo } from "./backend.js";
+import { useResource } from "./resource.js";
 import { ErrorNotice } from "./shared.js";
 
 export function Settings({
@@ -20,26 +20,20 @@ export function Settings({
   onAppearanceChange,
   preferenceError,
   ready,
+  busy,
+  error,
+  changeBackend,
 }: Readonly<{
   appearance: CairnAppearance;
   onAppearanceChange: (appearance: CairnAppearance) => void;
   preferenceError: string;
   ready: boolean;
+  busy: "start" | "stop" | "restart" | null;
+  error: string;
+  changeBackend: (operation: "start" | "stop" | "restart") => Promise<void>;
 }>) {
   const info = useResource("desktop-info", readDesktopInfo);
   const [confirmStop, setConfirmStop] = useState(false);
-  const [stopping, setStopping] = useState(false);
-  const [error, setError] = useState("");
-  const stop = async () => {
-    setStopping(true);
-    setError("");
-    try {
-      await stopBackend();
-    } catch (failure) {
-      setError(messageOf(failure));
-      setStopping(false);
-    }
-  };
   const pending = info.loading && !info.data ? "Loading…" : "Unavailable";
   return (
     <>
@@ -69,7 +63,7 @@ export function Settings({
               Theme
             </List.Item>
             <List.Item
-              description="Flint and its connections keep running in the system tray."
+              description="The desktop stays in the system tray. The backend runs independently."
               trailing="Always"
             >
               Closing the window
@@ -99,13 +93,27 @@ export function Settings({
           </List.Section>
           <ErrorNotice error={info.error} retry={info.reload} />
 
-          <List.Section description="Running host applications remain open and reconnect when Flint starts again.">
+          <List.Section description="Host applications and this window stay open. Bridges reconnect when the backend starts again.">
             <List.Item
-              description="Disconnects every Bridge and closes Flint."
               trailing={
                 <Button
-                  disabled={!ready || stopping}
-                  loading={stopping}
+                  disabled={busy !== null}
+                  loading={busy === "start" || busy === "restart"}
+                  size="sm"
+                  onClick={() => void changeBackend(ready ? "restart" : "start")}
+                >
+                  {ready ? "Restart" : "Start"}
+                </Button>
+              }
+            >
+              {ready ? "Restart backend" : "Start backend"}
+            </List.Item>
+            <List.Item
+              description="Disconnects every Bridge. The desktop stays open."
+              trailing={
+                <Button
+                  disabled={!ready || busy !== null}
+                  loading={busy === "stop"}
                   size="sm"
                   variant="destructive"
                   onClick={() => setConfirmStop(true)}
@@ -127,17 +135,16 @@ export function Settings({
       </Container>
       <AlertDialog.Root open={confirmStop} onOpenChange={setConfirmStop}>
         <AlertDialog.Content>
-          <AlertDialog.Title>Stop Flint?</AlertDialog.Title>
+          <AlertDialog.Title>Stop backend?</AlertDialog.Title>
           <AlertDialog.Description>
-            Flint will disconnect its Bridges and close the desktop application.
-            Running host applications remain open.
+            The backend will disconnect its Bridges. This window and running host applications remain open.
           </AlertDialog.Description>
           <AlertDialog.Actions>
             <AlertDialog.Cancel>
               <Button variant="secondary">Cancel</Button>
             </AlertDialog.Cancel>
             <AlertDialog.Action>
-              <Button variant="destructive" onClick={() => void stop()}>
+              <Button variant="destructive" disabled={busy !== null} onClick={() => void changeBackend("stop")}>
                 Stop backend
               </Button>
             </AlertDialog.Action>

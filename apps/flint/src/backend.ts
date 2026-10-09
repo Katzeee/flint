@@ -70,7 +70,7 @@ export type DesktopInfo = Readonly<{
 }>;
 
 export type Snapshot = Readonly<{
-  backend: BackendStatus;
+  backend: BackendStatus | null;
   instances: readonly ConnectedInstance[];
 }>;
 
@@ -79,6 +79,9 @@ declare global {
     __TAURI__?: {
       core: {
         invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+      };
+      event: {
+        listen(event: string, handler: () => void): Promise<() => void>;
       };
     };
   }
@@ -130,10 +133,7 @@ export function readDesktopInfo(): Promise<DesktopInfo> {
 
 export type HostInfo = HostCandidate & Readonly<{
   window: Readonly<{ title: string; minimized: boolean }> | null;
-  preview?: Readonly<{
-    image: string | null;
-    unavailable_reason: string | null;
-  }>;
+  preview?: Readonly<{ image: string } | { unavailable_reason: string }>;
 }>;
 
 export function readHostInfo(pid: number, preview = false): Promise<HostInfo> {
@@ -158,6 +158,16 @@ export function attachHost(
   return invoke<AttachResult>("attach", { pid, hostKind });
 }
 
+// Launching flint while the desktop runs reopens this window instead of starting another desktop.
+export function onDesktopOpened(handler: () => void): () => void {
+  const api = window.__TAURI__?.event;
+  if (api === undefined) {
+    throw new Error("The Flint desktop bridge is unavailable");
+  }
+  const unlisten = api.listen("desktop-opened", handler);
+  return () => void unlisten.then((stop) => stop());
+}
+
 export function activateTitleBar(): Promise<"custom" | "native"> {
   return invoke<"custom" | "native">("activate_title_bar");
 }
@@ -173,12 +183,19 @@ export async function readSnapshot(): Promise<Snapshot> {
 }
 
 export async function discoverHosts(): Promise<readonly HostCandidate[]> {
-  const response = await invoke<{ hosts: readonly HostCandidate[] }>(
-    "candidates",
-  );
-  return response.hosts;
+  return invoke("candidates");
 }
 
-export function stopBackend(): Promise<void> {
-  return invoke<void>("stop_backend");
+export function startBackend(): Promise<BackendStatus> {
+  return invoke("start_backend");
+}
+
+export function stopBackend(): Promise<Readonly<{
+  stopped_pid: number | null;
+}>> {
+  return invoke("stop_backend");
+}
+
+export function restartBackend(): Promise<BackendStatus> {
+  return invoke("restart_backend");
 }

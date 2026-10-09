@@ -14,7 +14,6 @@ pub struct Config {
     pub bridge_port: u16,
     pub timeout: f64,
     pub state_dir: PathBuf,
-    runtime_dir: PathBuf,
 }
 
 impl Config {
@@ -35,13 +34,12 @@ impl Config {
             control_port,
             bridge_port,
             timeout: 30.0,
-            state_dir: root.clone(),
-            runtime_dir: root.join("runtime"),
+            state_dir: root,
         })
     }
 
     pub fn runtime_dir(&self) -> PathBuf {
-        self.runtime_dir.clone()
+        self.state_dir.join("runtime")
     }
 
     pub fn workflows_dir(&self) -> PathBuf {

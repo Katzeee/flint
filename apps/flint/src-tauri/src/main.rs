@@ -1,11 +1,4 @@
-mod attach;
-mod cli;
-mod control;
-mod desktop;
-mod failure;
-mod hosts;
-
 fn main() {
-    let code = cli::run();
+    let code = flint::run();
     std::process::exit(code);
 }

@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::store::{now, Store, StoreError, Workflow, WorkflowSummary};
+use crate::store::{now, Store};
 use anyhow::{Context, Result};
 use flint_contracts::protocol::timing::HEARTBEAT_IDLE_TIMEOUT;
 use flint_contracts::protocol::{envelope::Payload, *};
@@ -11,7 +11,7 @@ use std::{
 };
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::{mpsc, oneshot, Notify},
+    sync::{mpsc, oneshot},
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
@@ -79,28 +79,12 @@ struct Shared {
     state: Mutex<State>,
     store: Store,
     shutdown: CancellationToken,
-    show_window: Arc<Notify>,
 }
 
 #[derive(Clone)]
 pub struct BackendHandle(Arc<Shared>);
 impl BackendHandle {
-    pub fn workflows(&self) -> Result<Vec<WorkflowSummary>, StoreError> {
-        self.0.store.list()
-    }
-    pub fn workflow(&self, id: &str) -> Result<Workflow, StoreError> {
-        self.0.store.load(id)
-    }
-    pub fn config(&self) -> &Config {
-        &self.0.config
-    }
-    pub fn shutdown_token(&self) -> CancellationToken {
-        self.0.shutdown.clone()
-    }
-    pub fn window_notifications(&self) -> Arc<Notify> {
-        self.0.show_window.clone()
-    }
-    pub fn instances(&self) -> Vec<InstanceInfo> {
+    pub(crate) fn instances(&self) -> Vec<InstanceInfo> {
         let state = self.0.state.lock().unwrap();
         let mut result: Vec<_> = state
             .sessions
@@ -118,7 +102,7 @@ impl BackendHandle {
         result.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
         result
     }
-    pub fn status(&self) -> PingResponse {
+    pub(crate) fn status(&self) -> PingResponse {
         PingResponse {
             ready: !self.0.state.lock().unwrap().stopping,
             pid: std::process::id(),
@@ -169,7 +153,6 @@ impl Backend {
             state: Mutex::new(State::default()),
             store,
             shutdown: CancellationToken::new(),
-            show_window: Arc::new(Notify::new()),
         };
         Ok(Self {
             handle: BackendHandle(Arc::new(shared)),
@@ -226,16 +209,11 @@ fn finish(backend: &BackendHandle, request: &str, result: ExecutionResult) {
     let mut state = backend.0.state.lock().unwrap();
     if let Some(job) = state.jobs.remove(request) {
         job.timer.cancel();
-        let status = if result.status == ExecutionStatus::Succeeded as i32 {
-            "succeeded"
-        } else {
-            "failed"
-        };
         let persisted = backend
             .0
             .store
             .update(&job.workflow, &job.execution, |entry| {
-                entry.status = status.into();
+                entry.status = result.status();
                 entry.finished_at = Some(now());
                 entry.traceback = result.traceback.clone();
                 entry.error = result.error.clone();

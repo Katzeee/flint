@@ -120,9 +120,27 @@ fn generate_protocol(root: &Path, temporary: &Path, check: bool) -> Result<()> {
     fs::create_dir_all(&generated)?;
     std::env::set_var("PROTOC", &protoc);
     prost_build::Config::new()
-        .type_attribute(
-            ".flint_protocol.v1.Failure",
-            "#[derive(serde::Serialize, serde::Deserialize)]",
+        .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .enum_attribute("ExecutionStatus", "#[serde(rename_all = \"snake_case\")]")
+        .field_attribute(
+            "ExecutionResult.status",
+            "#[serde(with = \"serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>\")]",
+        )
+        .field_attribute(
+            "GetExecutionResponse.status",
+            "#[serde(with = \"serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>\")]",
+        )
+        .field_attribute(
+            "ExecutionResult.traceback",
+            "#[serde(skip_serializing_if = \"Option::is_none\")]",
+        )
+        .field_attribute(
+            "ExecutionResult.error",
+            "#[serde(skip_serializing_if = \"Option::is_none\")]",
+        )
+        .field_attribute(
+            "GetExecutionResponse.code",
+            "#[serde(skip_serializing_if = \"Option::is_none\")]",
         )
         .out_dir(&generated)
         .compile_protos(

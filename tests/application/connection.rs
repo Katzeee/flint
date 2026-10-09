@@ -110,7 +110,8 @@ fn backend_lifecycle_preserves_python_host_and_records() -> Result<()> {
     let next_stored = app.details(&workflow, &next, 0)?;
     assert_eq!(next_stored["code"], stdin_code);
     assert_eq!(next_stored["stdout"], "42\n");
-    assert_eq!(app.call("stop", &[], 0)?["stopped"], true);
+    let backend_pid = app.call("status", &[], 0)?["pid"].clone();
+    assert_eq!(app.call("stop", &[], 0)?["stopped_pid"], backend_pid);
     fs::write(app.directory.join("ping-host"), b"ping")?;
     let alive = app.directory.join("host-alive");
     wait_until(Duration::from_secs(3), || Ok(alive.exists()))?;

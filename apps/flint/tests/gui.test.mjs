@@ -8,7 +8,7 @@ import { preview } from "vite";
 
 const appRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-test("desktop navigation preserves connection identity, asynchronous selection and service actions", async () => {
+async function withDesktop(run) {
   // Serve the window's own content security policy, so the view loads under the rules Tauri applies.
   const tauri = JSON.parse(await readFile(join(appRoot, "src-tauri/tauri.conf.json"), "utf8"));
   const server = await preview({
@@ -42,6 +42,22 @@ test("desktop navigation preserves connection identity, asynchronous selection a
         })),
       );
     });
+    await run(page, `http://127.0.0.1:${address.port}/`);
+    await page.evaluate(() => Promise.all(window.__cspReports));
+    assert.deepEqual(cspViolations, []);
+  } finally {
+    try {
+      await application?.close();
+    } finally {
+      await new Promise((resolve, reject) =>
+        server.httpServer.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  }
+}
+
+test("desktop navigation preserves connection identity and asynchronous selection", async () => {
+  await withDesktop(async (page, url) => {
     await page.addInitScript(() => {
       window.__invokeCalls = [];
       window.__mockSnapshot = {
@@ -89,6 +105,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
         ],
       });
       window.__TAURI__ = {
+        event: { listen: async () => () => {} },
         core: {
           invoke: async (command, args) => {
             window.__invokeCalls.push({ command, args });
@@ -96,15 +113,13 @@ test("desktop navigation preserves connection identity, asynchronous selection a
             if (command === "snapshot")
               return structuredClone(window.__mockSnapshot);
             if (command === "candidates")
-              return {
-                hosts: [
+              return [
                   {
                     host: "maya",
                     pid: 4520,
                     executable: "C:/Maya/maya.exe",
                   },
-                ],
-              };
+              ];
             if (command === "workflows")
               return structuredClone(window.__workflows);
             if (command === "workflow") {
@@ -138,7 +153,7 @@ test("desktop navigation preserves connection identity, asynchronous selection a
                   host: "maya",
                   executable: "C:/Maya/maya.exe",
                   window: { title: "Scene maya-3", minimized: true },
-                  preview: { image: null, unavailable_reason: "Window is minimized" },
+                  preview: { unavailable_reason: "Window is minimized" },
                 };
               return {
                 pid: args.pid,
@@ -156,7 +171,6 @@ test("desktop navigation preserves connection identity, asynchronous selection a
                     encodeURIComponent(
                       '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#344842"/><rect x="16" y="40" width="150" height="344" fill="#263630"/><rect x="182" y="40" width="442" height="344" fill="#78988b"/><text x="208" y="214" font-size="24" fill="white">Character_Rig.ma</text></svg>',
                     ),
-                  unavailable_reason: null,
                 },
               };
             }
@@ -171,17 +185,13 @@ test("desktop navigation preserves connection identity, asynchronous selection a
                 bridge_endpoint: "127.0.0.1:6321",
                 attach_supported: true,
               };
-            if (command === "stop_backend") {
-              if (!window.__allowStop)
-                throw { code: "backend_busy", message: "executions are still active" };
-              return;
-            }
+            if (command === "start_backend")
+              return window.__mockSnapshot.backend;
             throw new Error(`Unexpected command: ${command}`);
           },
         },
       };
     });
-    const url = `http://127.0.0.1:${address.port}/`;
     await page.goto(url);
     await page
       .getByText("No connected applications", { exact: true })
@@ -315,8 +325,68 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       .click();
     await page.getByRole("button", { name: /Material check/ }).waitFor();
     assert.equal(new URL(page.url()).hash, "#/workflows");
-    await page.setViewportSize({ width: 1280, height: 850 });
-    await page.getByRole("link", { name: "Settings", exact: true }).click();
+  });
+});
+
+test("backend controls recover from refusal and preserve pending work across navigation and reopening", async () => {
+  await withDesktop(async (page, url) => {
+    await page.addInitScript(() => {
+      window.__invokeCalls = [];
+      window.__startDuringRestart = [];
+      let restarting = false;
+      const backend = {
+        ready: true,
+        pid: 4312,
+        bridge_address: "127.0.0.1",
+        bridge_port: 6321,
+      };
+      window.__mockSnapshot = { backend, instances: [] };
+      window.__TAURI__ = {
+        event: { listen: async (_event, handler) => {
+          window.__desktopOpened = handler;
+          return () => {};
+        } },
+        core: {
+          invoke: async (command, args) => {
+            window.__invokeCalls.push({ command, args });
+            if (command === "activate_title_bar") return "custom";
+            if (command === "snapshot") return structuredClone(window.__mockSnapshot);
+            if (command === "candidates") return [];
+            if (command === "desktop_info")
+              return {
+                version: "0.1.0",
+                state_dir: "C:/FlintData",
+                control_endpoint: "127.0.0.1:6322",
+                bridge_endpoint: "127.0.0.1:6321",
+                attach_supported: true,
+              };
+            if (command === "stop_backend") {
+              if (!window.__allowStop)
+                throw { code: "backend_busy", message: "executions are still active" };
+              window.__mockSnapshot = { backend: null, instances: [] };
+              return { stopped_pid: backend.pid };
+            }
+            if (command === "start_backend") {
+              window.__startDuringRestart.push(restarting);
+              window.__mockSnapshot = { backend, instances: [] };
+              return backend;
+            }
+            if (command === "restart_backend") {
+              restarting = true;
+              return new Promise((resolve) => {
+                window.__finishRestart = () => {
+                  restarting = false;
+                  window.__mockSnapshot = { backend, instances: [] };
+                  resolve(backend);
+                };
+              });
+            }
+            throw new Error(`Unexpected command: ${command}`);
+          },
+        },
+      };
+    });
+    await page.goto(`${url}#/settings`);
 
     await page
       .getByRole("button", { name: "Stop", exact: true })
@@ -347,15 +417,31 @@ test("desktop navigation preserves connection identity, asynchronous selection a
       ),
       2,
     );
-    await page.evaluate(() => Promise.all(window.__cspReports));
-    assert.deepEqual(cspViolations, []);
-  } finally {
-    try {
-      await application?.close();
-    } finally {
-      await new Promise((resolve, reject) =>
-        server.httpServer.close((error) => (error ? reject(error) : resolve())),
-      );
-    }
-  }
+    await page.getByText("Not running", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Start", exact: true }).click();
+    await page.getByText("Running", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Restart", exact: true }).click();
+    await page.waitForFunction(() => typeof window.__finishRestart === "function");
+    assert.equal(await page.getByRole("button", { name: "Restart", exact: true }).isDisabled(), true);
+    await page.getByRole("link", { name: "Applications", exact: true }).click();
+    await page.getByText("No applications running", { exact: true }).waitFor();
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    assert.equal(await page.getByRole("button", { name: "Restart", exact: true }).isDisabled(), true);
+    // Reopening while restart is pending must establish the backend after that operation.
+    await page.evaluate(() => window.__desktopOpened());
+    await page.evaluate(() => window.__finishRestart());
+    await page.waitForFunction(() => window.__invokeCalls.filter((call) => call.command === "start_backend").length === 3);
+    assert.deepEqual(
+      await page.evaluate(() => window.__startDuringRestart),
+      [false, false, false],
+      "opening, starting, and reopening must not overlap a pending restart",
+    );
+    await page.getByRole("button", { name: "Restart", exact: true }).and(page.locator(":enabled")).waitFor();
+    assert.equal(
+      await page.evaluate(() => window.__invokeCalls.filter((call) => call.command === "restart_backend").length),
+      1,
+    );
+    await page.getByRole("link", { name: "Applications", exact: true }).click();
+    await page.getByText("No applications running", { exact: true }).waitFor();
+  });
 });

@@ -199,7 +199,7 @@ impl App {
             .env("FLINT_TEST_ROOT", &self.directory)
             .env("FLINT_TEST_CONTROL_PORT", self.control_port.to_string())
             .env("FLINT_TEST_BRIDGE_PORT", self.bridge_port.to_string())
-            .args([name, "--json", "--no-tray"]);
+            .args([name, "--json"]);
         command
     }
     pub fn call(&self, name: &str, args: &[&str], expected: i32) -> Result<Value> {
@@ -312,11 +312,7 @@ impl Drop for App {
     fn drop(&mut self) {
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {
-            let output = run(
-                self.command("stop").args(["--timeout", "5"]),
-                Duration::from_secs(7),
-                None,
-            );
+            let output = run(&mut self.command("stop"), Duration::from_secs(7), None);
             if output.as_ref().is_ok_and(|o| o.status.success()) {
                 break;
             }

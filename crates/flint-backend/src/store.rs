@@ -1,6 +1,6 @@
 use anyhow::Context;
 use chrono::Utc;
-use flint_contracts::protocol::{Failure, FailureCode};
+use flint_contracts::protocol::{ExecutionStatus, Failure, FailureCode, WorkflowSummary};
 use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
@@ -10,7 +10,7 @@ use std::{
 };
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -59,7 +59,7 @@ pub struct Execution {
     pub workflow_id: String,
     pub instance_id: String,
     pub code: String,
-    pub status: String,
+    pub status: ExecutionStatus,
     pub stdout: String,
     pub stderr: String,
     pub started_at: String,
@@ -67,7 +67,6 @@ pub struct Execution {
     pub traceback: Option<String>,
     pub error: Option<Failure>,
     pub updated_at: Option<String>,
-    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -78,21 +77,7 @@ pub struct Workflow {
     pub created_at: String,
     pub schema_version: u32,
     pub latest_execution_id: u64,
-    pub execution_count: u64,
-    pub instance_ids: Vec<String>,
     pub execs: Vec<Execution>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WorkflowSummary {
-    pub workflow_id: String,
-    pub name: String,
-    pub description: String,
-    pub updated_at: String,
-    pub execution_count: u64,
-    pub instance_ids: Vec<String>,
-    pub running_count: usize,
-    pub failed_count: usize,
 }
 
 /// Reads the version alone first, so an older record reports its version rather than a shape mismatch.
@@ -108,7 +93,23 @@ fn decode(path: &Path, bytes: io::Result<Vec<u8>>) -> Result<Workflow> {
             schema_version == SCHEMA_VERSION,
             "unsupported schema version {schema_version}"
         );
-        Ok(serde_json::from_slice(&bytes)?)
+        let workflow: Workflow = serde_json::from_slice(&bytes)?;
+        anyhow::ensure!(
+            workflow
+                .execs
+                .iter()
+                .all(|entry| entry.status != ExecutionStatus::Unspecified),
+            "a recorded execution has no status"
+        );
+        anyhow::ensure!(
+            workflow
+                .execs
+                .iter()
+                .filter_map(|entry| entry.error.as_ref())
+                .all(|failure| !failure.code.trim().is_empty()),
+            "a recorded failure has no code"
+        );
+        Ok(workflow)
     };
     decode().map_err(|source| StoreError::Unreadable {
         path: path.into(),
@@ -144,8 +145,11 @@ impl Store {
             };
             let mut changed = false;
             for entry in &mut workflow.execs {
-                if entry.status == "running" || entry.status == "pending" {
-                    entry.status = "failed".into();
+                if matches!(
+                    entry.status,
+                    ExecutionStatus::Pending | ExecutionStatus::Running
+                ) {
+                    entry.status = ExecutionStatus::Failed;
                     entry.error = Some(Failure::new(FailureCode::ExecutionInterrupted));
                     entry.finished_at = Some(now());
                     entry.updated_at = entry.finished_at.clone();
@@ -220,23 +224,34 @@ impl Store {
                 .max()
                 .unwrap()
                 .to_owned();
+            let mut instance_ids = Vec::new();
+            for execution in &workflow.execs {
+                if !instance_ids.contains(&execution.instance_id) {
+                    instance_ids.push(execution.instance_id.clone());
+                }
+            }
             summaries.push(WorkflowSummary {
                 workflow_id: workflow.workflow_id,
                 name: workflow.name,
                 description: workflow.description,
                 updated_at,
-                execution_count: workflow.execution_count,
-                instance_ids: workflow.instance_ids,
+                execution_count: workflow.execs.len() as u64,
+                instance_ids,
                 running_count: workflow
                     .execs
                     .iter()
-                    .filter(|e| e.status == "running" || e.status == "pending")
-                    .count(),
+                    .filter(|e| {
+                        matches!(
+                            e.status,
+                            ExecutionStatus::Pending | ExecutionStatus::Running
+                        )
+                    })
+                    .count() as u64,
                 failed_count: workflow
                     .execs
                     .iter()
-                    .filter(|e| e.status == "failed")
-                    .count(),
+                    .filter(|e| e.status == ExecutionStatus::Failed)
+                    .count() as u64,
             });
         }
         summaries.sort_by(|a, b| {
@@ -258,8 +273,6 @@ impl Store {
                 created_at: now(),
                 schema_version: SCHEMA_VERSION,
                 latest_execution_id: 0,
-                execution_count: 0,
-                instance_ids: vec![],
                 execs: vec![],
             },
         )?;
@@ -271,23 +284,18 @@ impl Store {
         instance_id: &str,
         code: String,
         name: String,
-        request_id: String,
     ) -> Result<String> {
         let _guard = self.gate.lock().unwrap();
         let mut workflow = self.load(workflow_id)?;
         workflow.latest_execution_id += 1;
-        workflow.execution_count += 1;
         let id = format!("{:04}", workflow.latest_execution_id);
-        if !workflow.instance_ids.iter().any(|i| i == instance_id) {
-            workflow.instance_ids.push(instance_id.into());
-        }
         workflow.execs.push(Execution {
             execution_id: id.clone(),
             workflow_id: workflow_id.into(),
             instance_id: instance_id.into(),
             name,
             code,
-            status: "running".into(),
+            status: ExecutionStatus::Running,
             stdout: String::new(),
             stderr: String::new(),
             started_at: now(),
@@ -295,7 +303,6 @@ impl Store {
             traceback: None,
             error: None,
             updated_at: None,
-            request_id: Some(request_id),
         });
         self.write(&self.path(workflow_id)?, &workflow)?;
         Ok(id)

@@ -6,10 +6,11 @@ publish.workspace = true
 
 [features]
 default = ["protocol"]
-protocol = ["dep:bytes", "dep:prost", "dep:tokio-util", "dep:tokio", "dep:futures-util"]
+protocol = ["dep:bytes", "dep:prost", "dep:tokio-util", "dep:tokio", "dep:futures-util", "dep:serde_with"]
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, optional = true }
 strum = { workspace = true, features = ["derive"] }
 bytes = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }

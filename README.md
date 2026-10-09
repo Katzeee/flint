@@ -8,7 +8,7 @@ For a source checkout, see [Development environment and first build](docs/develo
 
 On Windows, install WebView2 and the Microsoft Visual C++ x64 runtime. Put flint.exe on PATH or invoke its full path.
 
-Opening flint without arguments starts or reuses the backend and opens its window. Closing the window hides it while the backend and tray keep running.
+Opening flint without arguments starts or reuses the backend and opens the desktop window. The desktop and backend run in separate processes. Closing the window hides it in the tray; stopping or restarting the backend leaves the desktop open. Settings provides backend startup, shutdown, and restart. Quitting the desktop leaves the backend running.
 
 ```text
 flint
@@ -17,7 +17,7 @@ flint restart --json
 flint stop --json
 ```
 
-Commands that need the backend start it automatically. All terminals and agent sessions for the same user share one local backend. Stop and restart refuse while execution responses are pending and leave host applications running. Submitted code is not automatically replayed after a communication failure.
+All terminals and agent sessions for the same user share one local backend. Commands that need the backend start it automatically, and so does opening the desktop, including launching flint while the desktop already runs. `flint status` and the desktop's status display only observe it, so a stopped backend stays stopped until the next such command or launch. Stop and restart refuse while execution responses are pending and leave host applications running. Submitted code is not automatically replayed after a communication failure.
 
 Use `flint --help` or `flint <command> --help` for options. Commands find the local backend automatically; no endpoint selection is required.
 

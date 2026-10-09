@@ -62,7 +62,6 @@ fn start_target(app: &App, setup: &str) -> Result<OwnedProcess> {
 #[ignore = "real injection: run `cargo xtask test hosts` on Windows"]
 fn attaches_a_plain_python_process_and_executes() -> Result<()> {
     let app = App::evidence("attach-python");
-    app.call("start", &[], 0)?;
     let target = start_target(&app, "")?;
     let pid = target.0.id();
 
@@ -133,7 +132,7 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
         0,
     )?;
     anyhow::ensure!(
-        again["instance_id"] == instance.as_str(),
+        again["instance_id"] == instance,
         "re-attach changed instance: {again}"
     );
     let instances = app.call("instances", &["--type", "standalone_python"], 0)?;
@@ -175,8 +174,6 @@ fn attach_reports_why_the_injected_bridge_could_not_start() -> Result<()> {
             &target.0.id().to_string(),
             "--host-kind",
             "standalone_python",
-            "--timeout",
-            "60",
         ],
         1,
     )?;

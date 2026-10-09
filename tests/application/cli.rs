@@ -1,15 +1,15 @@
 use crate::support::*;
 use anyhow::Result;
 use serde_json::json;
-use std::{process::Command, time::Duration};
+use std::time::Duration;
 
 #[test]
 fn concurrent_cli_calls_share_one_backend() -> Result<()> {
     let app = App::new();
-    assert_eq!(app.call("stop", &[], 0)?["already_stopped"], true);
+    assert!(app.call("stop", &[], 0)?["stopped_pid"].is_null());
     let responses = std::thread::scope(|scope| {
         let calls: Vec<_> = (0..4)
-            .map(|_| scope.spawn(|| app.call("status", &[], 0)))
+            .map(|_| scope.spawn(|| app.call("start", &[], 0)))
             .collect();
         calls
             .into_iter()
@@ -35,6 +35,7 @@ fn concurrent_cli_calls_share_one_backend() -> Result<()> {
 #[test]
 fn input_loading_and_host_discovery_do_not_start_backend() -> Result<()> {
     let app = App::new();
+    assert!(app.call("status", &[], 0)?.is_null());
     assert_eq!(
         app.call(
             "exec",
@@ -50,12 +51,7 @@ fn input_loading_and_host_discovery_do_not_start_backend() -> Result<()> {
         )?["error"]["code"],
         "command_failed"
     );
-    let output = checked(
-        Command::new(&app.binary)
-            .args(["hosts", "--json"])
-            .env("FLINT_TEST_ROOT", &app.directory),
-        Duration::from_secs(10),
-    )?;
+    let output = checked(&mut app.command("hosts"), Duration::from_secs(10))?;
     let discovery: serde_json::Value = serde_json::from_str(&output.stdout)?;
     assert!(discovery["hosts"].is_array());
     assert!(!app.directory.join("workflows").exists());

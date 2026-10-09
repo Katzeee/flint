@@ -1,42 +1,37 @@
-use crate::control::{payload_json, request, status_json, Lifecycle};
-use anyhow::Result;
+use crate::application::{
+    self, Application, ExecuteRequest, ExecutionStatus, ExecutionView, ExportTarget, Failure,
+    FailureCode, HostKind, Result, StartWorkflowRequest,
+};
 use clap::{builder::TypedValueParser, Args, Parser, Subcommand};
-use flint_backend::config::Config;
-use flint_backend::Backend;
-use flint_contracts::protocol::{envelope::Payload, *};
-use flint_hosts::{ExportTarget, HostKind};
+use serde::Serialize;
 use std::{io::Read, path::PathBuf};
 use strum::IntoEnumIterator;
 
 #[derive(Parser)]
 #[command(name = "flint", version, about = "Application execution bridge")]
 struct Cli {
+    #[arg(long, global = true)]
+    json: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
 #[derive(Subcommand)]
 enum Command {
-    Start(Options),
-    Status(Options),
-    Stop(Options),
-    Restart(Options),
-    Serve(Options),
-    Gui(Options),
+    Start,
+    Status,
+    Stop,
+    Restart,
+    Serve,
+    Gui,
     Instances {
-        #[command(flatten)]
-        options: Options,
         #[arg(long = "type")]
         instance_type: Option<String>,
     },
     Hosts {
-        #[arg(long, global = true)]
-        json: bool,
         #[command(subcommand)]
         command: Option<HostCommand>,
     },
     Workflow {
-        #[command(flatten)]
-        options: Options,
         #[arg(long)]
         name: String,
         #[arg(long, default_value = "")]
@@ -44,8 +39,6 @@ enum Command {
     },
     Exec(Execute),
     Execution {
-        #[command(flatten)]
-        options: Options,
         #[arg(long)]
         workflow_id: String,
         #[arg(long)]
@@ -62,8 +55,6 @@ enum Command {
 }
 #[derive(Args)]
 struct Attach {
-    #[command(flatten)]
-    options: Options,
     #[arg(long)]
     pid: u32,
     #[arg(
@@ -116,48 +107,23 @@ enum BridgeCommand {
     },
 }
 fn export_target_parser() -> impl TypedValueParser<Value = ExportTarget> {
-    clap::builder::PossibleValuesParser::new(ExportTarget::available().map(ExportTarget::name))
-        .map(|value| value.parse().expect("validated export target"))
+    clap::builder::PossibleValuesParser::new(
+        Application::export_targets()
+            .into_iter()
+            .map(ExportTarget::name),
+    )
+    .map(|value| value.parse().expect("validated export target"))
 }
 
-fn seconds(value: &str) -> std::result::Result<f64, String> {
-    let number: f64 = value.parse().map_err(|_| "expected positive seconds")?;
-    if number.is_finite() && number > 0.0 {
-        Ok(number)
-    } else {
-        Err("expected positive finite seconds".into())
-    }
-}
-#[derive(Args, Clone)]
-struct Options {
-    #[arg(long, default_value="30", value_parser=seconds)]
-    timeout: f64,
-    #[arg(long)]
-    json: bool,
-    #[arg(long, help = "Run the backend without a desktop event loop")]
-    no_tray: bool,
-}
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            timeout: 30.0,
-            json: false,
-            no_tray: false,
-        }
-    }
-}
-impl Options {
-    fn config(&self) -> Result<Config> {
-        let mut config = Config::load()?;
-        config.timeout = self.timeout;
-        Ok(config)
-    }
+/// A command that needs the backend is an explicit request to use it.
+async fn running_application() -> Result<Application> {
+    let application = Application::load()?;
+    application.start_backend().await?;
+    Ok(application)
 }
 #[derive(Args)]
 #[command(group(clap::ArgGroup::new("source").required(true).args(["code", "file", "stdin"])))]
 struct Execute {
-    #[command(flatten)]
-    options: Options,
     #[arg(long)]
     instance_id: String,
     #[arg(long)]
@@ -171,6 +137,66 @@ struct Execute {
     #[arg(long)]
     stdin: bool,
 }
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Output {
+    Status(Option<application::PingResponse>),
+    Stopped(application::BackendStopped),
+    Instances {
+        instances: Vec<application::InstanceInfo>,
+    },
+    Workflow(application::StartWorkflowResponse),
+    Executed {
+        workflow_id: String,
+        #[serde(flatten)]
+        result: application::ExecutionResult,
+    },
+    Execution(application::GetExecutionResponse),
+    Attached(application::AttachResult),
+    Exported(application::ExportResult),
+    Hosts {
+        hosts: Vec<application::HostCandidate>,
+    },
+    Host(application::HostInfo),
+    Focused {
+        pid: u32,
+        focused: bool,
+    },
+}
+impl Output {
+    fn print(self, json: bool) -> Result<i32> {
+        let failed = match &self {
+            Self::Executed { result, .. } => result.status() == ExecutionStatus::Failed,
+            Self::Execution(result) => result.status() == ExecutionStatus::Failed,
+            _ => false,
+        };
+        let text = if json {
+            serde_json::to_string(&self)
+        } else {
+            serde_json::to_string_pretty(&self)
+        }
+        .map_err(|error| Failure::caused_by(FailureCode::CommandFailed, &error))?;
+        println!("{text}");
+        Ok(i32::from(failed))
+    }
+}
+
+fn print_failure(failure: &Failure, json: bool) {
+    #[derive(Serialize)]
+    struct ErrorOutput<'a> {
+        error: &'a Failure,
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&ErrorOutput { error: failure })
+                .expect("failure is serializable")
+        );
+    } else {
+        eprintln!("{failure}");
+    }
+}
+
 pub fn run() -> i32 {
     let json = std::env::args().any(|a| a == "--json");
     let cli = match Cli::try_parse() {
@@ -180,37 +206,21 @@ pub fn run() -> i32 {
             if code == 0 || !json {
                 let _ = e.print();
             } else {
-                println!(
-                    "{}",
-                    serde_json::json!({"error": Failure::with_message(FailureCode::InvalidArguments, e.to_string())})
+                print_failure(
+                    &Failure::with_message(FailureCode::InvalidArguments, e.to_string()),
+                    true,
                 );
             }
             return code;
         }
     };
-    let result = run_command(cli.command.unwrap_or(Command::Gui(Options::default())));
+    let json = cli.json;
+    let result = run_command(cli.command.unwrap_or(Command::Gui))
+        .and_then(|output| output.map_or(Ok(0), |output| output.print(json)));
     match result {
-        Ok(Some(value)) => {
-            let failed = value.get("status").and_then(|v| v.as_str()) == Some("failed");
-            if json {
-                println!("{value}");
-            } else {
-                println!("{}", serde_json::to_string_pretty(&value).unwrap());
-            }
-            if failed {
-                1
-            } else {
-                0
-            }
-        }
-        Ok(None) => 0,
-        Err(e) => {
-            let failure = crate::failure::from_error(e);
-            if json {
-                println!("{}", serde_json::json!({"error": failure}));
-            } else {
-                eprintln!("{failure}");
-            }
+        Ok(code) => code,
+        Err(failure) => {
+            print_failure(&failure, json);
             if failure.is(FailureCode::Interrupted) {
                 130
             } else {
@@ -219,60 +229,29 @@ pub fn run() -> i32 {
         }
     }
 }
-fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
-    if let Command::Bridge {
-        command: BridgeCommand::Export { target, output },
-    } = &command
-    {
-        let path = flint_hosts::export(*target, output.as_deref())?;
-        return Ok(Some(
-            serde_json::json!({"path": path, "version": env!("CARGO_PKG_VERSION")}),
-        ));
+
+fn run_command(command: Command) -> Result<Option<Output>> {
+    if matches!(&command, Command::Gui) {
+        crate::desktop::run(Application::load()?)
+            .map_err(|error| Failure::caused_by(FailureCode::CommandFailed, error.as_ref()))?;
+        return Ok(None);
     }
-    if let Command::Hosts { command, .. } = &command {
-        let value = match command {
-            None => serde_json::json!({"hosts": flint_hosts::discover()}),
-            Some(HostCommand::Info { pid, preview }) => {
-                let runtime = tokio::runtime::Runtime::new()?;
-                let result = runtime.block_on(flint_hosts::host_info(*pid, *preview));
-                // A timed-out native capture must not keep a CLI invocation alive.
-                runtime.shutdown_background();
-                crate::hosts::host_info_json(result?)
-            }
-            Some(HostCommand::Focus { pid }) => {
-                flint_hosts::focus_application(*pid)?;
-                serde_json::json!({"pid": pid, "focused": true})
-            }
-        };
-        return Ok(Some(value));
-    }
-    let options = match &command {
-        Command::Start(o)
-        | Command::Status(o)
-        | Command::Stop(o)
-        | Command::Restart(o)
-        | Command::Serve(o)
-        | Command::Gui(o) => o,
-        Command::Instances { options, .. }
-        | Command::Workflow { options, .. }
-        | Command::Execution { options, .. } => options,
-        Command::Exec(e) => &e.options,
-        Command::Attach(a) => &a.options,
-        _ => unreachable!(),
-    }
-    .clone();
-    let config = options.config()?;
-    // Read input before starting any background process.
+    // File and terminal input belong to the CLI, before any product operation.
     let execute = if let Command::Exec(ref e) = command {
         let (code, filename) = if let Some(path) = &e.file {
-            let path = path.canonicalize()?;
+            let path = path
+                .canonicalize()
+                .map_err(|error| Failure::caused_by(FailureCode::CommandFailed, &error))?;
             (
-                std::fs::read_to_string(&path)?,
+                std::fs::read_to_string(&path)
+                    .map_err(|error| Failure::caused_by(FailureCode::CommandFailed, &error))?,
                 Some(path.display().to_string()),
             )
         } else if e.stdin {
             let mut code = String::new();
-            std::io::stdin().read_to_string(&mut code)?;
+            std::io::stdin()
+                .read_to_string(&mut code)
+                .map_err(|error| Failure::caused_by(FailureCode::CommandFailed, &error))?;
             (code, None)
         } else {
             (e.code.clone().unwrap(), None)
@@ -287,77 +266,86 @@ fn run_command(command: Command) -> Result<Option<serde_json::Value>> {
     } else {
         None
     };
-    let runtime = tokio::runtime::Runtime::new()?;
-    if matches!(command, Command::Serve(_)) {
-        let backend = runtime.block_on(Backend::bind(config))?;
-        if options.no_tray {
-            let stop = backend.handle();
-            runtime.spawn(async move {
-                let _ = tokio::signal::ctrl_c().await;
-                let _ = stop.request_stop();
-            });
-            runtime.block_on(backend.run())?;
-        } else {
-            crate::desktop::run(backend, runtime)?;
+    let runtime = tokio::runtime::Runtime::new()
+        .map_err(|error| Failure::caused_by(FailureCode::CommandFailed, &error))?;
+    let result = runtime.block_on(async {
+        if matches!(&command, Command::Serve) {
+            Application::load()?.serve().await?;
+            return Ok(None);
         }
-        return Ok(None);
-    }
-    runtime.block_on(async {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => Err(Failure::new(FailureCode::Interrupted).into()),
-            result = async {
-                let lifecycle = Lifecycle { config:config.clone(), no_tray:options.no_tray };
-                let value = match command {
-                    Command::Start(_)|Command::Status(_) => status_json(lifecycle.ensure().await?),
-                    Command::Stop(_) => lifecycle.stop().await?,
-                    Command::Restart(_) => status_json(lifecycle.restart().await?),
-                    Command::Attach(args) => {
-                        let resolved = crate::attach::resolve(args.pid, args.host_kind)?;
-                        let host = resolved.host;
-                        let name = args.name.clone().unwrap_or_else(|| host.to_string());
-                        lifecycle.ensure().await?;
-                        resolved.inject(&config, &name)?;
-                        // The injected Bridge connects asynchronously; wait for the
-                        // backend to register an instance for this process under the
-                        // requested name, or for the injected side to report why it
-                        // could not. Matching the name skips the instance a re-pointed
-                        // Bridge is replacing.
-                        let deadline = std::time::Instant::now()
-                            + std::time::Duration::from_secs_f64(options.timeout);
-                        loop {
-                            let response = request(&config,
-                                Payload::ListInstancesRequest(ListInstancesRequest{instance_type: None})).await?;
-                            let listed = payload_json(response)?;
-                            let found = listed["instances"].as_array().and_then(|instances|
-                                instances.iter().find(|instance|
-                                    instance["pid"].as_u64() == Some(args.pid as u64)
-                                        && instance["instance_name"] == name.as_str()));
-                            if let Some(instance) = found {
-                                break serde_json::json!({"pid": args.pid, "host": host,
-                                    "instance_id": instance["instance_id"],
-                                    "execution_ready": instance["execution_ready"]});
-                            }
-                            crate::attach::pending(args.pid, deadline)?;
-                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                        }
-                    }
-                    other => {
-                        lifecycle.ensure().await?;
-                        let payload = match other {
-                            Command::Instances{instance_type,..} => Payload::ListInstancesRequest(ListInstancesRequest{instance_type}),
-                            Command::Workflow{name,description,..} => Payload::StartWorkflowRequest(StartWorkflowRequest{name,description}),
-                            Command::Exec(_) => Payload::ExecuteRequest(execute.clone().unwrap()),
-                            Command::Execution{workflow_id,execution_id,view,..} => Payload::GetExecutionRequest(GetExecutionRequest{workflow_id,execution_id,view:(if view=="full" {ExecutionView::Full} else {ExecutionView::Summary}) as i32}),
-                            Command::Gui(_) => Payload::ShowWindowRequest(ShowWindowRequest{}),
-                            _ => unreachable!(),
-                        };
-                        let mut value = payload_json(request(&config, payload).await?)?;
-                        if let Some(e) = execute { value["workflow_id"] = e.workflow_id.into(); }
-                        value
-                    }
-                };
-                Ok(Some(value))
-            } => result,
+            _ = tokio::signal::ctrl_c() => Err(Failure::new(FailureCode::Interrupted)),
+            result = dispatch(command, execute) => result.map(Some),
         }
+    });
+    // A native operation that times out must not hold the CLI process open.
+    runtime.shutdown_background();
+    result
+}
+
+async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<Output> {
+    Ok(match command {
+        Command::Start => Output::Status(Some(Application::load()?.start_backend().await?)),
+        Command::Status => Output::Status(Application::load()?.backend_status().await?),
+        Command::Stop => Output::Stopped(Application::load()?.stop_backend().await?),
+        Command::Restart => Output::Status(Some(Application::load()?.restart_backend().await?)),
+        Command::Instances { instance_type } => Output::Instances {
+            instances: running_application()
+                .await?
+                .instances(instance_type)
+                .await?,
+        },
+        Command::Workflow { name, description } => Output::Workflow(
+            running_application()
+                .await?
+                .create_workflow(StartWorkflowRequest { name, description })
+                .await?,
+        ),
+        Command::Exec(_) => {
+            let request = execute.expect("exec input is read before dispatch");
+            let workflow_id = request.workflow_id.clone();
+            Output::Executed {
+                workflow_id,
+                result: running_application().await?.execute(request).await?,
+            }
+        }
+        Command::Execution {
+            workflow_id,
+            execution_id,
+            view,
+        } => {
+            let view = if view == "full" {
+                ExecutionView::Full
+            } else {
+                ExecutionView::Summary
+            };
+            Output::Execution(
+                running_application()
+                    .await?
+                    .execution(workflow_id, execution_id, view)
+                    .await?,
+            )
+        }
+        Command::Attach(a) => Output::Attached(
+            Application::load()?
+                .attach(a.pid, a.host_kind, a.name)
+                .await?,
+        ),
+        Command::Bridge {
+            command: BridgeCommand::Export { target, output },
+        } => Output::Exported(Application::export_bridge(target, output).await?),
+        Command::Hosts { command, .. } => match command {
+            None => Output::Hosts {
+                hosts: Application::hosts().await?,
+            },
+            Some(HostCommand::Info { pid, preview }) => {
+                Output::Host(Application::host_info(pid, preview).await?)
+            }
+            Some(HostCommand::Focus { pid }) => {
+                Application::focus_application(pid).await?;
+                Output::Focused { pid, focused: true }
+            }
+        },
+        Command::Serve | Command::Gui => unreachable!("handled before dispatch"),
     })
 }

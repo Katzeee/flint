@@ -16,6 +16,7 @@ pub enum FailureCode {
     BackendBusy,
     BackendStopping,
     BackendLocked,
+    BackendUnavailable,
     ConnectionFailed,
     RegistrationRejected,
     ExecutionTimeout,
@@ -50,6 +51,7 @@ impl FailureCode {
             Self::BackendBusy => "executions are still active",
             Self::BackendStopping => "backend is stopping",
             Self::BackendLocked => "another backend owns this runtime",
+            Self::BackendUnavailable => "the backend is not running or did not respond",
             Self::ConnectionFailed => "connection failed",
             Self::RegistrationRejected => "the backend rejected the Bridge registration",
             Self::ExecutionTimeout => {

@@ -11,9 +11,9 @@ import {
 } from "@cairn/ui";
 import { tauriDragRegion } from "@cairn/host-tauri";
 import { AppWindow, CircleAlert, Layers, LoaderCircle, Settings as SettingsGlyph } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Applications } from "./applications.js";
-import { activateTitleBar, discoverHosts, readSnapshot } from "./backend.js";
+import { activateTitleBar, discoverHosts, onDesktopOpened, readSnapshot, restartBackend, startBackend, stopBackend } from "./backend.js";
 import { navigate, useRoute } from "./navigation.js";
 import { messageOf, useResource } from "./resource.js";
 import { Deferred } from "./shared.js";
@@ -36,6 +36,32 @@ export function App() {
   const [appearance, setAppearance] = useState(savedAppearance);
   const [preferenceError, setPreferenceError] = useState("");
   const [chrome, setChrome] = useState(false);
+  const [backendBusy, setBackendBusy] = useState<"start" | "stop" | "restart" | null>("start");
+  const [backendError, setBackendError] = useState("");
+  const backendPending = useRef(Promise.resolve());
+  const changeBackend = (operation: "start" | "stop" | "restart") => {
+    const pending = backendPending.current.then(async () => {
+      setBackendBusy(operation);
+      setBackendError("");
+      try {
+        if (operation === "start") await startBackend();
+        else if (operation === "restart") await restartBackend();
+        else await stopBackend();
+      } catch (failure) {
+        setBackendError(messageOf(failure));
+      } finally {
+        setBackendBusy(null);
+        snapshot.reload();
+      }
+    });
+    backendPending.current = pending;
+    return pending;
+  };
+  // Opening or reopening the desktop establishes a backend; status polling only observes it.
+  useEffect(() => {
+    void changeBackend("start");
+    return onDesktopOpened(() => void changeBackend("start"));
+  }, []);
   useEffect(() => {
     let active = true;
     activateTitleBar().then(
@@ -57,8 +83,11 @@ export function App() {
       setPreferenceError(`Could not save appearance: ${messageOf(error)}`);
     }
   };
-  const ready = snapshot.data?.backend.ready === true && !snapshot.error;
-  const connecting = !ready && snapshot.loading && !snapshot.data;
+  const ready = snapshot.data?.backend?.ready === true && !snapshot.error;
+  const connecting = !ready && (backendBusy !== null || (snapshot.loading && !snapshot.data));
+  const stoppedMessage = backendError
+    ? `Backend operation failed: ${backendError}`
+    : "The backend is stopped.";
   const instances = snapshot.data?.instances ?? [];
   return (
     <CairnTheme appearance={appearance}>
@@ -122,10 +151,14 @@ export function App() {
                 <Icon glyph={CircleAlert} size="sm" />
               </Callout.Icon>
               <Callout.Body>
-                <Callout.Text>Cannot reach the backend: {snapshot.error}</Callout.Text>
+                <Callout.Text>{snapshot.error ? `Cannot reach the backend: ${snapshot.error}` : stoppedMessage}</Callout.Text>
               </Callout.Body>
               <Callout.Actions>
-                <Callout.Action label="Try again" onSelect={snapshot.reload} priority="primary" />
+                {snapshot.error ? (
+                  <Callout.Action label="Try again" onSelect={snapshot.reload} priority="primary" />
+                ) : (
+                  <Callout.Action label="Start backend" onSelect={() => void changeBackend("start")} priority="primary" />
+                )}
               </Callout.Actions>
             </Callout.Root>
           </AppShell.Banner>
@@ -153,6 +186,9 @@ export function App() {
               onAppearanceChange={updateAppearance}
               preferenceError={preferenceError}
               ready={ready}
+              busy={backendBusy}
+              error={backendError}
+              changeBackend={changeBackend}
             />
           ) : null}
           {route.page === "legal" ? (
