@@ -1,7 +1,8 @@
 //! Resolves the host, injects the Bridge, and waits for its backend registration.
 
 use super::{Application, Result, blocking};
-use flint_backend::config::Config;
+use flint_contracts::config::Config;
+use flint_contracts::config::StateDir;
 use flint_contracts::protocol::{Failure, FailureCode};
 use flint_hosts::{Attach, AttachRequest, HostKind};
 use std::time::{Duration, Instant};
@@ -47,11 +48,11 @@ impl ResolvedAttach {
     /// Inject the Bridge into the host process, connecting to `config`'s Bridge endpoint.
     fn inject(self, config: &Config, name: &str) -> Result<()> {
         let request = AttachRequest {
-            address: config.address.clone(),
-            port: config.bridge_port,
+            address: config.endpoints.bridge.ip().to_string(),
+            port: config.endpoints.bridge.port(),
             name: name.to_string(),
         };
-        self.attach.inject(self.pid, &request).map_err(|error| {
+        self.attach.inject(self.pid, &config.state, &request).map_err(|error| {
             Failure::caused_by(
                 FailureCode::AttachFailed,
                 error.context("cannot inject the Bridge").as_ref(),
@@ -62,8 +63,8 @@ impl ResolvedAttach {
 
 /// Ends a wait for the injected Bridge to register once its side reports why it
 /// could not start, or once `deadline` passes.
-fn pending(pid: u32, deadline: Instant) -> Result<()> {
-    if let Some(reason) = flint_hosts::attach_error(pid) {
+fn pending(state: &StateDir, pid: u32, deadline: Instant) -> Result<()> {
+    if let Some(reason) = flint_hosts::attach_error(state, pid) {
         return Err(Failure::with_message(FailureCode::AttachFailed, reason));
     }
     if Instant::now() >= deadline {
@@ -82,7 +83,7 @@ impl Application {
         let injected = name.clone();
         blocking(move || resolved.inject(&config, &injected)).await?;
         // Matching the name skips the instance a re-pointed Bridge is replacing.
-        let deadline = Instant::now() + Duration::from_secs_f64(self.config.timeout);
+        let deadline = Instant::now() + self.config.timeout;
         loop {
             if let Some(instance) = self
                 .instances(None)
@@ -97,7 +98,7 @@ impl Application {
                     execution_ready: instance.execution_ready,
                 });
             }
-            pending(pid, deadline)?;
+            pending(&self.config.state, pid, deadline)?;
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }

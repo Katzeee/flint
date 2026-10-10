@@ -7,6 +7,7 @@ use crate::{
     state::BridgeState,
 };
 use anyhow::Context;
+use flint_contracts::lock::FileLock;
 use std::{
     io,
     sync::{Arc, Mutex},
@@ -39,7 +40,7 @@ pub struct BridgeCore {
     reconnect_notify: Arc<Notify>,
     settings_tx: watch::Sender<Arc<SettingsSnapshot>>,
     thread: Mutex<Option<thread::JoinHandle<()>>>,
-    _claim: claim::ProcessClaim,
+    _claim: FileLock,
 }
 
 impl BridgeCore {

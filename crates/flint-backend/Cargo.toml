@@ -5,12 +5,10 @@ edition.workspace = true
 publish.workspace = true
 
 [features]
-test-runtime = []
+test-runtime = ["flint-contracts/test-runtime"]
 
 [dependencies]
 thiserror.workspace = true
-dirs.workspace = true
-fs2.workspace = true
 flint-contracts = { workspace = true, features = ["protocol"] }
 tokio = { workspace = true, features = ["rt", "macros", "net", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }

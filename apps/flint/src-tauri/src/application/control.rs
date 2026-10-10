@@ -1,13 +1,14 @@
 //! Backend lifecycle, observation, and control requests.
 use super::{Application, Result as ApplicationResult};
-use flint_backend::config::{Config, lock_contended};
+use flint_contracts::config::Config;
+use flint_contracts::lock::FileLock;
 use flint_contracts::protocol::{envelope::Payload, *};
-use fs2::FileExt;
 use futures_util::SinkExt;
 use serde::Serialize;
 use std::{
-    fs::{File, OpenOptions},
+    fs::OpenOptions,
     io,
+    net::SocketAddr,
     process::{Command, Stdio},
     time::Duration,
 };
@@ -39,14 +40,9 @@ fn protocol(message: &'static str) -> ControlError {
 }
 
 async fn request(config: &Config, payload: Payload) -> Result<Payload> {
-    request_until(
-        (config.address.as_str(), config.control_port),
-        payload,
-        Instant::now() + Duration::from_secs_f64(config.timeout),
-    )
-    .await
+    request_until(config.endpoints.control, payload, Instant::now() + config.timeout).await
 }
-async fn request_until(endpoint: (&str, u16), payload: Payload, deadline: Instant) -> Result<Payload> {
+async fn request_until(endpoint: SocketAddr, payload: Payload, deadline: Instant) -> Result<Payload> {
     let exchange = async {
         let socket = TcpStream::connect(endpoint).await?;
         let mut wire = framed(socket);
@@ -79,26 +75,23 @@ pub struct BackendStopped {
 impl Application {
     /// Observes the backend without starting it or creating runtime files.
     pub async fn backend_status(&self) -> ApplicationResult<Option<PingResponse>> {
-        Ok(self
-            .probe(Instant::now() + Duration::from_secs_f64(self.config.timeout))
-            .await?)
+        Ok(self.probe(self.deadline()).await?)
     }
-    async fn lock(&self, deadline: Instant) -> Result<File> {
-        let file = self.config.lock_file("lifecycle")?;
+    fn deadline(&self) -> Instant {
+        Instant::now() + self.config.timeout
+    }
+    async fn lifecycle(&self, deadline: Instant) -> Result<FileLock> {
+        let runtime = self.config.state.runtime();
         loop {
-            match file.try_lock_exclusive() {
-                Ok(()) => return Ok(file),
-                Err(e) if lock_contended(&e) => pause(deadline).await?,
-                Err(e) => return Err(e.into()),
+            if let Some(lock) = runtime.try_lifecycle()? {
+                return Ok(lock);
             }
+            pause(deadline).await?;
         }
-    }
-    fn lease_available(&self) -> Result<bool> {
-        Ok(self.config.running_lease()?.is_some())
     }
     async fn probe(&self, deadline: Instant) -> Result<Option<PingResponse>> {
         match request_until(
-            (self.config.address.as_str(), self.config.control_port),
+            self.config.endpoints.control,
             Payload::PingRequest(PingRequest {}),
             deadline,
         )
@@ -111,17 +104,18 @@ impl Application {
         }
     }
     pub async fn start_backend(&self) -> ApplicationResult<PingResponse> {
-        let deadline = Instant::now() + Duration::from_secs_f64(self.config.timeout);
-        let _lock = self.lock(deadline).await?;
-        Ok(self.ensure_locked(deadline).await?)
+        let deadline = self.deadline();
+        let _lifecycle = self.lifecycle(deadline).await?;
+        Ok(self.ensure(deadline).await?)
     }
-    async fn ensure_locked(&self, deadline: Instant) -> Result<PingResponse> {
+    async fn ensure(&self, deadline: Instant) -> Result<PingResponse> {
+        let runtime = self.config.state.runtime();
         let initial = self.probe(deadline).await?;
         if let Some(ping) = initial.as_ref().filter(|p| p.ready) {
             return Ok(ping.clone());
         }
         let mut child = None;
-        if initial.is_none() && self.lease_available()? {
+        if initial.is_none() && !runtime.backend_running()? {
             child = Some(self.spawn()?);
         }
         loop {
@@ -132,7 +126,10 @@ impl Application {
                 if child.try_wait()?.is_some() {
                     return Err(Failure::with_message(
                         FailureCode::BackendUnavailable,
-                        "backend startup failed; see backend.log",
+                        format!(
+                            "backend startup failed; see {}",
+                            self.config.state.runtime().log_path().display()
+                        ),
                     )
                     .into());
                 }
@@ -147,7 +144,7 @@ impl Application {
         let log = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(self.config.runtime_dir().join("backend.log"))?;
+            .open(self.config.state.runtime().log_path())?;
         command.stdout(log.try_clone()?).stderr(log);
         #[cfg(windows)]
         {
@@ -169,22 +166,23 @@ impl Application {
         command.spawn()
     }
     pub async fn stop_backend(&self) -> ApplicationResult<BackendStopped> {
-        let deadline = Instant::now() + Duration::from_secs_f64(self.config.timeout);
-        let _lock = self.lock(deadline).await?;
-        Ok(self.stop_locked(deadline).await?)
+        let deadline = self.deadline();
+        let _lifecycle = self.lifecycle(deadline).await?;
+        Ok(self.stop(deadline).await?)
     }
-    async fn stop_locked(&self, deadline: Instant) -> Result<BackendStopped> {
+    async fn stop(&self, deadline: Instant) -> Result<BackendStopped> {
+        let runtime = self.config.state.runtime();
         let status = loop {
             if let Some(status) = self.probe(deadline).await? {
                 break status;
             }
-            if self.lease_available()? {
+            if !runtime.backend_running()? {
                 return Ok(BackendStopped { stopped_pid: None });
             }
             pause(deadline).await?;
         };
         let response = request_until(
-            (self.config.address.as_str(), self.config.control_port),
+            self.config.endpoints.control,
             Payload::StopBackendRequest(StopBackendRequest {}),
             deadline,
         )
@@ -194,7 +192,7 @@ impl Application {
         }
         loop {
             match self.probe(deadline).await {
-                Ok(None) if self.lease_available()? => {
+                Ok(None) if !runtime.backend_running()? => {
                     return Ok(BackendStopped {
                         stopped_pid: Some(status.pid),
                     });
@@ -211,10 +209,10 @@ impl Application {
         }
     }
     pub async fn restart_backend(&self) -> ApplicationResult<PingResponse> {
-        let deadline = Instant::now() + Duration::from_secs_f64(self.config.timeout);
-        let _lock = self.lock(deadline).await?;
-        self.stop_locked(deadline).await?;
-        Ok(self.ensure_locked(deadline).await?)
+        let deadline = self.deadline();
+        let _lifecycle = self.lifecycle(deadline).await?;
+        self.stop(deadline).await?;
+        Ok(self.ensure(deadline).await?)
     }
 }
 async fn pause(deadline: Instant) -> Result<()> {

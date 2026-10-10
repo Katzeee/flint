@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 pub use attach::AttachResult;
 pub use control::{BackendStopped, Snapshot};
-use flint_backend::config::Config;
+use flint_contracts::config::Config;
 pub use flint_contracts::protocol::{
     ExecuteRequest, ExecutionResult, ExecutionStatus, ExecutionView, Failure, FailureCode, GetExecutionResponse,
     GetWorkflowResponse, InstanceInfo, PingResponse, StartWorkflowRequest, StartWorkflowResponse, WorkflowSummary,
@@ -50,9 +50,9 @@ impl Application {
         let config = &self.config;
         ApplicationInfo {
             version: env!("CARGO_PKG_VERSION"),
-            control_endpoint: format!("{}:{}", config.address, config.control_port),
-            bridge_endpoint: format!("{}:{}", config.address, config.bridge_port),
-            state_dir: config.state_dir.clone(),
+            control_endpoint: config.endpoints.control.to_string(),
+            bridge_endpoint: config.endpoints.bridge.to_string(),
+            state_dir: config.state.root().to_path_buf(),
             attach_supported: flint_hosts::attach_supported(),
         }
     }

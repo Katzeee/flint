@@ -14,8 +14,10 @@ impl TestScope {
 
 impl Drop for TestScope {
     fn drop(&mut self) {
-        for extension in ["lock", "owner"] {
-            let path = directory().join(format!("{}.{extension}", self.0));
+        for path in [
+            claim_directory().unwrap().join(format!("{}.lock", self.0)),
+            claim_directory().unwrap().join(format!("{}.owner", self.0)),
+        ] {
             if let Err(error) = fs::remove_file(&path) {
                 if error.kind() != std::io::ErrorKind::NotFound {
                     if std::thread::panicking() {
@@ -44,7 +46,7 @@ fn missing_or_invalid_diagnostics_do_not_allow_another_owner() {
     let ClaimOutcome::Acquired(_claim) = acquire_for_test(scope.name(), &owner).unwrap() else {
         panic!("first owner is refused");
     };
-    let path = directory().join(format!("{}.owner", scope.name()));
+    let path = claim_directory().unwrap().join(format!("{}.owner", scope.name()));
     fs::write(&path, b"invalid json").unwrap();
     assert!(matches!(
         acquire_for_test(scope.name(), &owner).unwrap(),

@@ -1,11 +1,13 @@
-use crate::config::Config;
 use crate::store::{Store, now};
 use anyhow::{Context, Result};
+use flint_contracts::config::Config;
+use flint_contracts::lock::FileLock;
 use flint_contracts::protocol::timing::HEARTBEAT_IDLE_TIMEOUT;
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -104,8 +106,8 @@ impl BackendHandle {
         PingResponse {
             ready: !self.0.state.lock().unwrap().stopping,
             pid: std::process::id(),
-            bridge_address: self.0.config.address.clone(),
-            bridge_port: self.0.config.bridge_port.into(),
+            bridge_address: self.0.config.endpoints.bridge.ip().to_string(),
+            bridge_port: self.0.config.endpoints.bridge.port().into(),
         }
     }
     pub fn request_stop(&self) -> Result<(), BackendBusy> {
@@ -124,27 +126,29 @@ impl BackendHandle {
     }
 }
 
-async fn listen(address: &str, port: u16) -> Result<TcpListener> {
-    TcpListener::bind((address, port))
+async fn listen(endpoint: SocketAddr) -> Result<TcpListener> {
+    TcpListener::bind(endpoint)
         .await
-        .with_context(|| format!("cannot listen on {address}:{port}"))
+        .with_context(|| format!("cannot listen on {endpoint}"))
 }
 
 pub struct Backend {
     handle: BackendHandle,
     control: TcpListener,
     bridge: TcpListener,
-    _lease: std::fs::File,
+    _lease: FileLock,
 }
 impl Backend {
     pub async fn bind(config: Config) -> Result<Self, BindError> {
         let lease = config
-            .running_lease()
+            .state
+            .runtime()
+            .claim_backend()
             .context("cannot claim the backend runtime")?
             .ok_or(BindError::Locked)?;
-        let control = listen(&config.address, config.control_port).await?;
-        let bridge = listen(&config.address, config.bridge_port).await?;
-        let store = Store::open(config.workflows_dir()).context("cannot open the workflow store")?;
+        let control = listen(config.endpoints.control).await?;
+        let bridge = listen(config.endpoints.bridge).await?;
+        let store = Store::open(config.state.workflows()).context("cannot open the workflow store")?;
         let shared = Shared {
             config,
             state: Mutex::new(State::default()),

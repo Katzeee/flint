@@ -84,6 +84,12 @@ The host-side code that supplies its application's execution capabilities, along
 The single local service for the current user that accepts control commands and Bridge connections, coordinates executions, and owns workflow records. CLI sessions and the desktop reuse this service independently of their working directory.
 _Avoid_: Server or core when referring to this service as a whole.
 
+**Backend lease**:
+The serving backend's exclusive hold on its state directory, through an operating-system lock. At most one backend serves a state directory, and the lease releases when that backend ends.
+
+**Lifecycle lock**:
+The lock a control client holds while it starts, stops, or restarts the backend, so those operations from the CLI and the desktop never interleave. Only its holder may probe whether a backend lease is held.
+
 **Desktop**:
 Flint's window and tray, running in a process separate from the backend. It controls the backend as a control client, and neither its exit nor a backend stop or restart ends the other.
 _Avoid_: GUI backend, tray service.

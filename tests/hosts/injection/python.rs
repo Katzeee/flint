@@ -27,11 +27,16 @@ fn base_interpreter() -> Result<PathBuf> {
 /// sleeps. Its stderr is captured so a failed injection can be diagnosed.
 fn start_target(app: &App, setup: &str) -> Result<OwnedProcess> {
     let ready = app.directory.join("target-ready");
+    let host_temp = app.directory.join("host-temp");
+    fs::create_dir_all(&host_temp)?;
     let script = format!("import sys, time\n{setup}\nopen(sys.argv[1], 'w').close()\ntime.sleep(120)\n");
     let mut command = Command::new(base_interpreter()?);
     command
         .args(["-I", "-c", &script])
         .arg(&ready)
+        // The injector and host must not need matching temporary directories.
+        .env("TEMP", &host_temp)
+        .env("TMP", &host_temp)
         .current_dir(&app.directory)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -114,6 +119,33 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
     anyhow::ensure!(
         instances["instances"].as_array().unwrap().len() == 1,
         "expected one instance: {instances}"
+    );
+
+    // A new name requires the bootstrap to dispatch another plan; finding the
+    // existing instance cannot make this attach succeed.
+    let renamed = app.call(
+        "attach",
+        &[
+            "--pid",
+            &pid.to_string(),
+            "--host-kind",
+            "standalone_python",
+            "--name",
+            "Reattached",
+        ],
+        0,
+    )?;
+    let instances = app.call("instances", &["--type", "standalone_python"], 0)?;
+    let instances = instances["instances"].as_array().unwrap();
+    anyhow::ensure!(
+        instances.len() == 1,
+        "expected one instance after rename: {instances:?}"
+    );
+    anyhow::ensure!(
+        instances[0]["pid"].as_u64() == Some(pid as u64)
+            && instances[0]["instance_name"] == "Reattached"
+            && instances[0]["instance_id"] == renamed["instance_id"],
+        "attach did not register the new name in the target: {instances:?}"
     );
     Ok(())
 }

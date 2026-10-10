@@ -1,39 +1,25 @@
-//! The injected attach bootstrap.
-//!
-//! flint injects this small library into a running host process to start a
-//! Bridge from outside, rather than the host loading the Bridge itself. It does
-//! the minimum in `DllMain`: spawn a worker thread and return, so no real work
-//! runs under the loader lock. The worker reads the per-process plan the
-//! injector left on disk and drives the host runtime to start the Bridge; the
-//! Bridge core loads the ordinary way and takes the process claim, so an already
-//! connected host is never given a second Bridge.
-//!
-//! The injector learns of success from the backend. A failure here is written
-//! to `<pid>.error` beside the plan; work the plan schedules reports its own.
-
+//! Executes the injector's explicit request outside the Windows loader lock.
+//! The host does not select configuration or infer exchange paths.
 #![cfg(windows)]
-
 mod os;
 mod runtimes;
+use anyhow::{Context, Result};
+use flint_contracts::attach::{BootstrapRequest, RuntimePlan};
 
-use anyhow::Result;
-use flint_contracts::attach::{RuntimePlan, error_path, plan_path};
-
-/// Read the plan the injector left for this process and start the Bridge.
-///
-/// Runs on the worker thread, outside the loader lock.
-fn run(pid: u32) {
-    let path = plan_path(pid);
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return;
-    };
-    let _ = std::fs::remove_file(&path);
-    let result = match serde_json::from_str::<RuntimePlan>(&text) {
-        Ok(plan) => start(&plan),
-        Err(error) => Err(anyhow::anyhow!("invalid runtime plan: {error}")),
-    };
-    if let Err(error) = result {
-        let _ = std::fs::write(error_path(pid), format!("{error:#}"));
+fn run(request: BootstrapRequest) -> u32 {
+    let result = (|| -> Result<()> {
+        let text = std::fs::read_to_string(&request.plan_path)
+            .with_context(|| format!("cannot read attach plan {}", request.plan_path.display()))?;
+        let _ = std::fs::remove_file(&request.plan_path);
+        let plan = serde_json::from_str::<RuntimePlan>(&text).context("invalid runtime plan")?;
+        start(&plan)
+    })();
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            let _ = std::fs::write(&request.error_path, format!("{error:#}"));
+            1
+        }
     }
 }
 
@@ -43,3 +29,6 @@ fn start(plan: &RuntimePlan) -> Result<()> {
         RuntimePlan::Mono(plan) => runtimes::mono::attach(plan),
     }
 }
+
+#[cfg(test)]
+mod tests;

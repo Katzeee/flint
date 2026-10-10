@@ -5,7 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 # Injected into a running host, so it must not drag in the VC runtime; the app
-# build compiles it with a static CRT. It exposes no Rust API, only DllMain.
+# build compiles it with a static CRT. It exposes no Rust API, only Windows loader and bootstrap entry points.
 [lib]
 crate-type = ["cdylib"]
 
@@ -26,3 +26,6 @@ windows-sys = { version = "0.61", features = [
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

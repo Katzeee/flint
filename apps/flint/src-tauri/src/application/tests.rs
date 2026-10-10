@@ -1,6 +1,7 @@
 use super::*;
 use anyhow::Result;
 use flint_backend::store::Store;
+use flint_contracts::config::{Endpoints, StateDir};
 use std::{net::TcpListener, path::Path};
 
 fn application(directory: &Path) -> Result<Application> {
@@ -8,11 +9,9 @@ fn application(directory: &Path) -> Result<Application> {
     let bridge = TcpListener::bind(("127.0.0.1", 0))?;
     Ok(Application {
         config: Config {
-            address: "127.0.0.1".into(),
-            control_port: control.local_addr()?.port(),
-            bridge_port: bridge.local_addr()?.port(),
-            timeout: 5.0,
-            state_dir: directory.into(),
+            endpoints: Endpoints::local(control.local_addr()?.port(), bridge.local_addr()?.port()),
+            timeout: std::time::Duration::from_secs(5),
+            state: StateDir::new(directory.into()),
         },
     })
 }
@@ -51,10 +50,7 @@ fn snapshot_preserves_query_errors_when_backend_disappears() -> Result<()> {
     use futures_util::SinkExt;
 
     tokio::runtime::Runtime::new()?.block_on(async {
-        let rejected = Failure {
-            code: "host_specific_failure".into(),
-            message: "query refused".into(),
-        };
+        let rejected = Failure::new(FailureCode::BackendStopping);
         for (reply, expected) in [
             (None, None),
             (Some(Payload::Failure(rejected.clone())), Some(rejected.code.clone())),
@@ -62,7 +58,7 @@ fn snapshot_preserves_query_errors_when_backend_disappears() -> Result<()> {
             let directory = tempfile::tempdir()?;
             let mut api = application(directory.path())?;
             let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
-            api.config.control_port = listener.local_addr()?.port();
+            api.config.endpoints.control = listener.local_addr()?;
             let peer = async {
                 let mut ping = framed(listener.accept().await?.0);
                 let request = read_envelope(&mut ping).await?;

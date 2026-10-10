@@ -1,8 +1,7 @@
-//! Startup instructions and file exchange conventions shared by the injector
+//! Startup instructions shared by the injector
 //! and the injected bootstrap. Plans name runtime entries, never hosts.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 /// Prepared by a platform from its host's entry and consumed once by the injected bootstrap.
 #[derive(Deserialize, Serialize)]
@@ -13,7 +12,8 @@ pub enum RuntimePlan {
 }
 
 /// Python source the bootstrap runs once under the GIL on its injected thread.
-/// The source returns promptly and reports later failures through [`error_path`] itself.
+/// The source returns promptly and reports later failures through
+/// the error path supplied by the injector itself.
 #[derive(Deserialize, Serialize)]
 pub struct CpythonPlan {
     pub source: String,
@@ -33,17 +33,10 @@ pub struct MonoPlan {
     pub argument: String,
 }
 
-pub fn attach_directory() -> PathBuf {
-    std::env::temp_dir().join("flint-bridge").join("attach")
-}
-
-/// The injector writes this file; the bootstrap reads and removes it once loaded.
-pub fn plan_path(pid: u32) -> PathBuf {
-    attach_directory().join(format!("{pid}.json"))
-}
-
-/// Startup failures are UTF-8 text. The injector clears an earlier report before
-/// publishing a new plan; the bootstrap or its scheduled runtime work writes it.
-pub fn error_path(pid: u32) -> PathBuf {
-    attach_directory().join(format!("{pid}.error"))
+/// NUL-terminated JSON passed to the bootstrap's remote entry point.
+/// The injector resolves both paths; the host never reconstructs them.
+#[derive(Deserialize, Serialize)]
+pub struct BootstrapRequest {
+    pub plan_path: std::path::PathBuf,
+    pub error_path: std::path::PathBuf,
 }

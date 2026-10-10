@@ -3,39 +3,36 @@
 use std::ffi::CStr;
 use std::mem::size_of;
 use std::os::raw::c_void;
-use std::ptr::{null, null_mut};
+use std::ptr::null_mut;
 use std::sync::atomic::{AtomicPtr, Ordering};
 
 use anyhow::Result;
-use windows_sys::Win32::Foundation::{CloseHandle, HMODULE};
+use windows_sys::Win32::Foundation::HMODULE;
 use windows_sys::Win32::System::LibraryLoader::{FreeLibraryAndExitThread, GetModuleHandleW, GetProcAddress};
 use windows_sys::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameW};
 use windows_sys::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
-use windows_sys::Win32::System::Threading::{CreateThread, GetCurrentProcess, GetCurrentProcessId};
+use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
 static MODULE: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
 
-/// Loader entry point. Do the minimum here — spawn a worker and return — so no
-/// real work runs while the process holds the loader lock.
+/// Loader entry point; attach runs only through the explicit start export.
 #[no_mangle]
-pub extern "system" fn DllMain(module: HMODULE, reason: u32, _reserved: *mut core::ffi::c_void) -> i32 {
+pub extern "system" fn DllMain(module: HMODULE, reason: u32, _reserved: *mut c_void) -> i32 {
     if reason == DLL_PROCESS_ATTACH {
         MODULE.store(module, Ordering::Release);
-        unsafe {
-            let thread = CreateThread(null(), 0, Some(worker), null(), 0, null_mut());
-            if !thread.is_null() {
-                CloseHandle(thread);
-            }
-        }
     }
     1
 }
 
-/// Unloads the bootstrap when done: a library that stays loaded gets no new
-/// `DLL_PROCESS_ATTACH` from a later injection, so a repeated attach would do nothing.
-unsafe extern "system" fn worker(_parameter: *mut core::ffi::c_void) -> u32 {
-    crate::run(GetCurrentProcessId());
-    FreeLibraryAndExitThread(MODULE.load(Ordering::Acquire), 0)
+/// The injector owns the NUL-terminated request until this thread finishes.
+#[no_mangle]
+pub unsafe extern "system" fn flint_bootstrap_start(parameter: *mut c_void) -> u32 {
+    let exit = match serde_json::from_slice(CStr::from_ptr(parameter.cast()).to_bytes()) {
+        Ok(request) => crate::run(request),
+        Err(_) => 2,
+    };
+    // All request/runtime values have been dropped before unloading our code.
+    FreeLibraryAndExitThread(MODULE.load(Ordering::Acquire), exit)
 }
 
 /// Resolve an export by null-terminated name, returning its address.

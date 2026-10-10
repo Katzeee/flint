@@ -1255,7 +1255,6 @@ dependencies = [
  "flint-backend",
  "flint-contracts",
  "flint-hosts",
- "fs2",
  "futures-util",
  "serde",
  "serde_json",
@@ -1280,9 +1279,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "dirs",
  "flint-contracts",
- "fs2",
  "futures-util",
  "serde",
  "serde_json",
@@ -1300,6 +1297,7 @@ dependencies = [
  "anyhow",
  "flint-contracts",
  "serde_json",
+ "tempfile",
  "windows-sys 0.61.2",
 ]
 
@@ -1309,7 +1307,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "flint-contracts",
- "fs2",
  "futures-util",
  "serde",
  "serde_json",
@@ -1323,7 +1320,10 @@ dependencies = [
 name = "flint-contracts"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bytes",
+ "dirs",
+ "fs2",
  "futures-util",
  "prost",
  "serde",
