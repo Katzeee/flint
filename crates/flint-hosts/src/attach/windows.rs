@@ -97,8 +97,7 @@ unsafe fn inject_windows(pid: u32, bootstrap: &Path, request: &BootstrapRequest)
     if exit != 0 {
         let report = std::fs::read_to_string(&request.error_path).unwrap_or_else(|_| {
             format!(
-                "bootstrap failed with status {exit}; plan: {}; error report: {}",
-                request.plan_path.display(),
+                "bootstrap failed with status {exit}; error report: {}",
                 request.error_path.display()
             )
         });

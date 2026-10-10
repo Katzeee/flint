@@ -3,9 +3,9 @@ use crate::execution_coordinator::fake::Fake;
 use serde_json::{Value, json};
 use std::sync::{Arc, atomic::Ordering};
 
-fn options() -> String {
-    json!({"host":"python", "address":"127.0.0.1", "port":6321,
-        "name":"test", "runtime_version":"test", "enabled":false})
+fn options(port: u16) -> String {
+    json!({"host":"python", "runtime_version":"test",
+        "settings":{"address":"127.0.0.1", "port":port, "name":"test"}})
     .to_string()
 }
 
@@ -37,11 +37,13 @@ fn create(options: &str, fake: &Arc<Fake>) -> (*mut BridgeCore, Failure) {
 
 #[test]
 fn production_creation_enforces_the_process_claim_until_destruction() {
+    let endpoint = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let options = options(endpoint.local_addr().unwrap().port());
     let fake = Fake::new();
-    let (first, error) = create(&options(), &fake);
+    let (first, error) = create(&options, &fake);
     assert!(error.is_none());
     assert!(!first.is_null());
-    let (second, error) = create(&options(), &fake);
+    let (second, error) = create(&options, &fake);
     unsafe {
         flint_bridge_destroy(first);
     }
@@ -56,7 +58,7 @@ fn production_creation_enforces_the_process_claim_until_destruction() {
     assert!(error.contains("host=python"));
     assert!(error.contains("runtime_version=test"));
     assert!(error.contains(&format!("bridge_version={}", env!("CARGO_PKG_VERSION"))));
-    let (third, error) = create(&options(), &fake);
+    let (third, error) = create(&options, &fake);
     assert!(error.is_none());
     assert!(!third.is_null());
     unsafe {
@@ -94,11 +96,12 @@ fn create_rejects_invalid_configuration_and_releases_the_execution_binding() {
     assert!(core.is_null());
     assert!(error.unwrap().1.contains("not UTF-8"));
     assert_released("invalid UTF-8");
-    let valid = options();
+    let endpoint = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let valid = options(endpoint.local_addr().unwrap().port());
     let mut empty_host: Value = serde_json::from_str(&valid).unwrap();
     empty_host["host"] = "".into();
     let mut zero_port: Value = serde_json::from_str(&valid).unwrap();
-    zero_port["port"] = 0.into();
+    zero_port["settings"]["port"] = 0.into();
     for (case, config) in [
         ("invalid JSON", "not json".to_string()),
         ("empty host", empty_host.to_string()),

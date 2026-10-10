@@ -69,7 +69,7 @@ def call(command):
             library = command.get("library")
             native_core._library_path = (lambda: Path(library)) if library else packaged_library
             try:
-                manager.connect(address=config["address"], port=config["port"], name=config["name"])
+                manager.connect(**config["settings"])
             finally:
                 native_core._library_path = packaged_library
             return {"created": True}

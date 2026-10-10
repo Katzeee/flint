@@ -28,6 +28,9 @@ _Avoid_: Screenshot, thumbnail.
 The host-side connector that registers an application with the backend and carries execution requests and results. It runs within the host process.
 _Avoid_: Host application, instance.
 
+**Host settings**:
+The backend address (IP or domain name), port, and instance name applied to a Bridge. Creation, reconfiguration, and attach share these settings; a host owns how its settings are persisted. Connection and disconnection are operations, not persisted settings.
+
 **Bridge core**:
 The shared native component of a Bridge that owns its connection, registration, heartbeat, framing, and reconnection behavior. It orchestrates each execution's preparation, invocation, cancellation, and result through the host's execution capabilities; the host runtime executes the code. It holds a process-wide claim so a host process runs at most one Bridge.
 
@@ -64,7 +67,7 @@ A language platform that host integrations build their Bridges on, such as Pytho
 _Avoid_: Language or runtime for this layer.
 
 **Runtime plan**:
-The startup instructions for one host runtime that the injected bootstrap executes to start a Bridge. A host names its entry into its platform; the platform turns that entry into the runtime plan; the bootstrap executes it inside the host process and knows neither hosts nor platforms.
+The startup instructions for one host runtime that the injected bootstrap executes to start a Bridge. A host names its entry into its platform; the platform turns that entry into the runtime plan; the bootstrap translates its typed data into the call to Flint's platform entry inside the host process. It does not select host integrations.
 _Avoid_: Attach plan.
 
 **Process claim**:
@@ -101,6 +104,9 @@ _Avoid_: Host application for the registered connection.
 **Control client**:
 The component of the CLI and desktop that sends a command to the backend and receives its response. It is separate from the host-side Bridge.
 _Avoid_: Client without qualification.
+
+**Listen address**:
+The local IP address and port on which the backend accepts connections. A wildcard listen address is not a connection target.
 
 **Control endpoint**:
 The backend address and port used by control clients to send commands.

@@ -138,6 +138,7 @@ pub(super) fn verify_host(kind: &str, variable: &str, expected_executable: &str,
     anyhow::ensure!(report.get("error").is_none(), "Bootstrap failed: {report}");
     assert_eq!(report["pid"], host.0.id());
     assert_eq!(report["main_thread"], true);
+    assert_eq!(report["disconnect_and_connect"], true);
     assert_eq!(report["scene"], "");
     let package_root = if kind == "blender" {
         app.directory.join("blender-scripts")

@@ -4,7 +4,7 @@ The Unity Bridge supports Unity Editor on Windows x64 with Mono. The integration
 
 ## Install and connect
 
-Run `flint bridge export unity`, then install the resulting `flint-unity.tgz` in Unity's Package Manager with **Add package from tarball**. Start flint with `flint start`; the installed package connects from the Editor to the default local Bridge port, `6321`. Open **Window > Flint Bridge > Connection Settings** to inspect the connection, change its address, port, instance name, and enabled state, or reconnect. **Apply** changes the live connection and saves the values in Unity's per-user Editor preferences. If the Bridge could not start, for example because another Bridge already owns the Editor process, the reason appears in the Console and **Apply** starts it. Confirm registration with `flint instances --json`.
+Run `flint bridge export unity`, then install the resulting `flint-unity.tgz` in Unity's Package Manager with **Add package from tarball**. Start flint with `flint start`; the installed package connects from the Editor to the default local Bridge port, `6321`. Open **Window > Flint Bridge > Connection Settings** to inspect the connection, change its address, port, and instance name, connect, or disconnect. **Apply** saves settings for the next connection without changing the current one. **Connect** uses the saved settings; **Disconnect** stops the connection and automatic retries. When saved and active settings differ, the panel notes that the new settings take effect on the next connection. If the Bridge could not start, for example because another Bridge already owns the Editor process, the reason appears in the Console and **Connect** starts it. Confirm registration with `flint instances --json`.
 
 ## Connection and execution
 

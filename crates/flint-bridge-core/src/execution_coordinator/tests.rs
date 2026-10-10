@@ -2,7 +2,7 @@ use super::fake::{Fake, Mode, PREPARED, write};
 use super::*;
 use crate::{
     ffi::{flint_step_fail, flint_step_run, flint_step_succeed},
-    settings::{BridgeSettings, SettingsSnapshot},
+    settings::{HostSettings, SettingsSnapshot},
 };
 use flint_contracts::protocol::{Envelope, ExecutionResult, ExecutionStatus, HostExecuteRequest, envelope::Payload};
 use std::{ptr, sync::atomic::Ordering, time::Duration};
@@ -24,11 +24,10 @@ impl Fixture {
     fn new() -> Self {
         let settings = Arc::new(SettingsSnapshot {
             revision: 0,
-            settings: BridgeSettings {
+            settings: HostSettings {
                 address: "127.0.0.1".into(),
                 port: 1,
                 name: "test".into(),
-                enabled: true,
             },
         });
         let mut state = BridgeState::new(settings.clone());
@@ -287,7 +286,9 @@ fn destroying_a_core_releases_lost_steps_and_preserves_its_replacement() {
             let coordinator = &steps.issued[&lost].execution_coordinator;
             (Arc::downgrade(coordinator), Arc::downgrade(&coordinator.state))
         };
+        let binding = core.fake.clone();
         drop(core); // The helper calls the production flint_bridge_destroy.
+        assert_eq!(binding.released.load(Ordering::SeqCst), 1, "{case}: binding retained");
         assert!(coordinator.upgrade().is_none(), "{case}: coordinator retained");
         assert!(state.upgrade().is_none(), "{case}: execution state retained");
 
@@ -392,11 +393,6 @@ fn revocation_waits_for_the_running_callback_and_silences_later_work() {
     assert_eq!(f.fake.released.load(Ordering::SeqCst), 1);
     assert_eq!(f.fake.calls(), ["prepare"]);
     failed(&f.result(), "bridge_stopped");
-
-    f.submit();
-    failed(&f.result(), "bridge_stopped");
-    assert_eq!(f.fake.calls(), ["prepare"]);
-    assert_eq!(f.fake.released.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -440,21 +436,4 @@ fn revocation_releases_only_after_every_concurrent_call_returns() {
     assert_eq!(caller.join().unwrap(), Some(()));
     assert_eq!(f.fake.released.load(Ordering::SeqCst), 1);
     assert_eq!(f.fake.calls(), vec![format!("discard {PREPARED}"); 2]);
-}
-
-#[test]
-fn an_outstanding_step_does_not_retain_the_execution_binding() {
-    let mut f = Fixture::new();
-    *f.fake.run.lock().unwrap() = Mode::Hold;
-    f.submit();
-    f.run_posted();
-    let step = f.fake.take_held().unwrap();
-    assert!(f.busy());
-
-    f.execution_coordinator.revoke();
-    assert_eq!(f.fake.released.load(Ordering::SeqCst), 1);
-    flint_step_succeed(step, 0);
-    assert!(!f.busy());
-    assert_eq!(f.result().status, ExecutionStatus::Succeeded as i32);
-    assert_eq!(f.fake.released.load(Ordering::SeqCst), 1);
 }

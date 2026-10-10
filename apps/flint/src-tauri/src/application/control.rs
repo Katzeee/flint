@@ -1,6 +1,5 @@
 //! Backend lifecycle, observation, and control requests.
 use super::{Application, Result as ApplicationResult};
-use flint_contracts::config::Config;
 use flint_contracts::lock::FileLock;
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
@@ -39,9 +38,6 @@ fn protocol(message: &'static str) -> ControlError {
     Failure::with_message(FailureCode::InternalError, message).into()
 }
 
-async fn request(config: &Config, payload: Payload) -> Result<Payload> {
-    request_until(config.endpoints.control, payload, Instant::now() + config.timeout).await
-}
 async fn request_until(endpoint: SocketAddr, payload: Payload, deadline: Instant) -> Result<Payload> {
     let exchange = async {
         let socket = TcpStream::connect(endpoint).await?;
@@ -282,7 +278,7 @@ impl Application {
     }
 
     pub(super) async fn query<T>(&self, payload: Payload, response: fn(Payload) -> Option<T>) -> ApplicationResult<T> {
-        let payload = request(&self.config, payload).await?;
+        let payload = request_until(self.config.endpoints.control, payload, self.deadline()).await?;
         response(payload).ok_or_else(|| Failure::with_message(FailureCode::InternalError, "invalid backend response"))
     }
 }

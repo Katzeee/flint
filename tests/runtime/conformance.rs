@@ -72,12 +72,11 @@ impl Driver {
 }
 
 fn settings(port: u16, name: &str) -> Value {
-    json!({"address": "127.0.0.1", "port": port, "name": name, "enabled": true})
+    json!({"address": "127.0.0.1", "port": port, "name": name})
 }
 
 fn config(host: &str, port: u16) -> Value {
-    json!({"host": host, "address": "127.0.0.1", "port": port,
-           "name": "场景 🌍", "runtime_version": "conformance"})
+    json!({"host": host, "runtime_version": "conformance", "settings": settings(port, "场景 🌍")})
 }
 
 /// Verify execution callbacks, settings and diagnostics through the exported binding.
@@ -91,7 +90,6 @@ pub fn verify(app: &App, host: &str, mut driver: Driver, code: &str, stdout: &st
     assert_eq!(connected["settings"]["address"], "127.0.0.1");
     assert_eq!(connected["settings"]["port"], app.bridge_port);
     assert_eq!(connected["settings"]["name"], "场景 🌍");
-    assert_eq!(connected["settings"]["enabled"], true);
 
     // `exec` waits for the result, which the driver holds until told to report.
     let workflow = app.workflow("runtime-conformance")?;
@@ -209,14 +207,6 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     let probe = driver.call(json!({"op": "probe"}))?;
     assert_eq!(probe["created"], created + 1);
     assert_eq!(probe["factory_thread"], probe["dispatch_thread"]);
-    let mut disabled = settings(app.bridge_port, "paused");
-    disabled["enabled"] = json!(false);
-    driver.call(json!({"op": "apply", "settings": disabled}))?;
-    driver.status_until("disabled")?;
-    driver.call(json!({"op": "apply", "settings": settings(app.bridge_port, "conformance")}))?;
-    let connected = driver.status_until("connected")?;
-    assert_eq!(driver.call(json!({"op": "probe"}))?["created"], created + 1);
-
     let workflow = app.workflow("manager-lifecycle")?;
     let instance = connected["connection"]["instance_id"].as_str().unwrap();
     let before = driver.call(json!({"op": "probe"}))?;

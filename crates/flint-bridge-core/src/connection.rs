@@ -1,6 +1,6 @@
 use crate::{
     execution::run_execution,
-    settings::{BridgeSettings, Identity, SettingsSnapshot},
+    settings::{HostSettings, Identity, SettingsSnapshot},
     state::{BridgeState, Obstacle, ObstacleKind},
 };
 use anyhow::{Context, Result};
@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 type Wire = flint_contracts::protocol::framing::Wire<TcpStream>;
 
-async fn connect(settings: &BridgeSettings) -> Result<Wire> {
+async fn connect(settings: &HostSettings) -> Result<Wire> {
     let stream = tokio::time::timeout(
         Duration::from_secs(10),
         TcpStream::connect((settings.address.as_str(), settings.port)),
@@ -146,13 +146,6 @@ pub(crate) async fn run(
     let mut delay = 0;
     while !stop.is_cancelled() {
         let current = settings.borrow_and_update().clone();
-        if !current.settings.enabled {
-            tokio::select! {
-                _ = settings.changed() => {}
-                _ = stop.cancelled() => break,
-            }
-            continue;
-        }
         let mut changed = false;
         let mut requested = false;
         let obstacle = tokio::select! {

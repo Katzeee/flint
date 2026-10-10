@@ -34,17 +34,22 @@ try:
         import threading
 
         report["main_thread"] = threading.current_thread() is threading.main_thread()
-        bpy.ops.preferences.addon_install(filepath=CONFIG["bundle"], overwrite=True, enable_on_install=True)
+        bpy.ops.preferences.addon_install(filepath=CONFIG["bundle"], overwrite=True, enable_on_install=False)
+        import flint_blender
+
+        # Populate the isolated profile before the add-on's first connection.
+        addon = bpy.context.preferences.addons.new()
+        addon.module = "flint_blender"
+        bpy.utils.register_class(flint_blender.FlintBridgePreferences)
+        addon.preferences.address = "127.0.0.1"
+        addon.preferences.port = CONFIG["port"]
+        addon.preferences.instance_name = "Blender"
+        bpy.utils.unregister_class(flint_blender.FlintBridgePreferences)
+        bpy.ops.preferences.addon_enable(module="flint_blender")
         report["addon_enabled"] = "flint_blender" in bpy.context.preferences.addons
         if not report["addon_enabled"]:
             raise RuntimeError("The Blender Add-on was not enabled")
-        import flint_blender
-
         report["package_module"] = flint_blender.__file__
-        draft = bpy.context.window_manager.flint_bridge_draft
-        draft.port = CONFIG["port"]
-        if bpy.ops.flint_bridge.apply_settings() != {"FINISHED"}:
-            raise RuntimeError("The Blender Add-on did not apply its settings")
         from flint_blender.flint_bridge.blender import manager
     else:
         report["main_thread"] = QtCore.QThread.currentThread() is QtWidgets.QApplication.instance().thread()
@@ -89,6 +94,28 @@ try:
         raise RuntimeError("The host package did not start a Bridge")
     if not bridge.wait_until_connected(15):
         raise RuntimeError("Both bridge channels did not connect")
+    if CONFIG["host"] == "blender":
+        if bpy.ops.flint_bridge.disconnect() != {"FINISHED"}:
+            raise RuntimeError("The Blender Add-on did not disconnect")
+        for _ in range(3):
+            flint_blender._refresh_ui()
+            if manager.current() is not None:
+                raise RuntimeError("UI refresh restarted the disconnected Bridge")
+        if bpy.ops.flint_bridge.connect() != {"FINISHED"}:
+            raise RuntimeError("The Blender Add-on did not reconnect")
+    else:
+        panel = flint_maya._dialog if CONFIG["host"] == "maya" else flint_max._dialog
+        panel.connection_button.click()
+        for _ in range(3):
+            QtWidgets.QApplication.processEvents()
+            panel.refresh()
+            if manager.current() is not None:
+                raise RuntimeError("UI refresh restarted the disconnected Bridge")
+        panel.connection_button.click()
+    bridge = manager.current()
+    if bridge is None or not bridge.wait_until_connected(15):
+        raise RuntimeError("Explicit Connect did not restore the connection")
+    report["disconnect_and_connect"] = True
     report["instance_id"] = bridge.instance_id
 except BaseException:
     report["error"] = traceback.format_exc()

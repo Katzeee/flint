@@ -1,5 +1,5 @@
 //! The layout of a backend's state directory and the runtime resources within it.
-use crate::{attach::BootstrapRequest, lock::FileLock};
+use crate::lock::FileLock;
 use std::{
     io,
     path::{Path, PathBuf},
@@ -25,12 +25,8 @@ impl StateDir {
         Runtime(self.0.join("runtime"))
     }
 
-    pub fn attach_handoff(&self, pid: u32) -> BootstrapRequest {
-        let directory = self.runtime().0.join("attach");
-        BootstrapRequest {
-            plan_path: directory.join(format!("{pid}.json")),
-            error_path: directory.join(format!("{pid}.error")),
-        }
+    pub fn attach_error_path(&self, pid: u32) -> PathBuf {
+        self.runtime().0.join("attach").join(format!("{pid}.error"))
     }
 
     pub fn attach_staging(&self) -> PathBuf {

@@ -6,25 +6,25 @@ using System.Text;
 namespace Flint.Bridge
 {
     [DataContract]
-    public class BridgeSettings
+    public class HostSettings
     {
         [DataMember(Name = "address")] public string Address { get; set; }
         [DataMember(Name = "port")] public int Port { get; set; }
         [DataMember(Name = "name")] public string Name { get; set; }
-        [DataMember(Name = "enabled")] public bool Enabled { get; set; } = true;
     }
 
     [DataContract]
-    internal sealed class BridgeConfiguration : BridgeSettings
+    internal sealed class BridgeConfiguration
     {
         [DataMember(Name = "host")] public string Host { get; set; }
+        [DataMember(Name = "settings")] public HostSettings Settings { get; set; }
         [DataMember(Name = "runtime_version")] public string RuntimeVersion { get; set; }
     }
 
     [DataContract]
     internal sealed class BridgeStatus
     {
-        [DataMember(Name = "settings")] public BridgeSettings Settings { get; set; }
+        [DataMember(Name = "settings")] public HostSettings Settings { get; set; }
     }
 
     [DataContract]

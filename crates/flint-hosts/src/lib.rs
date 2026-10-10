@@ -9,7 +9,7 @@ mod bridge;
 mod layout;
 mod platform;
 mod window;
-pub use attach::{AttachRequest, Unsupported, attach_error, attach_supported, attachment};
+pub use attach::{Unsupported, attach_error, attach_supported, attachment};
 pub use bridge::Attach;
 pub use bridge::{ExportTarget, export};
 pub use platform::Platform;

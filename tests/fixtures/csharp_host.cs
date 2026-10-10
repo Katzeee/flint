@@ -45,11 +45,13 @@ internal static class Program
             var config = JsonSerializer.Serialize(new
             {
                 host = "standalone_csharp",
-                address = "127.0.0.1",
-                port = int.Parse(args[1]),
-                name = "Standalone C# runtime",
                 runtime_version = Environment.Version.ToString(),
-                enabled = true
+                settings = new
+                {
+                    address = "127.0.0.1",
+                    port = int.Parse(args[1]),
+                    name = "Standalone C# runtime",
+                }
             });
             using var bridge = new NativeCore(args[0], config,
                 new ExecutionCapabilities(new Executor(args[3] + ".release"), new WorkerThread()));

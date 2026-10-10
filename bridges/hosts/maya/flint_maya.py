@@ -9,7 +9,6 @@ _KEYS = {
     "address": ("flint_bridge_address", "127.0.0.1"),
     "port": ("flint_bridge_port", 6321),
     "name": ("flint_instance_name", "Maya"),
-    "enabled": ("flint_connection_enabled", 1),
 }
 _MENU = "FlintBridgeMenu"
 _loaded = False
@@ -21,20 +20,15 @@ def settings():
     for field, (key, default) in _KEYS.items():
         values[field] = cmds.optionVar(query=key) if cmds.optionVar(exists=key) else default
     values["port"] = int(values["port"])
-    values["enabled"] = bool(values["enabled"])
     return values
 
 
-def apply_settings(address, port, name, enabled):
-    """Apply a complete endpoint configuration, then persist it for Maya."""
+def apply_settings(address, port, name):
+    """Persist settings for the next connection."""
     port = int(port)
-    enabled = bool(enabled)
-    bridge = manager.configure(address=address, port=port, name=name, enabled=enabled)
     cmds.optionVar(stringValue=(_KEYS["address"][0], address))
     cmds.optionVar(intValue=(_KEYS["port"][0], port))
     cmds.optionVar(stringValue=(_KEYS["name"][0], name))
-    cmds.optionVar(intValue=(_KEYS["enabled"][0], int(enabled)))
-    return bridge
 
 
 def reconnect():
@@ -59,7 +53,12 @@ def show_settings(*_):
         _dialog.close()
     parent = wrapInstance(int(OpenMayaUI.MQtUtil.mainWindow()), QtWidgets.QWidget)
     _dialog = ConnectionPanel(
-        settings(), lambda: manager.current().status if manager.current() else None, apply_settings, reconnect, parent
+        settings,
+        lambda: manager.current().status if manager.current() else None,
+        apply_settings,
+        lambda: manager.connect(**settings()),
+        manager.disconnect,
+        parent,
     )
     _dialog.show()
 
@@ -75,9 +74,9 @@ def initialize():
     global _loaded
     values = settings()
     try:
-        manager.connect(address=values["address"], port=values["port"], name=values["name"], enabled=values["enabled"])
+        manager.connect(address=values["address"], port=values["port"], name=values["name"])
     except BridgeCreationError as error:
-        # The settings panel stays available so the user can start it with Apply.
+        # The settings panel stays available so the user can start it with Connect.
         cmds.warning("Flint Bridge did not start: {}".format(error))
     _loaded = True
     maya.utils.executeDeferred(_install_menu)

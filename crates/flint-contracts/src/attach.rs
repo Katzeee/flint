@@ -1,7 +1,9 @@
 //! Startup instructions shared by the injector
 //! and the injected bootstrap. Plans name runtime entries, never hosts.
 
+use crate::host_settings::HostSettings;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Prepared by a platform from its host's entry and consumed once by the injected bootstrap.
 #[derive(Deserialize, Serialize)]
@@ -11,32 +13,29 @@ pub enum RuntimePlan {
     Mono(MonoPlan),
 }
 
-/// Python source the bootstrap runs once under the GIL on its injected thread.
-/// The source returns promptly and reports later failures through
-/// the error path supplied by the injector itself.
+/// The Python library and host module whose manager starts the Bridge.
 #[derive(Deserialize, Serialize)]
 pub struct CpythonPlan {
-    pub source: String,
+    pub import_root: PathBuf,
+    pub module: String,
+    pub settings: HostSettings,
 }
 
-/// Invoke a static managed entry accepting one string and returning null on
-/// success or a failure string. The bootstrap detaches its thread after invocation.
+/// The managed assembly and host type whose Manager starts the Bridge.
 #[derive(Deserialize, Serialize)]
 pub struct MonoPlan {
-    pub assembly: String,
+    pub assembly: PathBuf,
     /// Preferred scripting domain; use the root domain when it is absent.
     pub domain: String,
-    pub namespace: String,
-    pub class: String,
-    pub method: String,
-    /// Encoded by the platform for its managed entry to interpret.
-    pub argument: String,
+    pub manager: String,
+    pub native_library: PathBuf,
+    pub settings: HostSettings,
 }
 
 /// NUL-terminated JSON passed to the bootstrap's remote entry point.
-/// The injector resolves both paths; the host never reconstructs them.
+/// The injector supplies the plan and resolves the error report path.
 #[derive(Deserialize, Serialize)]
 pub struct BootstrapRequest {
-    pub plan_path: std::path::PathBuf,
-    pub error_path: std::path::PathBuf,
+    pub plan: RuntimePlan,
+    pub error_path: PathBuf,
 }

@@ -124,7 +124,8 @@ unsafe fn attach_mono(mono: HMODULE, plan: &MonoPlan) -> Result<()> {
     domain_set(domain, 0);
     thread_attach(domain);
 
-    let payload = CString::new(plan.assembly.as_str()).context("assembly path has a NUL")?;
+    let payload = CString::new(plan.assembly.to_str().context("assembly path is not UTF-8")?)
+        .context("assembly path has a NUL")?;
     let assembly = assembly_open(domain, payload.as_ptr());
     if assembly.is_null() {
         return Err(anyhow::anyhow!("could not open the attach assembly"));
@@ -133,28 +134,16 @@ unsafe fn attach_mono(mono: HMODULE, plan: &MonoPlan) -> Result<()> {
     if image.is_null() {
         return Err(anyhow::anyhow!("attach assembly has no image"));
     }
-    let namespace = CString::new(plan.namespace.as_str()).context("managed namespace has a NUL")?;
-    let class_name = CString::new(plan.class.as_str()).context("managed class name has a NUL")?;
-    let class = class_from_name(image, namespace.as_ptr(), class_name.as_ptr());
+    let class = class_from_name(image, c"Flint.Bridge".as_ptr(), c"Attach".as_ptr());
     if class.is_null() {
-        return Err(anyhow::anyhow!(
-            "{}.{} was not found in the assembly",
-            plan.namespace,
-            plan.class
-        ));
+        return Err(anyhow::anyhow!("Flint.Bridge.Attach was not found in the assembly"));
     }
-    let method_name = CString::new(plan.method.as_str()).context("managed method name has a NUL")?;
-    let method = method_from_name(class, method_name.as_ptr(), 1);
+    let method = method_from_name(class, c"Initialize".as_ptr(), 1);
     if method.is_null() {
-        return Err(anyhow::anyhow!(
-            "{}.{}.{}(string) was not found",
-            plan.namespace,
-            plan.class,
-            plan.method
-        ));
+        return Err(anyhow::anyhow!("Flint.Bridge.Attach.Initialize(string) was not found"));
     }
 
-    let argument = CString::new(plan.argument.as_str()).context("attach argument has a NUL")?;
+    let argument = CString::new(serde_json::to_string(plan)?)?;
     let managed = string_new(domain, argument.as_ptr());
     let mut arguments: [*mut c_void; 1] = [managed];
     let mut exception: *mut c_void = null_mut();

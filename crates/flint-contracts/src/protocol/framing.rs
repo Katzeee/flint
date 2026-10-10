@@ -46,7 +46,7 @@ pub async fn read_envelope<T: AsyncRead + AsyncWrite + Unpin>(wire: &mut Wire<T>
     })?
 }
 
-pub fn validate(envelope: &Envelope) -> io::Result<()> {
+fn validate(envelope: &Envelope) -> io::Result<()> {
     if envelope.protocol_version != PROTOCOL_VERSION {
         return Err(invalid("unsupported protocol version"));
     }
@@ -68,30 +68,19 @@ fn invalid(message: impl Into<String>) -> io::Error {
 /// callers own deadlines, cancellation, and serialized writes.
 pub struct EnvelopeCodec {
     framing: LengthDelimitedCodec,
-    limit: usize,
     pending: bool,
 }
 
 impl Default for EnvelopeCodec {
     fn default() -> Self {
-        Self::with_limit(MAX_FRAME_BYTES).expect("valid default frame limit")
-    }
-}
-
-impl EnvelopeCodec {
-    pub fn with_limit(limit: usize) -> io::Result<Self> {
-        if limit == 0 || limit > MAX_FRAME_BYTES {
-            return Err(invalid("invalid frame limit"));
-        }
-        Ok(Self {
+        Self {
             framing: LengthDelimitedCodec::builder()
                 .big_endian()
                 .length_field_length(4)
-                .max_frame_length(limit)
+                .max_frame_length(MAX_FRAME_BYTES)
                 .new_codec(),
-            limit,
             pending: false,
-        })
+        }
     }
 }
 
@@ -127,8 +116,7 @@ impl Encoder<Envelope> for EnvelopeCodec {
     type Error = io::Error;
 
     fn encode(&mut self, envelope: Envelope, destination: &mut BytesMut) -> io::Result<()> {
-        validate(&envelope)?;
-        if envelope.encoded_len() > self.limit {
+        if envelope.encoded_len() > MAX_FRAME_BYTES {
             return Err(invalid("frame exceeds limit"));
         }
         self.framing.encode(envelope.encode_to_vec().into(), destination)

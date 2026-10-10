@@ -57,12 +57,11 @@ internal static class Program
         else ThreadPool.QueueUserWorkItem(_ => RunDispatched(callback));
     }
 
-    private static BridgeSettings Settings(JsonNode value) => new BridgeSettings
+    private static HostSettings Settings(JsonNode value) => new HostSettings
     {
         Address = value["address"].GetValue<string>(),
         Port = value["port"].GetValue<int>(),
         Name = value["name"].GetValue<string>(),
-        Enabled = value["enabled"]?.GetValue<bool>() ?? true
     };
 
     private static JsonNode Call(JsonNode command)
@@ -72,7 +71,7 @@ internal static class Program
             switch (command["op"].GetValue<string>())
             {
                 case "create":
-                    manager.Connect(command["library"]?.GetValue<string>() ?? library, Settings(command["config"]));
+                    manager.Connect(command["library"]?.GetValue<string>() ?? library, Settings(command["config"]["settings"]));
                     return new JsonObject { ["created"] = true };
                 case "claim":
                     using (var core = new NativeCore(library, command["config"].ToJsonString(),

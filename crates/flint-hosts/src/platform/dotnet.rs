@@ -3,11 +3,13 @@
 
 use super::PlatformEntry;
 use crate::{
-    attach::AttachRequest,
     bridge::Attach,
     layout::{CORE, DOTNET_BINDING, Layout, NATIVE_CORE, join},
 };
-use flint_contracts::attach::{MonoPlan, RuntimePlan};
+use flint_contracts::{
+    attach::{MonoPlan, RuntimePlan},
+    host_settings::HostSettings,
+};
 use std::path::Path;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -34,20 +36,12 @@ pub(crate) fn attach(entry: Entry, assembly: &'static [u8]) -> Attach {
     }
 }
 
-pub(super) fn plan(entry: &Entry, root: &Path, request: &AttachRequest) -> RuntimePlan {
+pub(super) fn plan(entry: &Entry, root: &Path, settings: HostSettings) -> RuntimePlan {
     RuntimePlan::Mono(MonoPlan {
-        assembly: root.join(entry.assembly).display().to_string(),
+        assembly: root.join(entry.assembly),
         domain: entry.domain.into(),
-        namespace: "Flint.Bridge".into(),
-        class: "Attach".into(),
-        method: "Initialize".into(),
-        argument: serde_json::json!({
-            "manager": entry.manager,
-            "native_library": root.join(CORE),
-            "address": request.address,
-            "port": request.port,
-            "name": request.name,
-        })
-        .to_string(),
+        manager: entry.manager.into(),
+        native_library: root.join(CORE),
+        settings,
     })
 }

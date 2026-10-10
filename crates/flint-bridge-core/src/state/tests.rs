@@ -2,12 +2,11 @@ use super::*;
 use flint_contracts::protocol::envelope::Payload;
 use tokio::sync::mpsc;
 
-fn settings(name: &str, enabled: bool) -> BridgeSettings {
-    BridgeSettings {
+fn settings(name: &str) -> HostSettings {
+    HostSettings {
         address: "127.0.0.1".into(),
         port: 6321,
         name: name.into(),
-        enabled,
     }
 }
 
@@ -21,18 +20,17 @@ fn lost(message: &str) -> Obstacle {
 fn initial() -> Arc<SettingsSnapshot> {
     Arc::new(SettingsSnapshot {
         revision: 0,
-        settings: settings("original", true),
+        settings: settings("original"),
     })
 }
 
 #[test]
 fn settings_change_rejects_a_registration_waiting_to_commit() {
     for (case, replacements) in [
-        ("renamed", vec![settings("changed", true)]),
-        ("disabled", vec![settings("original", false)]),
+        ("renamed", vec![settings("changed")]),
         (
             "returned to the original settings",
-            vec![settings("changed", true), settings("original", true)],
+            vec![settings("changed"), settings("original")],
         ),
     ] {
         let snapshot = initial();
@@ -50,15 +48,7 @@ fn settings_change_rejects_a_registration_waiting_to_commit() {
             state.complete_registration(&snapshot, "obsolete".into()).is_err(),
             "{case}: accepted the obsolete registration"
         );
-        assert_eq!(
-            state.connection,
-            if replacement.enabled {
-                Connection::Connecting
-            } else {
-                Connection::Disabled
-            },
-            "{case}"
-        );
+        assert_eq!(state.connection, Connection::Connecting, "{case}");
         assert!(
             state
                 .begin_execution(
@@ -69,31 +59,26 @@ fn settings_change_rejects_a_registration_waiting_to_commit() {
                 .is_none()
         );
         assert!(latest.borrow().settings == *replacement, "{case}");
-        assert!(state.settings_snapshot.settings == *replacement, "{case}");
-        assert_eq!(state.settings_snapshot.revision, latest.borrow().revision);
-        assert!(latest.borrow().revision > snapshot.revision, "{case}");
-        if replacement.enabled {
-            assert!(
-                state.complete_registration(&latest.borrow(), "current".into()).is_ok(),
-                "{case}: rejected the current registration"
-            );
-            assert!(state.connected(), "{case}");
-        }
+        assert!(
+            state.complete_registration(&latest.borrow(), "current".into()).is_ok(),
+            "{case}: rejected the current registration"
+        );
+        assert!(state.connected(), "{case}");
     }
 }
 
 #[test]
 fn old_session_cleanup_cannot_overwrite_new_settings_or_registration() {
-    for enabled in [true, false] {
+    for registered in [true, false] {
         let old = initial();
         let mut state = BridgeState::new(old.clone());
         state.complete_registration(&old, "old".into()).unwrap();
         let (updates, latest) = watch::channel(old.clone());
         assert_eq!(
-            state.apply_settings(settings("changed", enabled), &updates),
+            state.apply_settings(settings("changed"), &updates),
             ApplyResult::Applied
         );
-        if enabled {
+        if registered {
             state.complete_registration(&latest.borrow(), "current".into()).unwrap();
         }
         let expected = serde_json::to_value(state.status()).unwrap();
@@ -173,7 +158,7 @@ fn stop_is_terminal_even_when_registration_or_session_cleanup_arrives_late() {
     assert!(state.busy());
     assert!(!state.reconnect());
     assert_eq!(
-        state.apply_settings(settings("changed", true), &updates),
+        state.apply_settings(settings("changed"), &updates),
         ApplyResult::Stopped
     );
     assert!(state.complete_registration(&snapshot, "late".into()).is_err());

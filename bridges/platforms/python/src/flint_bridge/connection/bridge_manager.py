@@ -22,7 +22,7 @@ class BridgeManager:
     create_execution: Callable[[], ExecutionCapabilities]
     dispatch_initialization: Callable[[Callable[[], None]], None]
 
-    def connect(self, address="127.0.0.1", port=6321, name=None, enabled=True):
+    def connect(self, address="127.0.0.1", port=6321, name=None):
         """Reuse a matching Bridge or bind this host's execution capabilities."""
         lock = sys.__dict__.setdefault(_LOCK, threading.RLock())
         with lock:
@@ -33,23 +33,23 @@ class BridgeManager:
                     raise RuntimeError("Disconnect the existing bridge before changing its endpoint or host")
                 return current
             capabilities = self.create_execution()
-            bridge = Bridge(capabilities, self.host, address, port, self.host if name is None else name, enabled)
+            bridge = Bridge(capabilities, self.host, address, port, self.host if name is None else name)
             setattr(sys, _SERVICE, bridge)
             return bridge
 
-    def configure(self, address="127.0.0.1", port=6321, name=None, enabled=True):
+    def configure(self, address="127.0.0.1", port=6321, name=None):
         """Apply settings without replacing the existing execution adapter."""
         lock = sys.__dict__.setdefault(_LOCK, threading.RLock())
         with lock:
             current = getattr(sys, _SERVICE, None)
             if current is None:
-                return self.connect(address, port, name, enabled)
+                return self.connect(address, port, name)
             if current.host != self.host:
                 raise RuntimeError("Disconnect the existing host Bridge before changing host type")
-            current.apply_settings(address, port, current.name if name is None else name, enabled)
+            current.apply_settings(address, port, current.name if name is None else name)
             return current
 
-    def attach(self, address="127.0.0.1", port=6321, name=None, enabled=True, timeout=20):
+    def attach(self, address="127.0.0.1", port=6321, name=None, timeout=20):
         """Schedule connection on the host thread and wait for registration.
 
         Call from a worker thread when the host scheduler queues work onto its
@@ -62,7 +62,7 @@ class BridgeManager:
             if not attempt.set_running_or_notify_cancel():
                 return
             try:
-                bridge = self.configure(address, port, name, enabled)
+                bridge = self.configure(address, port, name)
             except BaseException as error:
                 attempt.set_exception(error)
             else:
@@ -86,7 +86,7 @@ class BridgeManager:
                 raise TimeoutError(
                     "Bridge initialization is still in progress; connection outcome is unknown"
                 ) from None
-        if enabled and not bridge.wait_until_connected(max(0, deadline - time.monotonic())):
+        if not bridge.wait_until_connected(max(0, deadline - time.monotonic())):
             obstacle = bridge.status["connection"].get("obstacle")
             raise RuntimeError(
                 "Bridge registration did not complete" + (": " + obstacle["message"] if obstacle else "")

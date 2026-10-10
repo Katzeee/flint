@@ -1,11 +1,11 @@
-//! Run a plan's source on the host's CPython runtime.
+//! Enter Flint's Python attach adapter on the host's CPython runtime.
 
 use crate::os::{export, list_modules, module_with_export};
 use anyhow::{Context, Result};
 use flint_contracts::attach::CpythonPlan;
-use std::{ffi::CString, mem::transmute, os::raw::c_char};
+use std::{ffi::CString, mem::transmute, os::raw::c_char, path::Path};
 
-pub(crate) fn attach(plan: &CpythonPlan) -> Result<()> {
+pub(crate) fn attach(plan: &CpythonPlan, error_path: &Path) -> Result<()> {
     unsafe {
         // Injecting this library just changed the module list, so an immediate
         // enumeration can miss the interpreter; retry until it is found and
@@ -32,7 +32,7 @@ pub(crate) fn attach(plan: &CpythonPlan) -> Result<()> {
         let run_string: unsafe extern "C" fn(*const c_char) -> i32 =
             transmute(export(python, b"PyRun_SimpleString\0")?);
 
-        let source = CString::new(plan.source.as_str()).context("attach source contains a NUL byte")?;
+        let source = CString::new(source(plan, error_path)?).context("attach source contains a NUL byte")?;
         let gil = ensure();
         let code = run_string(source.as_ptr());
         release(gil);
@@ -42,3 +42,19 @@ pub(crate) fn attach(plan: &CpythonPlan) -> Result<()> {
         Ok(())
     }
 }
+
+/// Encode at the Python boundary so paths and names remain data in the plan.
+fn source(plan: &CpythonPlan, error_path: &Path) -> Result<String> {
+    Ok(format!(
+        "import sys\n\
+         if {root} not in sys.path:\n    sys.path.insert(0, {root})\n\
+         from flint_bridge.attach import start\n\
+         start({plan}, {error_path})\n",
+        root = serde_json::to_string(&plan.import_root)?,
+        plan = serde_json::to_string(&serde_json::to_string(plan)?)?,
+        error_path = serde_json::to_string(error_path)?,
+    ))
+}
+
+#[cfg(test)]
+mod tests;
