@@ -9,14 +9,14 @@ from flint_bridge import BridgeManager
 @pytest.fixture
 def integration(monkeypatch):
     class FakeBridge:
-        def __init__(self, capabilities, host, address, port, name, enabled=True):
+        def __init__(self, capabilities, host, address, port, name):
             self.capabilities = capabilities
             self.host, self.address, self.port = host, address, port
-            self.name, self.enabled = name, enabled
+            self.name = name
             self.instance_id = "instance-1"
 
-        def apply_settings(self, address, port, name, enabled=True):
-            self.address, self.port, self.name, self.enabled = address, port, name, enabled
+        def apply_settings(self, address, port, name):
+            self.address, self.port, self.name = address, port, name
 
         def check_running(self):
             pass

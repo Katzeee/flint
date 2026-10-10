@@ -16,9 +16,9 @@ namespace Flint.Unity
             ReflectionApi.Subscribe(UnityRuntime.Editor, null, "quitting", _ => manager.Dispose());
         }
 
-        private static BridgeSettings Settings(string address, int port, string name, bool enabled)
+        private static HostSettings Settings(string address, int port, string name)
         {
-            return new BridgeSettings { Address = address, Port = port, Name = name, Enabled = enabled };
+            return new HostSettings { Address = address, Port = port, Name = name };
         }
 
         public static BridgeManager Manager { get { return manager; } }
@@ -26,14 +26,14 @@ namespace Flint.Unity
         public static bool Busy { get { return manager.Busy; } }
         public static string StatusJson { get { return manager.StatusJson; } }
 
-        public static void Connect(string nativeLibrary, string address, int port, string name, bool enabled = true)
+        public static void Connect(string nativeLibrary, string address, int port, string name)
         {
-            manager.Connect(nativeLibrary, Settings(address, port, name, enabled));
+            manager.Connect(nativeLibrary, Settings(address, port, name));
         }
 
-        public static void ApplySettings(string address, int port, string name, bool enabled)
+        public static void ApplySettings(string address, int port, string name)
         {
-            manager.Configure(Settings(address, port, name, enabled));
+            manager.Configure(Settings(address, port, name));
         }
 
         public static void Reconnect() { manager.Reconnect(); }

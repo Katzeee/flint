@@ -6,17 +6,14 @@ from .native_core import NativeCore
 
 
 class Bridge:
-    def __init__(self, capabilities, host, address, port, name, enabled=True):
+    def __init__(self, capabilities, host, address, port, name):
         self.host = host
         self._scheduler = capabilities.scheduler
         try:
             self._core = NativeCore(
                 {
                     "host": host,
-                    "address": address,
-                    "port": port,
-                    "name": name,
-                    "enabled": enabled,
+                    "settings": {"address": address, "port": port, "name": name},
                     "runtime_version": platform.python_implementation() + " " + platform.python_version(),
                 },
                 capabilities,
@@ -36,10 +33,6 @@ class Bridge:
     @property
     def name(self):
         return self.status["settings"]["name"]
-
-    @property
-    def enabled(self):
-        return self.status["settings"]["enabled"]
 
     @property
     def instance_id(self):
@@ -79,5 +72,5 @@ class Bridge:
     def check_running(self):
         self._core.check_running()
 
-    def apply_settings(self, address, port, name, enabled=True):
-        self._core.apply_settings({"address": address, "port": port, "name": name, "enabled": enabled})
+    def apply_settings(self, address, port, name):
+        self._core.apply_settings({"address": address, "port": port, "name": name})

@@ -1,4 +1,5 @@
 use super::*;
+use flint_contracts::host_settings::HostSettings;
 use serde_json::json;
 use std::{
     fs::File,
@@ -35,19 +36,25 @@ fn captured(mut file: File) -> Vec<u8> {
 #[test]
 #[ignore = "requires Python; run `cargo xtask test python`"]
 fn loader_hands_the_request_to_the_platform_entry() {
-    let request = AttachRequest {
+    let settings = HostSettings {
         address: "127.0.0.1".into(),
         port: 6321,
+
         name: "a\"b\\c\n场景".into(),
     };
     let root = r"C:\tools\flint-bridge";
     let error_path = r"C:\temp\42.error";
+    let plan = CpythonPlan {
+        import_root: root.into(),
+        module: "flint_bridge.maya".into(),
+        settings,
+    };
     let stdout = tempfile::tempfile().unwrap();
     let stderr = tempfile::tempfile().unwrap();
     let mut process = PythonProcess(
         Command::new("python")
             .args(["-I", "-X", "utf8", "-c", include_str!("tests/python_bootstrap.py")])
-            .arg(source("flint_bridge.maya", root, &request, Path::new(error_path)))
+            .arg(source(&plan, Path::new(error_path)).unwrap())
             .stdin(Stdio::null())
             .stdout(stdout.try_clone().unwrap())
             .stderr(stderr.try_clone().unwrap())
@@ -79,12 +86,15 @@ fn loader_hands_the_request_to_the_platform_entry() {
         observed,
         json!({
             "import_root": root,
+            "error_path": error_path,
             "request": {
                 "module": "flint_bridge.maya",
-                "address": request.address,
-                "port": request.port,
-                "name": request.name,
-                "error_path": error_path,
+                "import_root": root,
+                "settings": {
+                    "address": "127.0.0.1",
+                    "port": 6321,
+                    "name": "a\"b\\c\n场景",
+                },
             },
         })
     );

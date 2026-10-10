@@ -8,7 +8,7 @@ def panel_module(qapp):
     return connection_panel
 
 
-SETTINGS = {"address": "127.0.0.1", "port": 6321, "name": "Maya", "enabled": True}
+SETTINGS = {"address": "127.0.0.1", "port": 6321, "name": "Maya"}
 
 
 def retrying(message):
@@ -21,15 +21,27 @@ def retrying(message):
 
 def test_an_obstacle_and_a_refused_action_are_shown_separately(panel_module):
     snapshot = {"value": retrying("connection refused")}
+    disconnects = []
+    execution_starts_on_disconnect = False
 
-    def refuse(*_):
+    def disconnect():
+        disconnects.append(True)
+        if execution_starts_on_disconnect:
+            snapshot["value"] = {
+                "connection": {"state": "stopped"},
+                "busy": True,
+                "settings": SETTINGS,
+            }
+            return False
         raise RuntimeError("Bridge is executing host code")
 
-    panel = panel_module.ConnectionPanel(SETTINGS, lambda: snapshot["value"], refuse, lambda: None)
+    panel = panel_module.ConnectionPanel(
+        lambda: SETTINGS, lambda: snapshot["value"], lambda *_: None, lambda: None, disconnect
+    )
     assert panel.status.text() == "Retrying"
     assert panel.warning_text.text() == "connection refused"
 
-    panel.apply()
+    panel.connection_button.click()
     assert panel.action_result.text() == "Bridge is executing host code"
     assert panel.warning_text.text() == "connection refused"
 
@@ -44,22 +56,83 @@ def test_an_obstacle_and_a_refused_action_are_shown_separately(panel_module):
     assert panel.warning.isHidden()
     assert panel.action_result.text() == "Bridge is executing host code"
 
-    panel.name.textEdited.emit("Maya 2")
+    snapshot["value"]["busy"] = True
+    panel.refresh()
+    assert not panel.connection_button.isEnabled()
+    panel.connection_button.click()
+    assert len(disconnects) == 1
+
+    snapshot["value"]["busy"] = False
+    panel.refresh()
+    assert panel.connection_button.isEnabled()
+    # Execution may begin after the last refresh but before Disconnect reaches the manager.
+    execution_starts_on_disconnect = True
+    panel.connection_button.click()
+    assert len(disconnects) == 2
+    assert panel.status.text() == "Stopped"
+    assert panel.action_result.text() == "Bridge is still executing host code"
+    assert not panel.connection_button.isEnabled()
+
+    snapshot["value"]["busy"] = False
+    panel.refresh()
+    assert panel.connection_button.isEnabled()
+    assert panel.action_result.text() == "Bridge is still executing host code"
+    panel.apply_button.click()
     assert panel.action_result.isHidden()
 
 
-def test_without_a_bridge_apply_starts_one_and_reports_why_it_could_not(panel_module):
-    attempts = []
+def test_apply_saves_without_reconnecting_and_connect_uses_saved_settings(panel_module):
+    saved = SETTINGS.copy()
+    snapshot = {"value": retrying("connection refused")}
+    starts = []
 
-    def start(*settings):
-        attempts.append(settings)
-        raise RuntimeError("Another Bridge already owns this process")
+    def save(address, port, name):
+        saved.update(address=address, port=port, name=name)
 
-    panel = panel_module.ConnectionPanel(SETTINGS, lambda: None, start, lambda: None)
-    assert panel.status.text() == "Stopped"
-    assert panel.apply_button.isEnabled()
-    assert not panel.retry_button.isEnabled()
-    panel.apply()
-    assert attempts == [("127.0.0.1", 6321, "Maya", True)]
-    assert panel.action_result.text() == "Another Bridge already owns this process"
-    assert panel.warning.isHidden()
+    def disconnect():
+        snapshot["value"] = None
+        return True
+
+    def connect():
+        starts.append(saved.copy())
+        snapshot["value"] = {
+            "connection": {"state": "connecting"},
+            "busy": False,
+            "settings": saved.copy(),
+        }
+
+    panel = panel_module.ConnectionPanel(lambda: saved, lambda: snapshot["value"], save, connect, disconnect)
+    panel.port.setValue(6330)
+    panel.refresh()
+    assert panel.pending.isHidden()
+    assert panel.apply_button.text() == "Apply"
+    assert panel.connection_button.text() == "Disconnect"
+    panel.apply_button.click()
+    assert saved["port"] == 6330
+    assert snapshot["value"]["settings"]["port"] == 6321
+    assert starts == []
+    assert not panel.pending.isHidden()
+
+    # Further edits are drafts; the hint compares saved settings with the connection.
+    panel.port.setValue(6321)
+    panel.refresh()
+    assert not panel.pending.isHidden()
+    panel.connection_button.click()
+    panel.refresh()
+    assert snapshot["value"] is None
+    assert starts == []
+    assert panel.pending.isHidden()
+    assert panel.connection_button.text() == "Connect"
+    panel.connection_button.click()
+    assert starts[0]["port"] == 6330
+    assert panel.pending.isHidden()
+    assert panel.connection_button.text() == "Disconnect"
+    assert not panel.apply_button.isHidden()
+    assert not panel.connection_button.isHidden()
+
+    # Saving while disconnected does not implicitly connect.
+    panel.connection_button.click()
+    panel.apply_button.click()
+    assert saved["port"] == 6321
+    assert snapshot["value"] is None
+    assert len(starts) == 1

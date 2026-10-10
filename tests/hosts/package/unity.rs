@@ -30,27 +30,15 @@ fn exported_package_registers_and_executes() -> Result<()> {
     fs::create_dir_all(project.join("Assets/Editor"))?;
     fs::create_dir_all(project.join("ProjectSettings"))?;
     fs::create_dir_all(project.join("Packages"))?;
-    fs::write(
-        project.join("Assets/Editor/FlintTestBootstrap.cs"),
-        format!(
-            r#"using UnityEditor;
-
-[InitializeOnLoad]
-public static class FlintTestBootstrap
-{{
-    static FlintTestBootstrap() {{ EditorApplication.update += Apply; }}
-
-    static void Apply()
-    {{
-        if (Flint.Unity.EditorBridge.StatusJson == null) return;
-        Flint.Unity.EditorBridge.ApplySettings("127.0.0.1", {}, "Unity Editor", true);
-        EditorApplication.update -= Apply;
-    }}
-}}
-"#,
-            app.bridge_port
-        ),
+    fs::copy(
+        fixture("unity_preferences.cs"),
+        package.join("Editor/TestPreferences.cs"),
     )?;
+    fs::copy(
+        fixture("unity_package_lifecycle.cs"),
+        package.join("Editor/TestLifecycle.cs"),
+    )?;
+    let lifecycle = app.directory.join("lifecycle.txt");
     let package_path = package.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/");
     fs::write(
         project.join("Packages/manifest.json"),
@@ -63,6 +51,8 @@ public static class FlintTestBootstrap
         .arg(unity_path(&project))
         .arg("-logFile")
         .arg(unity_path(&log))
+        .env("FLINT_TEST_BRIDGE_PORT", app.bridge_port.to_string())
+        .env("FLINT_TEST_LIFECYCLE_RESULT", unity_path(&lifecycle))
         .current_dir(unity_path(&project))
         .stdin(Stdio::null())
         .stdout(fs::File::create(app.directory.join("unity.stdout"))?)
@@ -73,6 +63,11 @@ public static class FlintTestBootstrap
     let mut instance = None;
     wait_until(Duration::from_secs(180), || {
         anyhow::ensure!(host.0.try_wait()?.is_none(), "Unity exited; inspect {}", log.display());
+        if !lifecycle.is_file() {
+            return Ok(false);
+        }
+        let result = fs::read_to_string(&lifecycle)?;
+        anyhow::ensure!(result == "ok", "Unity connection lifecycle failed: {result}");
         instance = app.instance("unity")?;
         Ok(instance.is_some())
     })?;

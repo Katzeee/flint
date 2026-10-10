@@ -169,8 +169,8 @@ fn attach_reports_why_the_injected_bridge_could_not_start() -> Result<()> {
              from flint_bridge.execution.capabilities import ExecutionCapabilities\n\
              from flint_bridge.execution.executor import CodeExecutor\n\
              from flint_bridge.execution.scheduling import CallbackQueue\n\
-             core = NativeCore({{'host': 'standalone_python', 'address': '127.0.0.1', 'port': 1,\n\
-                                 'name': 'holder', 'runtime_version': 'holder', 'enabled': False}},\n\
+             core = NativeCore({{'host': 'standalone_python', 'runtime_version': 'holder',\n\
+                                 'settings': {{'address': '127.0.0.1', 'port': 1, 'name': 'holder'}}}},\n\
                                ExecutionCapabilities(CodeExecutor(), CallbackQueue()))"
         ),
     )?;

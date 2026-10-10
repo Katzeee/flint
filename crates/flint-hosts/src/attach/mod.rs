@@ -12,17 +12,8 @@ use crate::{
     layout::stage,
 };
 use anyhow::Result;
-use flint_contracts::{
-    attach::{BootstrapRequest, RuntimePlan},
-    config::StateDir,
-};
+use flint_contracts::{attach::BootstrapRequest, config::StateDir, host_settings::HostSettings};
 use strum::IntoEnumIterator;
-
-pub struct AttachRequest {
-    pub address: String,
-    pub port: u16,
-    pub name: String,
-}
 
 #[derive(Debug, thiserror::Error)]
 #[error("attach is not implemented for host kind {0}")]
@@ -45,14 +36,7 @@ pub fn attach_supported() -> bool {
 /// once the injected side has reported it. Absent while it is still working or
 /// after it succeeded.
 pub fn attach_error(state: &StateDir, pid: u32) -> Option<String> {
-    std::fs::read_to_string(state.attach_handoff(pid).error_path).ok()
-}
-
-/// Publish the host's startup instructions for the injected bootstrap.
-fn write_plan(handoff: &BootstrapRequest, plan: &RuntimePlan) -> Result<()> {
-    std::fs::create_dir_all(handoff.plan_path.parent().expect("attach plan has a parent directory"))?;
-    std::fs::write(&handoff.plan_path, serde_json::to_vec(plan)?)?;
-    Ok(())
+    std::fs::read_to_string(state.attach_error_path(pid)).ok()
 }
 
 /// Inject the Bridge bootstrap into the host process `pid`.
@@ -60,24 +44,17 @@ fn write_plan(handoff: &BootstrapRequest, plan: &RuntimePlan) -> Result<()> {
 /// Returns once the bootstrap has dispatched the plan; the Bridge connects
 /// asynchronously and the caller confirms it through the backend.
 impl Attach {
-    pub fn inject(self, pid: u32, state: &StateDir, request: &AttachRequest) -> Result<()> {
-        let handoff = state.attach_handoff(pid);
+    pub fn inject(self, pid: u32, state: &StateDir, settings: HostSettings) -> Result<()> {
+        let error_path = state.attach_error_path(pid);
         let root = stage(&state.attach_staging(), &self.layout)?;
-        let plan = self.entry.plan(&root, request, &handoff.error_path);
+        let plan = self.entry.plan(&root, settings);
+        std::fs::create_dir_all(error_path.parent().expect("attach report has a parent directory"))?;
         // A previous attempt's outcome must not be mistaken for this one's.
-        match std::fs::remove_file(&handoff.error_path) {
+        match std::fs::remove_file(&error_path) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
             _ => {}
         }
-        write_plan(&handoff, &plan)?;
-        match os::inject(pid, state, &handoff) {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                // Leave no stale plan if the bootstrap never loaded to read it.
-                let _ = std::fs::remove_file(&handoff.plan_path);
-                Err(error)
-            }
-        }
+        os::inject(pid, state, &BootstrapRequest { plan, error_path })
     }
 }
 

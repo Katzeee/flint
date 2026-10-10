@@ -58,7 +58,7 @@ def _load_bridge_api():
         _bind(bridge_api)
     except AttributeError as error:
         raise BridgeCreationError("abi_mismatch", "Bridge core is missing {}".format(error))
-    if bridge_api.flint_bridge_abi_version() != 8:
+    if bridge_api.flint_bridge_abi_version() != 9:
         raise BridgeCreationError("abi_mismatch", "Unsupported native Bridge ABI")
     return bridge_api
 

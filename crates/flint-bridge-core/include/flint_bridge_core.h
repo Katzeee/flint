@@ -85,9 +85,9 @@ void flint_step_succeed(FlintStep *step, uintptr_t result_id);
  * message is diagnostic text; traceback carries the host's stack trace. */
 void flint_step_fail(FlintStep *step, const char *code, const char *message, const char *traceback);
 
-/* Creation options: {"host","address","port","name","runtime_version"}, with
- * optional "enabled" (default true). A host process owns at most one Bridge:
- * create returns null if one already exists. Settings: {"address","port","name","enabled"}.
+/* Creation options: {"host","runtime_version","settings"}.
+ * A host process owns at most one Bridge:
+ * create returns null if one already exists. Settings: {"address","port","name"}.
  * At most one execution is active; another request receives instance_busy. */
 
 #ifdef __cplusplus

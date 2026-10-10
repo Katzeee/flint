@@ -193,9 +193,9 @@ fn python(root: &Path) -> Result<()> {
             "test",
             "--locked",
             "--package",
-            "flint-hosts",
+            "flint-bridge-bootstrap",
             "--",
-            "platform::python::",
+            "runtimes::cpython::",
             "--ignored",
         ],
     )?;
@@ -218,13 +218,6 @@ fn python(root: &Path) -> Result<()> {
 fn csharp(root: &Path) -> Result<()> {
     csharp_checks(root)?;
     execute(
-        root,
-        "cargo",
-        &["build", "--locked", "--package", "flint-bridge-core"],
-        &[],
-    )?;
-    let core = target_dir(root).join("debug/flint_bridge_core.dll");
-    execute(
         &root.join("bridges/platforms/dotnet"),
         "dotnet",
         &[
@@ -234,7 +227,7 @@ fn csharp(root: &Path) -> Result<()> {
             "-p:RestoreLockedMode=true",
             "-p:NuGetAudit=false",
         ],
-        &[("FLINT_BRIDGE_CORE", core.as_os_str())],
+        &[],
     )?;
     cargo_test(
         root,

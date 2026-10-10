@@ -3,8 +3,8 @@
 pub(crate) mod dotnet;
 pub(crate) mod python;
 
-use crate::{attach::AttachRequest, bridge::Install, layout::Layout};
-use flint_contracts::attach::RuntimePlan;
+use crate::{bridge::Install, layout::Layout};
+use flint_contracts::{attach::RuntimePlan, host_settings::HostSettings};
 use std::path::Path;
 use strum::{EnumDiscriminants, EnumIter, EnumString, IntoStaticStr};
 
@@ -47,10 +47,10 @@ impl Platform {
 
 impl PlatformEntry {
     /// `root` is the staged attach layout.
-    pub(crate) fn plan(&self, root: &Path, request: &AttachRequest, error_path: &Path) -> RuntimePlan {
+    pub(crate) fn plan(&self, root: &Path, settings: HostSettings) -> RuntimePlan {
         match self {
-            Self::Python(entry) => python::plan(entry, root, request, error_path),
-            Self::Dotnet(entry) => dotnet::plan(entry, root, request),
+            Self::Python(entry) => python::plan(entry, root, settings),
+            Self::Dotnet(entry) => dotnet::plan(entry, root, settings),
         }
     }
 }

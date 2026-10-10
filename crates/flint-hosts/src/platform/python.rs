@@ -3,11 +3,13 @@
 
 use super::PlatformEntry;
 use crate::{
-    attach::AttachRequest,
     bridge::Attach,
     layout::{CORE, Layout, NATIVE_CORE, PYTHON_LIBRARY, join},
 };
-use flint_contracts::attach::{CpythonPlan, RuntimePlan};
+use flint_contracts::{
+    attach::{CpythonPlan, RuntimePlan},
+    host_settings::HostSettings,
+};
 use std::path::Path;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -29,32 +31,10 @@ pub(crate) fn attach(module: &'static str) -> Attach {
     }
 }
 
-pub(super) fn plan(entry: &Entry, root: &Path, request: &AttachRequest, error_path: &Path) -> RuntimePlan {
+pub(super) fn plan(entry: &Entry, root: &Path, settings: HostSettings) -> RuntimePlan {
     RuntimePlan::Cpython(CpythonPlan {
-        source: source(entry.module, &root.display().to_string(), request, error_path),
+        import_root: root.to_path_buf(),
+        module: entry.module.into(),
+        settings,
     })
 }
-
-/// Make the staged library importable and hand the request to the platform's
-/// `flint_bridge.attach`. JSON string encoding yields valid Python string literals.
-fn source(module: &str, root: &str, request: &AttachRequest, error_path: &Path) -> String {
-    let literal = |value: &str| serde_json::to_string(value).unwrap();
-    let request = serde_json::json!({
-        "module": module,
-        "address": request.address,
-        "port": request.port,
-        "name": request.name,
-        "error_path": error_path,
-    });
-    format!(
-        "import sys\n\
-         if {root} not in sys.path:\n    sys.path.insert(0, {root})\n\
-         from flint_bridge.attach import start\n\
-         start({request})\n",
-        root = literal(root),
-        request = literal(&request.to_string()),
-    )
-}
-
-#[cfg(test)]
-mod tests;

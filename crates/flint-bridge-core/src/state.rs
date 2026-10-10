@@ -1,6 +1,6 @@
 use crate::{
     execution::Execution,
-    settings::{ApplyResult, BridgeSettings, SettingsSnapshot},
+    settings::{ApplyResult, HostSettings, SettingsSnapshot},
 };
 use flint_contracts::protocol::{Envelope, HostExecuteRequest};
 use serde::Serialize;
@@ -13,7 +13,6 @@ use tokio::sync::{mpsc::UnboundedSender, watch};
 #[serde(tag = "state", rename_all = "snake_case")]
 pub(crate) enum Connection {
     Stopped,
-    Disabled,
     Connecting,
     Connected { instance_id: String },
     Retrying { obstacle: Obstacle },
@@ -42,7 +41,7 @@ pub(crate) enum ObstacleKind {
 pub(crate) struct StatusSnapshot<'a> {
     connection: &'a Connection,
     busy: bool,
-    settings: &'a BridgeSettings,
+    settings: &'a HostSettings,
 }
 
 pub(crate) struct BridgeState {
@@ -56,14 +55,12 @@ pub(crate) struct BridgeState {
 // execution admission: checking a revision and publishing state are indivisible.
 impl BridgeState {
     pub(crate) fn new(settings_snapshot: Arc<SettingsSnapshot>) -> Self {
-        let mut state = Self {
+        Self {
             settings_snapshot,
-            connection: Connection::Disabled,
+            connection: Connection::Connecting,
             last_execution_id: 0,
             execution: None,
-        };
-        state.reconnect();
-        state
+        }
     }
 
     pub(crate) fn connected(&self) -> bool {
@@ -99,7 +96,7 @@ impl BridgeState {
 
     pub(crate) fn apply_settings(
         &mut self,
-        settings: BridgeSettings,
+        settings: HostSettings,
         updates: &watch::Sender<Arc<SettingsSnapshot>>,
     ) -> ApplyResult {
         if self.stopped() {
@@ -118,7 +115,7 @@ impl BridgeState {
             revision: self.settings_snapshot.revision + 1,
             settings,
         });
-        self.reconnect();
+        self.connection = Connection::Connecting;
         updates.send_replace(self.settings_snapshot.clone());
         ApplyResult::Applied
     }
@@ -127,11 +124,7 @@ impl BridgeState {
         if self.stopped() {
             return false;
         }
-        self.connection = if self.settings_snapshot.settings.enabled {
-            Connection::Connecting
-        } else {
-            Connection::Disabled
-        };
+        self.connection = Connection::Connecting;
         true
     }
 
@@ -155,12 +148,10 @@ impl BridgeState {
         if self.stopped() || self.settings_snapshot.revision != settings_snapshot.revision {
             return;
         }
-        match obstacle {
-            Some(obstacle) => self.connection = Connection::Retrying { obstacle },
-            None => {
-                self.reconnect();
-            }
-        }
+        self.connection = match obstacle {
+            Some(obstacle) => Connection::Retrying { obstacle },
+            None => Connection::Connecting,
+        };
         // Host code can outlive this connection; only its result clears busy.
     }
 

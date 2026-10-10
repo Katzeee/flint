@@ -24,8 +24,9 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_SystemServices",
 ] }
 
-[lints]
-workspace = true
-
 [dev-dependencies]
 tempfile.workspace = true
+wait-timeout.workspace = true
+
+[lints]
+workspace = true

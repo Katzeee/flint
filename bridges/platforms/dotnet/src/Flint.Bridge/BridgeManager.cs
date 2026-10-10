@@ -35,7 +35,7 @@ namespace Flint.Bridge
         public string StatusJson { get { lock (gate) return bridge?.StatusJson; } }
         public string InstanceId { get { lock (gate) return bridge?.InstanceId; } }
 
-        public void Connect(string nativeLibrary, BridgeSettings settings)
+        public void Connect(string nativeLibrary, HostSettings settings)
         {
             lock (gate)
             {
@@ -56,10 +56,7 @@ namespace Flint.Bridge
                     {
                         Host = host,
                         RuntimeVersion = runtimeVersion(),
-                        Address = settings.Address,
-                        Port = settings.Port,
-                        Name = settings.Name,
-                        Enabled = settings.Enabled
+                        Settings = settings
                     }), capabilities);
                 }
                 catch { capabilities.Scheduler.Dispose(); throw; }
@@ -67,7 +64,7 @@ namespace Flint.Bridge
             }
         }
 
-        public void Configure(BridgeSettings settings, string nativeLibrary = null)
+        public void Configure(HostSettings settings, string nativeLibrary = null)
         {
             lock (gate)
             {
@@ -83,7 +80,7 @@ namespace Flint.Bridge
         }
 
         /// <summary>Dispatch initialization once; cancellation only prevents work that has not begun.</summary>
-        public string Attach(string nativeLibrary, BridgeSettings settings, int timeoutMilliseconds = 20000)
+        public string Attach(string nativeLibrary, HostSettings settings, int timeoutMilliseconds = 20000)
         {
             var elapsed = Stopwatch.StartNew();
             // 0 = queued, 1 = started, 2 = cancelled. The dispatch callback can
@@ -110,9 +107,9 @@ namespace Flint.Bridge
                 }
             }
             catch (AggregateException error) { throw error.InnerException; }
-            while (settings.Enabled && !Connected && elapsed.ElapsedMilliseconds < timeoutMilliseconds)
+            while (!Connected && elapsed.ElapsedMilliseconds < timeoutMilliseconds)
                 Thread.Sleep(20);
-            if (settings.Enabled && !Connected) throw new TimeoutException("Bridge registration did not complete");
+            if (!Connected) throw new TimeoutException("Bridge registration did not complete");
             return InstanceId;
         }
 

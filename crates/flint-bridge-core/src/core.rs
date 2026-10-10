@@ -3,7 +3,7 @@ use crate::{
     connection,
     execution_binding::OwnedExecutionBinding,
     execution_coordinator::ExecutionCoordinator,
-    settings::{ApplyResult, BridgeOptions, BridgeSettings, SettingsSnapshot},
+    settings::{ApplyResult, BridgeOptions, HostSettings, SettingsSnapshot},
     state::BridgeState,
 };
 use anyhow::Context;
@@ -138,7 +138,7 @@ impl BridgeCore {
         })
     }
 
-    pub(crate) fn apply_settings(&self, settings: BridgeSettings) -> ApplyResult {
+    pub(crate) fn apply_settings(&self, settings: HostSettings) -> ApplyResult {
         self.bridge_state
             .lock()
             .unwrap()

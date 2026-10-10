@@ -1,8 +1,8 @@
 """The common Qt connection panel used by the Maya and 3ds Max packages.
 
 The status area shows the Bridge's own snapshot, including why its connection
-is retrying. A refused Apply or Reconnect is that action's result: it appears
-beside the buttons until the next action or edit, and polling never replaces it.
+is retrying. A refused connection action is that action's result: it appears
+beside the buttons until the next action, and polling never replaces it.
 """
 
 from ..qt import resolve_qt
@@ -21,16 +21,20 @@ def connection_obstacle(snapshot):
 
 
 class ConnectionPanel(QtWidgets.QDialog):
-    def __init__(self, settings, snapshot, apply_settings, reconnect, parent=None):
+    def __init__(self, settings, snapshot, apply_settings, connect, disconnect, parent=None):
         super().__init__(parent)
+        self._settings = settings
+        self._connect = connect
+        settings = settings()
         self._snapshot = snapshot
         self._apply_settings = apply_settings
-        self._reconnect = reconnect
+        self._disconnect = disconnect
         self._action_error = None
         self.setWindowTitle("Flint Bridge")
         self.setMinimumWidth(480)
 
         layout = QtWidgets.QVBoxLayout(self)
+        layout.setSizeConstraint(QtWidgets.QLayout.SetFixedSize)
         connection = QtWidgets.QGroupBox("Connection")
         connection_layout = QtWidgets.QFormLayout(connection)
         connection_layout.setLabelAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
@@ -39,6 +43,9 @@ class ConnectionPanel(QtWidgets.QDialog):
         self.active = QtWidgets.QLabel()
         connection_layout.addRow("Status", self.status)
         connection_layout.addRow("Active settings", self.active)
+        self.pending = QtWidgets.QLabel("New settings will take effect on the next connection.")
+        self.pending.setWordWrap(True)
+        connection_layout.addRow(self.pending)
         layout.addWidget(connection)
 
         self.warning = QtWidgets.QFrame()
@@ -62,18 +69,15 @@ class ConnectionPanel(QtWidgets.QDialog):
         self.port.setRange(1, 65535)
         self.port.setValue(settings["port"])
         self.name = QtWidgets.QLineEdit(settings["name"])
-        self.enabled = QtWidgets.QCheckBox()
-        self.enabled.setChecked(settings["enabled"])
         form_layout.addRow("Bridge address", self.address)
         form_layout.addRow("Bridge port", self.port)
         form_layout.addRow("Instance name", self.name)
-        form_layout.addRow("Connect to Flint", self.enabled)
         layout.addWidget(form)
 
         buttons = QtWidgets.QHBoxLayout()
         self.apply_button = QtWidgets.QPushButton("Apply")
-        self.retry_button = QtWidgets.QPushButton("Reconnect")
-        for button in (self.apply_button, self.retry_button):
+        self.connection_button = QtWidgets.QPushButton()
+        for button in (self.apply_button, self.connection_button):
             button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
             buttons.addWidget(button, 1)
         layout.addLayout(buttons)
@@ -83,9 +87,7 @@ class ConnectionPanel(QtWidgets.QDialog):
         layout.addWidget(self.action_result)
 
         self.apply_button.clicked.connect(self.apply)
-        self.retry_button.clicked.connect(self.retry)
-        for signal in (self.address.textEdited, self.port.valueChanged, self.name.textEdited, self.enabled.toggled):
-            signal.connect(self._clear_action_error)
+        self.connection_button.clicked.connect(self.toggle_connection)
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(1000)
@@ -101,27 +103,27 @@ class ConnectionPanel(QtWidgets.QDialog):
         self.warning.setVisible(bool(obstacle))
         self.action_result.setText(self._action_error or "")
         self.action_result.setVisible(bool(self._action_error))
-        busy = bool(snapshot and snapshot["busy"])
-        # Without a Bridge, Apply starts one from these settings.
-        self.apply_button.setEnabled(not busy)
-        self.retry_button.setEnabled(bool(snapshot and active["enabled"] and not busy))
-
-    def _clear_action_error(self, *_):
-        if self._action_error:
-            self._action_error = None
-            self.refresh()
+        self.pending.setVisible(bool(snapshot and self._settings() != active))
+        self.connection_button.setText("Disconnect" if snapshot else "Connect")
+        self.connection_button.setEnabled(not (snapshot and snapshot["busy"]))
 
     def apply(self):
         try:
-            self._apply_settings(self.address.text(), self.port.value(), self.name.text(), self.enabled.isChecked())
+            if not self.address.text().strip() or not self.name.text().strip():
+                raise ValueError("Address and instance name are required")
+            self._apply_settings(self.address.text(), self.port.value(), self.name.text())
             self._action_error = None
         except Exception as problem:
             self._action_error = str(problem)
         self.refresh()
 
-    def retry(self):
+    def toggle_connection(self):
         try:
-            self._reconnect()
+            if self._snapshot():
+                if not self._disconnect():
+                    raise RuntimeError("Bridge is still executing host code")
+            else:
+                self._connect()
             self._action_error = None
         except Exception as problem:
             self._action_error = str(problem)

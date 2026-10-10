@@ -10,10 +10,18 @@ namespace Flint.Unity
     {
         static EditorBootstrap()
         {
-            EditorApplication.delayCall += Connect;
+            EditorApplication.delayCall += () =>
+            {
+                try { Connect(); }
+                catch (BridgeCreationException error)
+                {
+                    // The settings page stays available so the user can start it with Connect.
+                    Debug.LogWarning("Flint Bridge did not start: " + error.Message);
+                }
+            };
         }
 
-        private static void Connect()
+        internal static void Connect()
         {
             var package = UnityEditor.PackageManager.PackageInfo.FindForPackageName("com.flint.bridge");
             if (package == null) return;
@@ -21,15 +29,7 @@ namespace Flint.Unity
             var library = Path.Combine(package.resolvedPath, "Editor", "Plugins", "flint_bridge_core.dll");
 
             var settings = EditorConnectionSettings.Read();
-            try
-            {
-                EditorBridge.Connect(library, settings.address, settings.port, settings.name, settings.enabled);
-            }
-            catch (BridgeCreationException error)
-            {
-                // The settings page stays available so the user can start it with Apply.
-                Debug.LogWarning("Flint Bridge did not start: " + error.Message);
-            }
+            EditorBridge.Connect(library, settings.address, settings.port, settings.name);
         }
     }
 }

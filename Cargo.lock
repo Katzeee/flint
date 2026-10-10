@@ -1298,6 +1298,7 @@ dependencies = [
  "flint-contracts",
  "serde_json",
  "tempfile",
+ "wait-timeout",
  "windows-sys 0.61.2",
 ]
 
@@ -1353,7 +1354,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
- "wait-timeout",
  "windows-sys 0.61.2",
  "zip",
 ]

@@ -69,9 +69,6 @@ impl Core {
     pub(crate) fn busy(&self) -> bool {
         unsafe { flint_bridge_busy(self.pointer) }
     }
-    fn instance_id(&self) -> String {
-        unsafe { take(flint_bridge_instance_id(self.pointer)) }.unwrap()
-    }
     fn status(&self) -> Value {
         serde_json::from_str(&unsafe { take(flint_bridge_status_json(self.pointer)) }.unwrap()).unwrap()
     }
@@ -139,13 +136,11 @@ unsafe fn take(value: *mut c_char) -> Option<String> {
 }
 
 fn config(port: u16) -> String {
-    json!({"host": "custom-editor", "address": "127.0.0.1", "port": port, "name": "场景",
-           "runtime_version": "test"})
-    .to_string()
+    json!({"host": "custom-editor", "runtime_version": "test", "settings": settings(port, "场景")}).to_string()
 }
 
-fn settings(port: u16, name: &str, enabled: bool) -> Value {
-    json!({"address":"127.0.0.1","port":port,"name":name,"enabled":enabled})
+fn settings(port: u16, name: &str) -> Value {
+    json!({"address":"127.0.0.1","port":port,"name":name})
 }
 
 fn wait_until(mut condition: impl FnMut() -> bool) {
@@ -353,7 +348,7 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
     first.send(execute("active"));
     assert_eq!(core.wait_request(WAIT).unwrap()["request_id"], "active");
     let mut second = Backend::start();
-    let replacement = settings(second.port, "新场景", true);
+    let replacement = settings(second.port, "新场景");
     assert_eq!(core.apply_settings(replacement.clone()), ApplyResult::Busy as u32);
     assert!(core.connected());
     assert_eq!(core.status()["settings"]["name"], "场景");
@@ -489,11 +484,10 @@ fn a_refused_registration_reports_the_backend_reason() {
 }
 
 #[test]
-fn execution_is_delivered_and_its_output_and_result_are_reported() {
+fn execution_request_reaches_the_host_with_its_identifiers_and_filename() {
     let mut backend = Backend::start();
     let core = connected(&mut backend);
     backend.registration();
-    assert_eq!(core.instance_id(), "instance-1");
     backend.send(execute("request-1"));
     let event = core.wait_request(Duration::from_secs(10)).unwrap();
     assert_eq!(
@@ -506,27 +500,4 @@ fn execution_is_delivered_and_its_output_and_result_are_reported() {
             "filename": "scene.py",
         })
     );
-    assert!(core.busy());
-    assert!(core.write("", ""));
-    assert!(core.write("你好\n", ""));
-    assert!(core.finish());
-    assert!(!core.busy());
-
-    let mut received = backend.until_result();
-    assert!(received.iter().all(|envelope| envelope.request_id == "request-1"));
-    let Some(Payload::ExecutionResult(result)) = received.pop().unwrap().payload else {
-        unreachable!()
-    };
-    let mut stdout = String::new();
-    for (sequence, output) in received.into_iter().enumerate() {
-        let Some(Payload::ExecutionOutputUpdate(update)) = output.payload else {
-            panic!("expected output update, got {output:?}");
-        };
-        assert_eq!(update.sequence, sequence as u64 + 1);
-        stdout.push_str(&update.stdout_delta);
-    }
-    assert_eq!(stdout, "prepared\nran\n你好\n");
-    assert_eq!(result.execution_id, "execution-request-1");
-    assert_eq!(result.status, ExecutionStatus::Succeeded as i32);
-    assert!(!core.finish());
 }

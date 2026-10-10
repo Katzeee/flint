@@ -5,7 +5,7 @@ use crate::{
     core::CreationError,
     execution_binding::{ExecutionBinding, OwnedExecutionBinding},
     execution_coordinator::Step,
-    settings::{ApplyResult, BridgeOptions, BridgeSettings},
+    settings::{ApplyResult, BridgeOptions, HostSettings},
 };
 use anyhow::Context;
 use std::{
@@ -53,7 +53,7 @@ impl From<&CreationError> for CreationErrorKind {
 
 #[no_mangle]
 pub extern "C" fn flint_bridge_abi_version() -> u32 {
-    8
+    9
 }
 
 /// Returns null on failure and sets `error_kind` to a nonzero
@@ -160,8 +160,7 @@ pub unsafe extern "C" fn flint_bridge_apply_settings(core: *const BridgeCore, se
     let Some(core) = core.as_ref() else {
         return ApplyResult::Invalid as u32;
     };
-    let Some(settings) = input(settings_json).and_then(|text| serde_json::from_str::<BridgeSettings>(&text).ok())
-    else {
+    let Some(settings) = input(settings_json).and_then(|text| serde_json::from_str::<HostSettings>(&text).ok()) else {
         return ApplyResult::Invalid as u32;
     };
     core.apply_settings(settings) as u32
