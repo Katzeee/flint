@@ -1,6 +1,4 @@
-# Application execution
-
-Flint connects applications that execute code to a backend that coordinates requests and keeps workflow records.
+# Flint glossary
 
 ## Language
 

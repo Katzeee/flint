@@ -1,6 +1,6 @@
 # Windows development environment
 
-Prepare the checkout through xtask, then build and verify the application. Follow the [development guide](contributing.md) when changing the repository.
+Prepare the checkout through xtask, then build and verify the application.
 
 ## Prerequisites
 
@@ -32,4 +32,4 @@ cargo build --locked
 
 Verify that both commands exit successfully, then open the executable without arguments and confirm the desktop opens. Continue with the [usage guide](../README.md) to connect a host.
 
-Use `cargo check` for compilation checks or `cargo build --locked --release` for an optimized executable. For repository checks and tests, follow the [development guide](contributing.md#formatting-and-lints).
+Use `cargo check` for compilation checks or `cargo build --locked --release` for an optimized executable. For repository checks and tests, follow the [contribution guide](contributing.md#formatting-and-lints).
