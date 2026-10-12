@@ -30,8 +30,8 @@ impl Fixture {
                 name: "test".into(),
             },
         });
-        let mut state = BridgeState::new(settings.clone());
-        state.complete_registration(&settings, "instance".into()).unwrap();
+        let mut state = BridgeState::new("instance".into(), settings.clone());
+        state.complete_registration(&settings).unwrap();
         let state = Arc::new(Mutex::new(state));
         let (outbound, outputs) = tokio::sync::mpsc::unbounded_channel();
         let fake = Fake::new();

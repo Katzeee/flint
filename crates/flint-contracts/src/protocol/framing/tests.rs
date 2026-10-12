@@ -17,13 +17,13 @@ fn decoding_rejects_invalid_envelope_fields() {
     EnvelopeCodec::default().encode(sample(), &mut valid).unwrap();
     assert_eq!(EnvelopeCodec::default().decode(&mut valid).unwrap(), Some(sample()));
     let mut version = sample();
-    version.protocol_version = 1;
+    version.protocol_version = 0;
     let mut request = sample();
     request.request_id.clear();
     let mut body = sample();
     body.payload = None;
     for (case, item) in [
-        ("old protocol version", version),
+        ("invalid protocol version", version),
         ("missing request id", request),
         ("missing payload", body),
     ] {

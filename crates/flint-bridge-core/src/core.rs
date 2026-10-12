@@ -79,7 +79,9 @@ impl BridgeCore {
             ClaimOutcome::Occupied(owner) => return Err(CreationError::Claimed(owner)),
         };
         let settings = Arc::new(SettingsSnapshot { revision: 0, settings });
-        let state = Arc::new(Mutex::new(BridgeState::new(settings.clone())));
+        let instance_id =
+            flint_contracts::instance::id_for_process(std::process::id()).map_err(CreationError::System)?;
+        let state = Arc::new(Mutex::new(BridgeState::new(instance_id.clone(), settings.clone())));
         let (settings_tx, settings_rx) = watch::channel(settings);
         let (execution_coordinator, schedule, dispatcher) =
             ExecutionCoordinator::start(execution_binding, state.clone())
@@ -106,6 +108,7 @@ impl BridgeCore {
                         }
                     } => {},
                     _ = connection::run(
+                        instance_id,
                         identity,
                         settings_rx,
                         thread_state,

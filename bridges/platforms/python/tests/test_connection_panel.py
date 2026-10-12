@@ -47,7 +47,8 @@ def test_an_obstacle_and_a_refused_action_are_shown_separately(panel_module):
 
     # Polling replaces the status but leaves the action's result alone.
     snapshot["value"] = {
-        "connection": {"state": "connected", "instance_id": "maya-1"},
+        "connection": {"state": "connected"},
+        "instance_id": "maya-1",
         "busy": False,
         "settings": SETTINGS,
     }

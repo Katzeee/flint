@@ -6,7 +6,7 @@ use std::{io, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Decoder, Encoder, Framed, LengthDelimitedCodec};
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 1;
 pub const MAX_FRAME_BYTES: usize = 100 * 1024 * 1024;
 
 pub type Wire<T> = Framed<T, EnvelopeCodec>;

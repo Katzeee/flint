@@ -51,6 +51,11 @@ fn pending(state: &StateDir, pid: u32, deadline: Instant) -> Result<()> {
 impl Application {
     pub async fn attach(&self, pid: u32, host: Option<HostKind>, name: Option<String>) -> Result<AttachResult> {
         let (host, attach) = blocking(move || resolve(pid, host)).await?;
+        let expected_id = blocking(move || {
+            flint_contracts::instance::id_for_process(pid)
+                .map_err(|error| Failure::caused_by(FailureCode::AttachFailed, error.as_ref()))
+        })
+        .await?;
         let name = name.unwrap_or_else(|| host.to_string());
         self.start_backend().await?;
         let settings = HostSettings {
@@ -75,7 +80,7 @@ impl Application {
                 .instances(None)
                 .await?
                 .into_iter()
-                .find(|instance| instance.pid == pid && instance.instance_name == name)
+                .find(|instance| instance.instance_id == expected_id && instance.instance_name == name)
             {
                 return Ok(AttachResult {
                     pid,

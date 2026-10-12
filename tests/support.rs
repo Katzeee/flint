@@ -246,12 +246,12 @@ impl App {
             .find(|i| i["execution_ready"] == true)
             .cloned())
     }
-    pub fn await_instance(&self, host: &str, previous: Option<&str>) -> Result<Value> {
+    pub fn await_instance(&self, host: &str, expected: Option<&str>) -> Result<Value> {
         let mut instance = None;
         wait_until(Duration::from_secs(30), || {
             instance = self
                 .instance(host)?
-                .filter(|i| Some(i["instance_id"].as_str().unwrap()) != previous);
+                .filter(|i| expected.is_none_or(|id| i["instance_id"].as_str() == Some(id)));
             Ok(instance.is_some())
         })?;
         Ok(instance.unwrap())

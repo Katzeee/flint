@@ -10,7 +10,7 @@ use std::{
 };
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {

@@ -5,28 +5,20 @@ import "flint_protocol/v1/common.proto";
 // Opens the registration/heartbeat connection; execution uses a separate connection.
 message RegisterInstance {
   uint32 pid = 1;
-  string name_hint = 2;
-  string instance_name = 3;
-  string instance_type = 4;
-  // Stable for the bridge's lifetime, including reconnects. Assigned instance IDs may change.
-  string bridge_id = 5;
-  string runtime_version = 6;
-  string bridge_version = 7;
-}
-message RegisterExecutionChannel {
-  string instance_id = 1;
-  uint32 pid = 2;
-  // Echo the registration token; the backend also checks the instance ID and PID.
-  string session_token = 3;
-}
-message Heartbeat { string instance_id = 1; }
-// Accepts a registration or heartbeat. A rejection is a Failure payload instead.
-message InstanceAck {
-  reserved 1 to 3;
+  string instance_name = 2;
+  string instance_type = 3;
+  // Host-generated 16-character Base64URL identity of one process lifetime.
+  // Stable across Bridge recreation, reconnects, and backend changes.
   string instance_id = 4;
-  // Returned on registration to bind the execution connection to this session.
-  string session_token = 5;
+  string runtime_version = 5;
+  string bridge_version = 6;
 }
+// Joins the session established on the registration/heartbeat connection.
+message RegisterExecutionChannel { string session_id = 1; }
+message Heartbeat {}
+message SessionRegistered { string session_id = 1; }
+// Confirms execution-channel registration or a heartbeat.
+message Ack {}
 message HostExecuteRequest {
   string execution_id = 1;
   string code = 2;

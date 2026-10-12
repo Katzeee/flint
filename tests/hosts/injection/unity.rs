@@ -104,7 +104,7 @@ public static class FlintReload
 
     // The released claim and a fresh bootstrap load let a new Bridge start.
     let second = attach().context("Unity attach after script reload")?;
-    anyhow::ensure!(second != first, "re-attach reused the unloaded Bridge");
+    anyhow::ensure!(second == first, "script reload changed the process identity");
 
     // Settings the running Bridge refuses come back as the attach's failure and
     // leave that Bridge connected.

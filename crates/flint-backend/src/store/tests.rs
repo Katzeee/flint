@@ -57,14 +57,13 @@ fn an_unreadable_record_fails_only_the_operations_that_need_it() {
     std::fs::remove_file(template_path).unwrap();
     let mut unspecified_status = template.clone();
     unspecified_status["execs"][0]["status"] = "unspecified".into();
+    let mut unsupported_version = template.clone();
+    unsupported_version["schema_version"] = 0.into();
     let mut blank_failure = template;
     blank_failure["execs"][0]["error"] = serde_json::json!({"code": " ", "message": "no code"});
     let records = [
         ("corrupt", "not json".to_string()),
-        (
-            "older",
-            r#"{"schema_version":1,"execs":[{"error":"text"}]}"#.to_string(),
-        ),
+        ("unsupported_version", unsupported_version.to_string()),
         ("blank_failure", blank_failure.to_string()),
         ("unspecified_status", unspecified_status.to_string()),
     ];
@@ -89,8 +88,8 @@ fn an_unreadable_record_fails_only_the_operations_that_need_it() {
         let failure = Failure::from(error);
         assert!(failure.is(FailureCode::WorkflowUnreadable));
         assert!(failure.message.contains(&format!("{id}.json")), "{failure}");
-        if id == "older" {
-            assert!(failure.message.contains("unsupported schema version 1"), "{failure}");
+        if id == "unsupported_version" {
+            assert!(failure.message.contains("unsupported schema version 0"), "{failure}");
         }
     }
 }

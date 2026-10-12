@@ -90,7 +90,7 @@ fn execution_response(e: crate::store::Execution, view: ExecutionView) -> GetExe
     }
 }
 
-async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<ExecutionResult, Failure> {
+pub(super) async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<ExecutionResult, Failure> {
     let request_id = Uuid::new_v4().simple().to_string();
     let (tx, mut rx) = oneshot::channel();
     let timer = CancellationToken::new();
@@ -100,7 +100,7 @@ async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<Executi
         if state.stopping {
             return Err(Failure::new(FailureCode::BackendStopping));
         }
-        let Some(session) = state.sessions.get(&req.instance_id) else {
+        let Some((session_id, session)) = state.session_for_instance(&req.instance_id) else {
             return Err(Failure::new(FailureCode::InstanceOffline));
         };
         let Some(sender) = session.sender.clone() else {
@@ -109,7 +109,8 @@ async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<Executi
                 "the execution channel is not ready",
             ));
         };
-        if state.jobs.values().any(|j| j.instance == req.instance_id) {
+        let session_id = session_id.clone();
+        if state.jobs.values().any(|j| j.session_id == session_id) {
             return Err(Failure::new(FailureCode::InstanceBusy));
         }
         execution_id =
@@ -127,7 +128,7 @@ async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<Executi
         state.jobs.insert(
             request_id.clone(),
             Job {
-                instance: req.instance_id.clone(),
+                session_id: session_id.clone(),
                 workflow: req.workflow_id,
                 execution: execution_id.clone(),
                 output_sequence: 0,
@@ -140,7 +141,7 @@ async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<Executi
             .is_err()
         {
             drop(state);
-            disconnect(backend, &req.instance_id);
+            disconnect(backend, &session_id);
             return Err(Failure::with_message(
                 FailureCode::ConnectionFailed,
                 "the execution channel is closed",

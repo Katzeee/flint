@@ -11,6 +11,9 @@ protocol = ["dep:bytes", "dep:prost", "dep:tokio-util", "dep:tokio", "dep:future
 typescript = ["dep:specta"]
 
 [dependencies]
+sha2 = "0.10"
+base64 = "0.22"
+machine-uid = "0.5"
 anyhow.workspace = true
 dirs.workspace = true
 fs2.workspace = true
@@ -26,3 +29,9 @@ futures-util = { workspace = true, features = ["sink"], optional = true }
 
 [lints]
 workspace = true
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"

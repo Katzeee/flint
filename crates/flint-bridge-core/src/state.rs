@@ -14,7 +14,7 @@ use tokio::sync::{mpsc::UnboundedSender, watch};
 pub(crate) enum Connection {
     Stopped,
     Connecting,
-    Connected { instance_id: String },
+    Connected,
     Retrying { obstacle: Obstacle },
 }
 
@@ -39,12 +39,14 @@ pub(crate) enum ObstacleKind {
 
 #[derive(Serialize)]
 pub(crate) struct StatusSnapshot<'a> {
+    instance_id: &'a str,
     connection: &'a Connection,
     busy: bool,
     settings: &'a HostSettings,
 }
 
 pub(crate) struct BridgeState {
+    instance_id: String,
     settings_snapshot: Arc<SettingsSnapshot>,
     connection: Connection,
     last_execution_id: u64,
@@ -54,8 +56,9 @@ pub(crate) struct BridgeState {
 // Callers hold the same mutex for settings changes, registration commits, and
 // execution admission: checking a revision and publishing state are indivisible.
 impl BridgeState {
-    pub(crate) fn new(settings_snapshot: Arc<SettingsSnapshot>) -> Self {
+    pub(crate) fn new(instance_id: String, settings_snapshot: Arc<SettingsSnapshot>) -> Self {
         Self {
+            instance_id,
             settings_snapshot,
             connection: Connection::Connecting,
             last_execution_id: 0,
@@ -64,7 +67,7 @@ impl BridgeState {
     }
 
     pub(crate) fn connected(&self) -> bool {
-        matches!(self.connection, Connection::Connected { .. })
+        matches!(self.connection, Connection::Connected)
     }
 
     pub(crate) fn busy(&self) -> bool {
@@ -80,14 +83,12 @@ impl BridgeState {
     }
 
     pub(crate) fn instance_id(&self) -> &str {
-        match &self.connection {
-            Connection::Connected { instance_id } => instance_id,
-            _ => "",
-        }
+        &self.instance_id
     }
 
     pub(crate) fn status(&self) -> StatusSnapshot<'_> {
         StatusSnapshot {
+            instance_id: &self.instance_id,
             connection: &self.connection,
             busy: self.busy(),
             settings: &self.settings_snapshot.settings,
@@ -128,18 +129,14 @@ impl BridgeState {
         true
     }
 
-    pub(crate) fn complete_registration(
-        &mut self,
-        settings_snapshot: &SettingsSnapshot,
-        instance_id: String,
-    ) -> anyhow::Result<()> {
+    pub(crate) fn complete_registration(&mut self, settings_snapshot: &SettingsSnapshot) -> anyhow::Result<()> {
         if self.stopped() {
             anyhow::bail!("bridge stopped during registration");
         }
         if self.settings_snapshot.revision != settings_snapshot.revision {
             anyhow::bail!("bridge settings changed during registration");
         }
-        self.connection = Connection::Connected { instance_id };
+        self.connection = Connection::Connected;
         Ok(())
     }
 

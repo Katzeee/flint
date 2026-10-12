@@ -6,8 +6,8 @@ message PingRequest {}
 message PingResponse {
   bool ready = 1;
   uint32 pid = 2;
-  string bridge_address = 4;
-  uint32 bridge_port = 5;
+  string bridge_address = 3;
+  uint32 bridge_port = 4;
 }
 message StopBackendRequest {}
 message StopBackendResponse {}

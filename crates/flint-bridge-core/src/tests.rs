@@ -152,13 +152,7 @@ fn wait_until(mut condition: impl FnMut() -> bool) {
 }
 
 fn accepted(request_id: String) -> Envelope {
-    envelope(
-        request_id,
-        Payload::InstanceAck(InstanceAck {
-            instance_id: "instance-1".into(),
-            session_token: "token".into(),
-        }),
-    )
+    envelope(request_id, Payload::Ack(Ack {}))
 }
 
 pub(crate) fn execute(request_id: &str) -> Envelope {
@@ -218,7 +212,9 @@ impl Backend {
                                 panic!("expected instance registration");
                             };
                             registration_tx.send((session, info)).unwrap();
-                            heartbeat.send(accepted(register.request_id)).await.unwrap();
+                            heartbeat.send(envelope(register.request_id, Payload::SessionRegistered(SessionRegistered {
+                                session_id: format!("session-{session}"),
+                            }))).await.unwrap();
                             tokio::spawn(async move {
                                 while let Some(Ok(message)) = heartbeat.next().await {
                                     if heartbeat.send(accepted(message.request_id)).await.is_err() {
@@ -232,7 +228,7 @@ impl Backend {
                             let Some(Payload::RegisterExecutionChannel(channel)) = &register.payload else {
                                 panic!("expected execution channel registration");
                             };
-                            assert_eq!(channel.session_token, "token");
+                            assert_eq!(channel.session_id, format!("session-{session}"));
                             execution.send(accepted(register.request_id)).await.unwrap();
                             loop {
                                 tokio::select! {
@@ -367,13 +363,11 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
     });
     let updated = second.registration();
     assert_eq!(updated.instance_name, "新场景");
-    assert_eq!(updated.bridge_id, original.bridge_id);
+    assert_eq!(updated.instance_id, original.instance_id);
     assert_eq!(updated.instance_type, original.instance_type);
     let status = core.status();
-    assert_eq!(
-        status["connection"],
-        json!({"state": "connected", "instance_id": "instance-1"})
-    );
+    assert_eq!(status["connection"], json!({"state": "connected"}));
+    assert_eq!(status["instance_id"], original.instance_id);
     assert_eq!(status["settings"]["name"], "新场景");
 }
 
@@ -481,23 +475,4 @@ fn a_refused_registration_reports_the_backend_reason() {
         "{message}"
     );
     drop(core);
-}
-
-#[test]
-fn execution_request_reaches_the_host_with_its_identifiers_and_filename() {
-    let mut backend = Backend::start();
-    let core = connected(&mut backend);
-    backend.registration();
-    backend.send(execute("request-1"));
-    let event = core.wait_request(Duration::from_secs(10)).unwrap();
-    assert_eq!(
-        event,
-        json!({
-            "request_id": "request-1",
-            "workflow_id": "workflow-1",
-            "execution_id": "execution-request-1",
-            "code": "print('你好')",
-            "filename": "scene.py",
-        })
-    );
 }

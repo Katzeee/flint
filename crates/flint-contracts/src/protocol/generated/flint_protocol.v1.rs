@@ -98,9 +98,9 @@ pub struct PingResponse {
     pub ready: bool,
     #[prost(uint32, tag = "2")]
     pub pid: u32,
-    #[prost(string, tag = "4")]
+    #[prost(string, tag = "3")]
     pub bridge_address: ::prost::alloc::string::String,
-    #[prost(uint32, tag = "5")]
+    #[prost(uint32, tag = "4")]
     pub bridge_port: u32,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -297,49 +297,42 @@ pub struct RegisterInstance {
     #[prost(uint32, tag = "1")]
     pub pid: u32,
     #[prost(string, tag = "2")]
-    pub name_hint: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
     pub instance_name: ::prost::alloc::string::String,
-    #[prost(string, tag = "4")]
+    #[prost(string, tag = "3")]
     pub instance_type: ::prost::alloc::string::String,
-    /// Stable for the bridge's lifetime, including reconnects. Assigned instance IDs may change.
+    /// Host-generated 16-character Base64URL identity of one process lifetime.
+    /// Stable across Bridge recreation, reconnects, and backend changes.
+    #[prost(string, tag = "4")]
+    pub instance_id: ::prost::alloc::string::String,
     #[prost(string, tag = "5")]
-    pub bridge_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "6")]
     pub runtime_version: ::prost::alloc::string::String,
-    #[prost(string, tag = "7")]
+    #[prost(string, tag = "6")]
     pub bridge_version: ::prost::alloc::string::String,
 }
+/// Joins the session established on the registration/heartbeat connection.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterExecutionChannel {
     #[prost(string, tag = "1")]
-    pub instance_id: ::prost::alloc::string::String,
-    #[prost(uint32, tag = "2")]
-    pub pid: u32,
-    /// Echo the registration token; the backend also checks the instance ID and PID.
-    #[prost(string, tag = "3")]
-    pub session_token: ::prost::alloc::string::String,
+    pub session_id: ::prost::alloc::string::String,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct Heartbeat {}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Heartbeat {
+pub struct SessionRegistered {
     #[prost(string, tag = "1")]
-    pub instance_id: ::prost::alloc::string::String,
+    pub session_id: ::prost::alloc::string::String,
 }
-/// Accepts a registration or heartbeat. A rejection is a Failure payload instead.
+/// Confirms execution-channel registration or a heartbeat.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct InstanceAck {
-    #[prost(string, tag = "4")]
-    pub instance_id: ::prost::alloc::string::String,
-    /// Returned on registration to bind the execution connection to this session.
-    #[prost(string, tag = "5")]
-    pub session_token: ::prost::alloc::string::String,
-}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct Ack {}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -383,7 +376,7 @@ pub struct Envelope {
     pub request_id: ::prost::alloc::string::String,
     #[prost(
         oneof = "envelope::Payload",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 24, 25, 26, 27, 30, 31, 32, 33, 34, 35, 36"
+        tags = "3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26"
     )]
     pub payload: ::core::option::Option<envelope::Payload>,
 }
@@ -393,51 +386,53 @@ pub mod envelope {
     #[cfg_attr(feature = "typescript", derive(specta::Type))]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Payload {
-        #[prost(message, tag = "10")]
+        #[prost(message, tag = "3")]
         PingRequest(super::PingRequest),
-        #[prost(message, tag = "11")]
+        #[prost(message, tag = "4")]
         PingResponse(super::PingResponse),
-        #[prost(message, tag = "12")]
+        #[prost(message, tag = "5")]
         StopBackendRequest(super::StopBackendRequest),
-        #[prost(message, tag = "13")]
+        #[prost(message, tag = "6")]
         StopBackendResponse(super::StopBackendResponse),
-        #[prost(message, tag = "14")]
+        #[prost(message, tag = "7")]
         ListInstancesRequest(super::ListInstancesRequest),
-        #[prost(message, tag = "15")]
+        #[prost(message, tag = "8")]
         ListInstancesResponse(super::ListInstancesResponse),
-        #[prost(message, tag = "16")]
+        #[prost(message, tag = "9")]
         StartWorkflowRequest(super::StartWorkflowRequest),
-        #[prost(message, tag = "17")]
+        #[prost(message, tag = "10")]
         StartWorkflowResponse(super::StartWorkflowResponse),
-        #[prost(message, tag = "18")]
+        #[prost(message, tag = "11")]
         ExecuteRequest(super::ExecuteRequest),
-        #[prost(message, tag = "19")]
+        #[prost(message, tag = "12")]
         GetExecutionRequest(super::GetExecutionRequest),
-        #[prost(message, tag = "20")]
+        #[prost(message, tag = "13")]
         GetExecutionResponse(super::GetExecutionResponse),
-        #[prost(message, tag = "21")]
+        #[prost(message, tag = "14")]
         Failure(super::Failure),
-        #[prost(message, tag = "24")]
+        #[prost(message, tag = "15")]
         ListWorkflowsRequest(super::ListWorkflowsRequest),
-        #[prost(message, tag = "25")]
+        #[prost(message, tag = "16")]
         ListWorkflowsResponse(super::ListWorkflowsResponse),
-        #[prost(message, tag = "26")]
+        #[prost(message, tag = "17")]
         GetWorkflowRequest(super::GetWorkflowRequest),
-        #[prost(message, tag = "27")]
+        #[prost(message, tag = "18")]
         GetWorkflowResponse(super::GetWorkflowResponse),
-        #[prost(message, tag = "30")]
+        #[prost(message, tag = "19")]
         RegisterInstance(super::RegisterInstance),
-        #[prost(message, tag = "31")]
+        #[prost(message, tag = "20")]
         RegisterExecutionChannel(super::RegisterExecutionChannel),
-        #[prost(message, tag = "32")]
+        #[prost(message, tag = "21")]
         Heartbeat(super::Heartbeat),
-        #[prost(message, tag = "33")]
-        InstanceAck(super::InstanceAck),
-        #[prost(message, tag = "34")]
+        #[prost(message, tag = "22")]
+        SessionRegistered(super::SessionRegistered),
+        #[prost(message, tag = "23")]
+        Ack(super::Ack),
+        #[prost(message, tag = "24")]
         HostExecuteRequest(super::HostExecuteRequest),
-        #[prost(message, tag = "35")]
+        #[prost(message, tag = "25")]
         ExecutionOutputUpdate(super::ExecutionOutputUpdate),
-        #[prost(message, tag = "36")]
+        #[prost(message, tag = "26")]
         ExecutionResult(super::ExecutionResult),
     }
 }

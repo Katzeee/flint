@@ -6,10 +6,9 @@ use flint_contracts::protocol::timing::HEARTBEAT_IDLE_TIMEOUT;
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -21,6 +20,9 @@ use uuid::Uuid;
 
 mod bridge;
 mod control;
+mod state;
+
+use state::{Job, State};
 
 const FIRST_MESSAGE_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -53,27 +55,6 @@ impl From<BackendBusy> for Failure {
     }
 }
 
-struct Session {
-    registration: RegisterInstance,
-    token: String,
-    cancel: CancellationToken,
-    sender: Option<mpsc::Sender<Envelope>>,
-    heartbeat: Instant,
-}
-struct Job {
-    instance: String,
-    workflow: String,
-    execution: String,
-    output_sequence: u64,
-    result: oneshot::Sender<ExecutionResult>,
-    timer: CancellationToken,
-}
-#[derive(Default)]
-struct State {
-    sessions: HashMap<String, Session>,
-    jobs: HashMap<String, Job>,
-    stopping: bool,
-}
 struct Shared {
     config: Config,
     state: Mutex<State>,
@@ -88,9 +69,9 @@ impl BackendHandle {
         let state = self.0.state.lock().unwrap();
         let mut result: Vec<_> = state
             .sessions
-            .iter()
-            .map(|(id, s)| InstanceInfo {
-                instance_id: id.clone(),
+            .values()
+            .map(|s| InstanceInfo {
+                instance_id: s.registration.instance_id.clone(),
                 instance_name: s.registration.instance_name.clone(),
                 instance_type: s.registration.instance_type.clone(),
                 pid: s.registration.pid,
@@ -198,50 +179,45 @@ impl Backend {
 }
 
 fn finish(backend: &BackendHandle, request: &str, result: ExecutionResult) {
-    let mut state = backend.0.state.lock().unwrap();
-    if let Some(job) = state.jobs.remove(request) {
-        job.timer.cancel();
-        let persisted = backend.0.store.update(&job.workflow, &job.execution, |entry| {
-            entry.status = result.status();
-            entry.finished_at = Some(now());
-            entry.traceback = result.traceback.clone();
-            entry.error = result.error.clone();
-        });
-        let result = match persisted {
-            Ok(()) => result,
-            Err(e) => ExecutionResult {
-                execution_id: job.execution.clone(),
-                status: ExecutionStatus::Failed as i32,
-                traceback: None,
-                error: Some(Failure::caused_by(FailureCode::ResultPersistenceFailed, &e)),
-            },
-        };
-        let _ = job.result.send(result);
+    let job = backend.0.state.lock().unwrap().jobs.remove(request);
+    if let Some(job) = job {
+        finish_job(backend, job, result);
     }
 }
-fn disconnect(backend: &BackendHandle, instance: &str) {
-    let jobs = {
-        let mut state = backend.0.state.lock().unwrap();
-        if let Some(session) = state.sessions.remove(instance) {
-            session.cancel.cancel();
-        }
-        state
-            .jobs
-            .iter()
-            .filter(|(_, j)| j.instance == instance)
-            .map(|(r, j)| (r.clone(), j.execution.clone()))
-            .collect::<Vec<_>>()
+
+fn finish_job(backend: &BackendHandle, job: Job, result: ExecutionResult) {
+    job.timer.cancel();
+    let persisted = backend.0.store.update(&job.workflow, &job.execution, |entry| {
+        entry.status = result.status();
+        entry.finished_at = Some(now());
+        entry.traceback = result.traceback.clone();
+        entry.error = result.error.clone();
+    });
+    let result = match persisted {
+        Ok(()) => result,
+        Err(error) => ExecutionResult {
+            execution_id: job.execution.clone(),
+            status: ExecutionStatus::Failed as i32,
+            traceback: None,
+            error: Some(Failure::caused_by(FailureCode::ResultPersistenceFailed, &error)),
+        },
     };
-    for (request, execution_id) in jobs {
-        finish(
-            backend,
-            &request,
-            ExecutionResult {
-                execution_id,
-                status: ExecutionStatus::Failed as i32,
-                traceback: None,
-                error: Some(Failure::new(FailureCode::ExecutionDisconnected)),
-            },
-        );
+    let _ = job.result.send(result);
+}
+
+fn fail_disconnected(backend: &BackendHandle, jobs: Vec<Job>) {
+    for job in jobs {
+        let result = ExecutionResult {
+            execution_id: job.execution.clone(),
+            status: ExecutionStatus::Failed as i32,
+            traceback: None,
+            error: Some(Failure::new(FailureCode::ExecutionDisconnected)),
+        };
+        finish_job(backend, job, result);
     }
+}
+
+fn disconnect(backend: &BackendHandle, session_id: &str) {
+    let jobs = backend.0.state.lock().unwrap().remove_session(session_id);
+    fail_disconnected(backend, jobs);
 }

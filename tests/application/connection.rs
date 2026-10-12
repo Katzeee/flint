@@ -17,8 +17,7 @@ fn backend_reports_rejected_registrations_before_closing_the_connection() -> Res
                 "invalid-bridge",
                 Payload::RegisterInstance(RegisterInstance {
                     pid: 0,
-                    bridge_id: "invalid-pid".into(),
-                    name_hint: "test".into(),
+                    instance_id: "invalid-pid".into(),
                     instance_name: "Rejected Bridge".into(),
                     instance_type: "test".into(),
                     ..Default::default()
@@ -27,9 +26,7 @@ fn backend_reports_rejected_registrations_before_closing_the_connection() -> Res
             (
                 "unregistered-channel",
                 Payload::RegisterExecutionChannel(RegisterExecutionChannel {
-                    instance_id: "absent".into(),
-                    pid: std::process::id(),
-                    session_token: "unregistered".into(),
+                    session_id: "unregistered".into(),
                 }),
             ),
         ] {
@@ -134,7 +131,22 @@ fn a_lost_connection_does_not_replay_running_code() -> Result<()> {
     assert_eq!(execution["status"], "running");
     wait_until(Duration::from_secs(10), || Ok(started.exists()))?;
     host.drop_execution_connection()?;
-    let reconnected = app.await_instance("standalone_python", Some(id))?;
+    wait_until(Duration::from_secs(10), || {
+        let output = run(
+            app.command("execution").args([
+                "--workflow-id",
+                &workflow,
+                "--execution-id",
+                execution["execution_id"].as_str().unwrap(),
+                "--view",
+                "full",
+            ]),
+            Duration::from_secs(5),
+            None,
+        )?;
+        let value: serde_json::Value = serde_json::from_str(&output.stdout)?;
+        Ok(value["error"]["code"] == "execution_disconnected")
+    })?;
     let lost = app.details(&workflow, &execution, 1)?;
     assert_eq!(lost["error"]["code"], "execution_disconnected");
     assert!(!lost["error"]["message"].as_str().unwrap().is_empty());
@@ -143,6 +155,7 @@ fn a_lost_connection_does_not_replay_running_code() -> Result<()> {
     wait_until(Duration::from_secs(10), || {
         Ok(host.directory.join("bridge-idle-after-drop").exists())
     })?;
+    let reconnected = app.await_instance("standalone_python", Some(id))?;
     let after = app.execute(
         reconnected["instance_id"].as_str().unwrap(),
         &workflow,

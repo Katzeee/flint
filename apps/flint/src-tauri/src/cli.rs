@@ -114,7 +114,7 @@ async fn running_application() -> Result<Application> {
 #[derive(Args)]
 #[command(group(clap::ArgGroup::new("source").required(true).args(["code", "file", "stdin"])))]
 struct Execute {
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     instance_id: String,
     #[arg(long)]
     workflow_id: String,

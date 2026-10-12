@@ -78,7 +78,7 @@ fn input_loading_and_host_discovery_do_not_start_backend() -> Result<()> {
             "exec",
             &[
                 "--instance-id",
-                "absent",
+                "-Abcdefghijklmno",
                 "--workflow-id",
                 "absent",
                 "--file",

@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Instant;
 
 pub(super) async fn connection(backend: BackendHandle, socket: TcpStream) -> Result<()> {
     let (wire, first) = first_message(socket, FIRST_MESSAGE_TIMEOUT).await?;
@@ -27,63 +28,35 @@ async fn heartbeat_connection(
     request_id: String,
     req: RegisterInstance,
 ) -> Result<()> {
-    if req.pid == 0 || req.bridge_id.is_empty() {
-        return reject(wire, request_id, "the Bridge identity is incomplete").await;
+    if req.pid == 0
+        || req.instance_id.len() != 16
+        || !req
+            .instance_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return reject(wire, request_id, "the instance identity is invalid").await;
     }
-    // A host process owns at most one Bridge. Reconnecting the same Bridge
-    // reuses its bridge_id; a distinct bridge_id on the same pid means a
-    // prior session is defunct (the process-level claim prevents two live
-    // Bridges from one process). Replace either to keep one instance per pid.
-    let superseded: Vec<String> = backend
-        .0
-        .state
-        .lock()
-        .unwrap()
-        .sessions
-        .iter()
-        .filter(|(_, s)| s.registration.bridge_id == req.bridge_id || s.registration.pid == req.pid)
-        .map(|(id, _)| id.clone())
-        .collect();
-    for id in superseded {
-        disconnect(&backend, &id);
-    }
-    let hint: String = req
-        .name_hint
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-        .take(32)
-        .collect();
-    let id = format!(
-        "{}-{}",
-        if hint.is_empty() { "host" } else { &hint },
-        &Uuid::new_v4().simple().to_string()[..8]
-    );
-    let token = Uuid::new_v4().simple().to_string();
-    let cancel = CancellationToken::new();
-    backend.0.state.lock().unwrap().sessions.insert(
-        id.clone(),
-        Session {
-            registration: req,
-            token: token.clone(),
-            cancel: cancel.clone(),
-            sender: None,
-            heartbeat: Instant::now(),
-        },
-    );
+    let (session_id, cancel, superseded) = backend.0.state.lock().unwrap().register(req);
+    fail_disconnected(&backend, superseded);
     let result: Result<()> = async {
-        wire.send(envelope(request_id, Payload::InstanceAck(InstanceAck { instance_id: id.clone(), session_token: token }))).await?;
+        wire.send(envelope(request_id, Payload::SessionRegistered(SessionRegistered { session_id: session_id.clone() }))).await?;
         loop {
             let message = tokio::select! {
                 _ = cancel.cancelled() => break,
                 msg = tokio::time::timeout(HEARTBEAT_IDLE_TIMEOUT, read_envelope(&mut wire)) => msg.context("heartbeat timed out")??,
             };
-            anyhow::ensure!(matches!(message.payload, Some(Payload::Heartbeat(ref h)) if h.instance_id == id), "invalid heartbeat");
-            if let Some(session) = backend.0.state.lock().unwrap().sessions.get_mut(&id) { session.heartbeat = Instant::now(); }
-            wire.send(envelope(message.request_id, Payload::InstanceAck(InstanceAck::default()))).await?;
+            anyhow::ensure!(matches!(message.payload, Some(Payload::Heartbeat(_))), "invalid heartbeat");
+            {
+                let mut state = backend.0.state.lock().unwrap();
+                let Some(session) = state.sessions.get_mut(&session_id) else { break; };
+                session.heartbeat = Instant::now();
+            }
+            wire.send(envelope(message.request_id, Payload::Ack(Ack {}))).await?;
         }
         Ok(())
     }.await;
-    disconnect(&backend, &id);
+    disconnect(&backend, &session_id);
     result
 }
 
@@ -96,11 +69,8 @@ async fn execution_connection(
     let (sender, mut receiver) = mpsc::channel(16);
     let admitted = {
         let mut state = backend.0.state.lock().unwrap();
-        match state.sessions.get_mut(&req.instance_id) {
-            None => Err("the instance is not registered"),
-            Some(session) if session.registration.pid != req.pid || session.token != req.session_token => {
-                Err("the execution channel identity does not match its registration")
-            }
+        match state.sessions.get_mut(&req.session_id) {
+            None => Err("the session is not registered"),
             Some(session) if session.sender.is_some() => Err("the execution channel is already connected"),
             Some(session) => {
                 session.sender = Some(sender);
@@ -113,29 +83,32 @@ async fn execution_connection(
         Err(reason) => return reject(wire, request_id, reason).await,
     };
     let result: Result<()> = async {
-        wire.send(envelope(request_id, Payload::InstanceAck(InstanceAck::default()))).await?;
+        wire.send(envelope(request_id, Payload::Ack(Ack {}))).await?;
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => break,
                 next = receiver.recv() => { if let Some(message) = next { wire.send(message).await?; } else { break; } },
                 next = read_envelope(&mut wire) => {
                     let message = next.context("execution channel closed")?;
-                    process_message(&backend, &req.instance_id, message)?;
+                    process_message(&backend, &req.session_id, message)?;
                 }
             }
         }
         Ok(())
     }.await;
-    disconnect(&backend, &req.instance_id);
+    disconnect(&backend, &req.session_id);
     result
 }
 
-fn process_message(backend: &BackendHandle, instance: &str, message: Envelope) -> Result<()> {
+fn process_message(backend: &BackendHandle, session_id: &str, message: Envelope) -> Result<()> {
     let mut state = backend.0.state.lock().unwrap();
+    if !state.sessions.contains_key(session_id) {
+        return Ok(());
+    }
     let Some(job) = state.jobs.get_mut(&message.request_id) else {
         return Ok(());
     };
-    anyhow::ensure!(job.instance == instance, "response belongs to another instance");
+    anyhow::ensure!(job.session_id == session_id, "response belongs to another session");
     match message.payload.unwrap() {
         Payload::ExecutionOutputUpdate(update) => {
             anyhow::ensure!(
@@ -161,10 +134,14 @@ fn process_message(backend: &BackendHandle, instance: &str, message: Envelope) -
                     ),
                 "invalid execution result"
             );
+            let job = state.jobs.remove(&message.request_id).unwrap();
             drop(state);
-            finish(backend, &message.request_id, result);
+            finish_job(backend, job, result);
         }
         _ => anyhow::bail!("unexpected host message"),
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

@@ -34,7 +34,7 @@ fn settings_change_rejects_a_registration_waiting_to_commit() {
         ),
     ] {
         let snapshot = initial();
-        let mut state = BridgeState::new(snapshot.clone());
+        let mut state = BridgeState::new("instance".into(), snapshot.clone());
         let (updates, latest) = watch::channel(snapshot.clone());
         for replacement in &replacements {
             assert_eq!(
@@ -45,7 +45,7 @@ fn settings_change_rejects_a_registration_waiting_to_commit() {
         }
         let replacement = replacements.last().unwrap();
         assert!(
-            state.complete_registration(&snapshot, "obsolete".into()).is_err(),
+            state.complete_registration(&snapshot).is_err(),
             "{case}: accepted the obsolete registration"
         );
         assert_eq!(state.connection, Connection::Connecting, "{case}");
@@ -60,7 +60,7 @@ fn settings_change_rejects_a_registration_waiting_to_commit() {
         );
         assert!(latest.borrow().settings == *replacement, "{case}");
         assert!(
-            state.complete_registration(&latest.borrow(), "current".into()).is_ok(),
+            state.complete_registration(&latest.borrow()).is_ok(),
             "{case}: rejected the current registration"
         );
         assert!(state.connected(), "{case}");
@@ -71,15 +71,15 @@ fn settings_change_rejects_a_registration_waiting_to_commit() {
 fn old_session_cleanup_cannot_overwrite_new_settings_or_registration() {
     for registered in [true, false] {
         let old = initial();
-        let mut state = BridgeState::new(old.clone());
-        state.complete_registration(&old, "old".into()).unwrap();
+        let mut state = BridgeState::new("instance".into(), old.clone());
+        state.complete_registration(&old).unwrap();
         let (updates, latest) = watch::channel(old.clone());
         assert_eq!(
             state.apply_settings(settings("changed"), &updates),
             ApplyResult::Applied
         );
         if registered {
-            state.complete_registration(&latest.borrow(), "current".into()).unwrap();
+            state.complete_registration(&latest.borrow()).unwrap();
         }
         let expected = serde_json::to_value(state.status()).unwrap();
         state.finish_session(&old, Some(lost("obsolete")));
@@ -90,8 +90,8 @@ fn old_session_cleanup_cannot_overwrite_new_settings_or_registration() {
 #[test]
 fn current_session_failure_keeps_execution_but_does_not_reroute_its_reports() {
     let snapshot = initial();
-    let mut state = BridgeState::new(snapshot.clone());
-    state.complete_registration(&snapshot, "old".into()).unwrap();
+    let mut state = BridgeState::new("instance".into(), snapshot.clone());
+    state.complete_registration(&snapshot).unwrap();
     let (old_outbound, old_received) = mpsc::unbounded_channel();
     let id = state
         .begin_execution("old-request".into(), HostExecuteRequest::default(), old_outbound)
@@ -107,7 +107,7 @@ fn current_session_failure_keeps_execution_but_does_not_reroute_its_reports() {
     assert!(state.busy());
     drop(old_received);
 
-    state.complete_registration(&snapshot, "new".into()).unwrap();
+    state.complete_registration(&snapshot).unwrap();
     let (new_outbound, mut new_received) = mpsc::unbounded_channel();
     assert!(
         state
@@ -147,9 +147,9 @@ fn current_session_failure_keeps_execution_but_does_not_reroute_its_reports() {
 #[test]
 fn stop_is_terminal_even_when_registration_or_session_cleanup_arrives_late() {
     let snapshot = initial();
-    let mut state = BridgeState::new(snapshot.clone());
+    let mut state = BridgeState::new("instance".into(), snapshot.clone());
     let (updates, _) = watch::channel(snapshot.clone());
-    state.complete_registration(&snapshot, "current".into()).unwrap();
+    state.complete_registration(&snapshot).unwrap();
     let (outbound, _received) = mpsc::unbounded_channel();
     let active = state
         .begin_execution("active".into(), HostExecuteRequest::default(), outbound.clone())
@@ -161,11 +161,11 @@ fn stop_is_terminal_even_when_registration_or_session_cleanup_arrives_late() {
         state.apply_settings(settings("changed"), &updates),
         ApplyResult::Stopped
     );
-    assert!(state.complete_registration(&snapshot, "late".into()).is_err());
+    assert!(state.complete_registration(&snapshot).is_err());
     state.finish_session(&snapshot, Some(lost("late failure")));
     state.finish_session(&snapshot, None);
     assert!(state.stopped());
-    assert!(state.instance_id().is_empty());
+    assert_eq!(state.instance_id(), "instance");
     assert!(
         state
             .begin_execution("new".into(), HostExecuteRequest::default(), outbound)

@@ -84,7 +84,7 @@ pub fn verify(app: &App, host: &str, mut driver: Driver, code: &str, stdout: &st
     let created = driver.call(json!({"op": "create", "config": config(host, app.bridge_port)}))?;
     assert_eq!(created, json!({"created": true}));
     let connected = driver.status_until("connected")?;
-    let instance = connected["connection"]["instance_id"].clone();
+    let instance = connected["instance_id"].clone();
     assert!(instance.as_str().is_some_and(|id| !id.is_empty()));
     assert_eq!(connected["busy"], false);
     assert_eq!(connected["settings"]["address"], "127.0.0.1");
@@ -118,7 +118,7 @@ pub fn verify_host_entry(app: &App, host: &str, mut driver: Driver) -> Result<()
         driver.call(json!({"op": "create", "config": options}))?,
         json!({"created": true})
     );
-    driver.status_until("connected")?;
+    let original = driver.status_until("connected")?["instance_id"].clone();
 
     // Reattaching applies settings through the real host entry, including when
     // registration must move to a different backend.
@@ -127,6 +127,7 @@ pub fn verify_host_entry(app: &App, host: &str, mut driver: Driver) -> Result<()
     let attached = driver.call(json!({"op": "attach", "settings": settings(destination.bridge_port, "reattached")}))?;
     let moved = destination.await_instance(host, None)?;
     assert_eq!(attached["instance_id"], moved["instance_id"]);
+    assert_eq!(attached["instance_id"], original);
     assert_eq!(
         driver.call(json!({"op": "attach", "settings": settings(destination.bridge_port, "reattached")}))?,
         attached
@@ -203,12 +204,12 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     driver.call(json!({"op": "drain"}))?;
     let attached = driver.call(json!({"op": "attach_result"}))?;
     let connected = driver.status_until("connected")?;
-    assert_eq!(attached["instance_id"], connected["connection"]["instance_id"]);
+    assert_eq!(attached["instance_id"], connected["instance_id"]);
     let probe = driver.call(json!({"op": "probe"}))?;
     assert_eq!(probe["created"], created + 1);
     assert_eq!(probe["factory_thread"], probe["dispatch_thread"]);
     let workflow = app.workflow("manager-lifecycle")?;
-    let instance = connected["connection"]["instance_id"].as_str().unwrap();
+    let instance = connected["instance_id"].as_str().unwrap();
     let before = driver.call(json!({"op": "probe"}))?;
     let execution = std::thread::scope(|scope| -> Result<Value> {
         // The backend loses the outcome, while the host execution remains held.
@@ -255,7 +256,7 @@ fn verify_manager_lifecycle(app: &App, host: &str, driver: &mut Driver) -> Resul
     );
 
     driver.call(json!({"op": "create", "config": options}))?;
-    assert_ne!(driver.status_until("connected")?["connection"]["instance_id"], instance);
+    assert_eq!(driver.status_until("connected")?["instance_id"], instance);
     driver.call(json!({"op": "close"}))?;
     let probe = driver.call(json!({"op": "probe"}))?;
     assert_eq!(probe["created"], created + 2);

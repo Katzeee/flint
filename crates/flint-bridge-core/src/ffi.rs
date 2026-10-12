@@ -53,7 +53,7 @@ impl From<&CreationError> for CreationErrorKind {
 
 #[no_mangle]
 pub extern "C" fn flint_bridge_abi_version() -> u32 {
-    9
+    1
 }
 
 /// Returns null on failure and sets `error_kind` to a nonzero
