@@ -34,34 +34,39 @@ impl From<ControlError> for Failure {
 
 type Result<T> = std::result::Result<T, ControlError>;
 
-fn protocol(message: &'static str) -> ControlError {
-    Failure::with_message(FailureCode::InternalError, message).into()
-}
-
 async fn request_until(endpoint: SocketAddr, payload: Payload, deadline: Instant) -> Result<Payload> {
-    let exchange = async {
+    let wait_for_execution = matches!(&payload, Payload::ExecuteRequest(request) if !request.detach);
+    let id = Uuid::new_v4().simple().to_string();
+    let send = async {
         let socket = TcpStream::connect(endpoint).await?;
         let mut wire = framed(socket);
-        let id = Uuid::new_v4().simple().to_string();
         wire.send(envelope(id.clone(), payload)).await?;
-        let response = read_envelope(&mut wire).await.map_err(|error| {
-            if error.kind() == io::ErrorKind::InvalidData {
-                Failure::caused_by(FailureCode::InternalError, &error).into()
-            } else {
-                ControlError::Io(error)
-            }
-        })?;
-        if response.request_id != id {
-            return Err(protocol("response request identity mismatch"));
-        }
-        match response.payload.unwrap() {
-            Payload::Failure(failure) => Err(failure.into()),
-            payload => Ok(payload),
-        }
+        Ok::<_, io::Error>(wire)
     };
-    tokio::time::timeout_at(deadline, exchange)
+    let mut wire = tokio::time::timeout_at(deadline, send)
         .await
-        .map_err(|_| Failure::with_message(FailureCode::BackendUnavailable, "backend request timed out"))?
+        .map_err(|_| Failure::with_message(FailureCode::BackendUnavailable, "backend request timed out"))??;
+    let received = if wait_for_execution {
+        read_envelope(&mut wire).await
+    } else {
+        tokio::time::timeout_at(deadline, read_envelope(&mut wire))
+            .await
+            .map_err(|_| Failure::with_message(FailureCode::BackendUnavailable, "backend request timed out"))?
+    };
+    let response = received.map_err(|error| {
+        if error.kind() == io::ErrorKind::InvalidData {
+            ControlError::Failure(Failure::caused_by(FailureCode::InternalError, &error))
+        } else {
+            ControlError::Io(error)
+        }
+    })?;
+    if response.request_id != id {
+        return Err(Failure::with_message(FailureCode::InternalError, "response request identity mismatch").into());
+    }
+    match response.payload.unwrap() {
+        Payload::Failure(failure) => Err(failure.into()),
+        payload => Ok(payload),
+    }
 }
 #[derive(Debug, serde::Serialize, specta::Type)]
 pub struct BackendStopped {
@@ -94,7 +99,7 @@ impl Application {
         .await
         {
             Ok(Payload::PingResponse(ping)) => Ok(Some(ping)),
-            Ok(_) => Err(protocol("unexpected ping response")),
+            Ok(_) => Err(Failure::with_message(FailureCode::InternalError, "unexpected ping response").into()),
             Err(ControlError::Io(error)) if error.kind() == io::ErrorKind::ConnectionRefused => Ok(None),
             Err(e) => Err(e),
         }
@@ -184,7 +189,7 @@ impl Application {
         )
         .await?;
         if !matches!(response, Payload::StopBackendResponse(_)) {
-            return Err(protocol("invalid shutdown acknowledgement"));
+            return Err(Failure::with_message(FailureCode::InternalError, "invalid shutdown acknowledgement").into());
         }
         loop {
             match self.probe(deadline).await {

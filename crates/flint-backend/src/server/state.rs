@@ -16,7 +16,6 @@ pub(super) struct Job {
     pub(super) execution: String,
     pub(super) output_sequence: u64,
     pub(super) result: oneshot::Sender<ExecutionResult>,
-    pub(super) timer: CancellationToken,
 }
 #[derive(Default)]
 pub(super) struct State {

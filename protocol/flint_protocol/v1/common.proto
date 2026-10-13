@@ -27,7 +27,6 @@ message InstanceInfo {
   bool execution_ready = 7;
 }
 
-// A running response is an early return; terminal results retain this execution ID.
 message ExecutionResult {
   string execution_id = 1;
   ExecutionStatus status = 2;

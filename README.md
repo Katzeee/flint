@@ -17,7 +17,7 @@ flint restart --json
 flint stop --json
 ```
 
-All terminals and agent sessions for the same user share one local backend. Commands that need the backend start it automatically, and so does opening the desktop, including launching flint while the desktop already runs. `flint status` and the desktop's status display only observe it, so a stopped backend stays stopped until the next such command or launch. Stop and restart refuse while execution responses are pending and leave host applications running. Submitted code is not automatically replayed after a communication failure.
+All terminals and agent sessions for the same user share one local backend. Commands that need the backend start it automatically, and so does opening the desktop, including launching flint while the desktop already runs. `flint status` and the desktop's status display only observe it, so a stopped backend stays stopped until the next such command or launch. Stop and restart refuse while executions are active and leave host applications running. Submitted code is not automatically replayed after a communication failure.
 
 Use `flint --help` or `flint <command> --help` for options. Commands find the local backend automatically; no endpoint selection is required.
 
@@ -58,4 +58,4 @@ Submit code understood by the selected instance; the example above uses Python. 
 
 Reuse a workflow ID to group related executions. Query the execution to read recorded stdout, stderr, errors, and status; `--view full` also includes source code.
 
-Long executions return status running after five seconds and continue after the CLI exits. Query execution again to see incremental output and the final result. Exit code 0 includes accepted running work; it does not by itself mean host code has finished. A timeout or lost connection does not establish that host code has stopped.
+`exec` waits for completion by default. With `--detach`, it returns after submission; exit code 0 means the backend accepted the task.

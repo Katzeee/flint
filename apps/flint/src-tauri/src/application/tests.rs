@@ -16,6 +16,53 @@ fn application(directory: &Path) -> Result<Application> {
     })
 }
 
+#[tokio::test]
+async fn execution_wait_outlives_control_deadline() -> Result<()> {
+    use flint_contracts::protocol::{envelope, envelope::Payload, framed, read_envelope};
+    use futures_util::SinkExt;
+    use std::time::Duration;
+
+    let directory = tempfile::tempdir()?;
+    let mut api = application(directory.path())?;
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
+    api.config.endpoints.control = listener.local_addr()?;
+    let (finish, released) = tokio::sync::oneshot::channel();
+    let (received, request_received) = tokio::sync::oneshot::channel();
+    let peer = tokio::spawn(async move {
+        let mut wire = framed(listener.accept().await?.0);
+        let request = read_envelope(&mut wire).await?;
+        assert!(matches!(request.payload, Some(Payload::ExecuteRequest(_))));
+        received.send(()).unwrap();
+        released.await?;
+        wire.send(envelope(
+            request.request_id,
+            Payload::ExecutionResult(ExecutionResult {
+                execution_id: "0001".into(),
+                status: ExecutionStatus::Succeeded as i32,
+                ..Default::default()
+            }),
+        ))
+        .await?;
+        Ok::<_, anyhow::Error>(())
+    });
+    let waiting = tokio::spawn(async move { api.execute(ExecuteRequest::default()).await });
+    request_received.await?;
+    tokio::time::pause();
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_secs(6)).await;
+    tokio::task::yield_now().await;
+    assert!(
+        !waiting.is_finished(),
+        "the control deadline must not end the execution's wait"
+    );
+    tokio::time::resume();
+    finish.send(()).unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), waiting).await??;
+    assert_eq!(result?.status(), ExecutionStatus::Succeeded);
+    peer.await??;
+    Ok(())
+}
+
 #[test]
 fn offline_queries_and_unsupported_attach_do_not_start_backend() -> Result<()> {
     let directory = tempfile::tempdir()?;

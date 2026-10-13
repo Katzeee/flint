@@ -54,7 +54,10 @@ fn execute(
         code: "return 1;".into(),
         ..Default::default()
     };
-    tokio::spawn(async move { control::execute(&backend, request).await })
+    tokio::spawn(async move {
+        let (_, completion) = control::execute(&backend, request)?;
+        Ok(completion.await.unwrap())
+    })
 }
 
 #[tokio::test]

@@ -41,8 +41,15 @@ pub fn verify_execution_failures(app: &App, id: &str) -> Result<()> {
 
 pub fn unity_execution(app: &App, instance: &str, workflow: &str, code: &str) -> Result<Value> {
     let submitted = run(
-        app.command("exec")
-            .args(["--instance-id", instance, "--workflow-id", workflow, "--code", code]),
+        app.command("exec").args([
+            "--instance-id",
+            instance,
+            "--workflow-id",
+            workflow,
+            "--code",
+            code,
+            "--detach",
+        ]),
         Duration::from_secs(60),
         None,
     )?;

@@ -49,6 +49,8 @@ message ExecuteRequest {
   string workflow_id = 3;
   string name = 4;
   optional string filename = 5;
+  // False waits for the terminal result. True returns RUNNING after submission.
+  bool detach = 6;
 }
 
 enum ExecutionView {

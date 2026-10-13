@@ -30,7 +30,6 @@ pub struct InstanceInfo {
     #[prost(bool, tag = "7")]
     pub execution_ready: bool,
 }
-/// A running response is an early return; terminal results retain this execution ID.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -210,6 +209,9 @@ pub struct ExecuteRequest {
     pub name: ::prost::alloc::string::String,
     #[prost(string, optional, tag = "5")]
     pub filename: ::core::option::Option<::prost::alloc::string::String>,
+    /// False waits for the terminal result. True returns RUNNING after submission.
+    #[prost(bool, tag = "6")]
+    pub detach: bool,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]

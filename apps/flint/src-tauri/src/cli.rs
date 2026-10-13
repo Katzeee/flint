@@ -37,7 +37,7 @@ enum Command {
         #[arg(long, default_value = "")]
         description: String,
     },
-    /// Execute code in a connected instance.
+    /// Execute code in a connected instance and wait for completion.
     Exec(Execute),
     Execution {
         #[arg(long)]
@@ -135,6 +135,8 @@ struct Execute {
     workflow_id: String,
     #[arg(long, default_value = "")]
     name: String,
+    #[arg(short = 'd', long, help = "Return after submission without waiting for completion")]
+    detach: bool,
     #[arg(long, help = "Pass code inline, e.g. a short snippet")]
     code: Option<String>,
     #[arg(long, help = "Read code from standard input, e.g. multiline code or a pipeline")]
@@ -271,6 +273,7 @@ fn run_command(command: Command) -> Result<Option<Output>> {
             name: e.name.clone(),
             code,
             filename,
+            detach: e.detach,
         })
     } else {
         None

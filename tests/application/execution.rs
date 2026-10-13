@@ -35,7 +35,11 @@ fn long_work_streams_output_and_refuses_shutdown_and_overlap() -> Result<()> {
         "import time\nfrom pathlib import Path\nprint('BEGIN', flush=True)\nwhile not Path({}).exists():\n    time.sleep(0.05)\nprint('DONE')",
         json!(release.to_string_lossy().as_ref())
     );
-    let execution = app.execute(id, &workflow, &code, 0)?;
+    let execution = app.call(
+        "exec",
+        &["--instance-id", id, "--workflow-id", &workflow, "--code", &code, "-d"],
+        0,
+    )?;
     assert_eq!(execution["status"], "running");
     wait_until(Duration::from_secs(15), || {
         Ok(app.details(&workflow, &execution, 0)?["stdout"]

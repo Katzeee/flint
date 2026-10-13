@@ -127,7 +127,19 @@ fn a_lost_connection_does_not_replay_running_code() -> Result<()> {
         serde_json::to_string(release.to_str().unwrap())?,
         serde_json::to_string(marker.to_str().unwrap())?
     );
-    let execution = app.execute(id, &workflow, &code, 0)?;
+    let execution = app.call(
+        "exec",
+        &[
+            "--instance-id",
+            id,
+            "--workflow-id",
+            &workflow,
+            "--code",
+            &code,
+            "--detach",
+        ],
+        0,
+    )?;
     assert_eq!(execution["status"], "running");
     wait_until(Duration::from_secs(10), || Ok(started.exists()))?;
     host.drop_execution_connection()?;

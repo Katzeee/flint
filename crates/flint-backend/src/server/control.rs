@@ -3,9 +3,36 @@ use super::*;
 pub(super) async fn connection(backend: BackendHandle, socket: TcpStream) -> Result<()> {
     let (mut wire, request) = first_message(socket, FIRST_MESSAGE_TIMEOUT).await?;
     let id = request.request_id;
-    let response = dispatch(&backend, request.payload.unwrap())
-        .await
-        .unwrap_or_else(Payload::Failure);
+    let payload = request.payload.unwrap();
+    if let Payload::ExecuteRequest(request) = payload {
+        let detach = request.detach;
+        let (execution_id, completion) = match execute(&backend, request) {
+            Ok(submitted) => submitted,
+            Err(failure) => {
+                wire.send(envelope(id, Payload::Failure(failure))).await?;
+                return Ok(());
+            }
+        };
+        if detach {
+            let result = ExecutionResult {
+                execution_id,
+                status: ExecutionStatus::Running as i32,
+                traceback: None,
+                error: None,
+            };
+            wire.send(envelope(id, Payload::ExecutionResult(result))).await?;
+            return Ok(());
+        }
+        tokio::select! {
+            result = completion => {
+                let result = result.context("execution response was lost")?;
+                wire.send(envelope(id, Payload::ExecutionResult(result))).await?;
+            }
+            _ = read_envelope(&mut wire) => {}
+        }
+        return Ok(());
+    }
+    let response = dispatch(&backend, payload).unwrap_or_else(Payload::Failure);
     let stop = matches!(response, Payload::StopBackendResponse(_));
     let sent = wire.send(envelope(id, response)).await;
     if stop {
@@ -15,7 +42,7 @@ pub(super) async fn connection(backend: BackendHandle, socket: TcpStream) -> Res
     Ok(())
 }
 
-async fn dispatch(backend: &BackendHandle, request: Payload) -> Result<Payload, Failure> {
+fn dispatch(backend: &BackendHandle, request: Payload) -> Result<Payload, Failure> {
     if backend.0.state.lock().unwrap().stopping && !matches!(request, Payload::PingRequest(_)) {
         return Err(Failure::new(FailureCode::BackendStopping));
     }
@@ -47,7 +74,6 @@ async fn dispatch(backend: &BackendHandle, request: Payload) -> Result<Payload, 
                     .collect(),
             })
         }
-        Payload::ExecuteRequest(req) => Payload::ExecutionResult(execute(backend, req).await?),
         Payload::GetExecutionRequest(req) => get_execution(backend, req)?,
         _ => return Err(Failure::new(FailureCode::UnknownRequest)),
     })
@@ -90,88 +116,61 @@ fn execution_response(e: crate::store::Execution, view: ExecutionView) -> GetExe
     }
 }
 
-pub(super) async fn execute(backend: &BackendHandle, req: ExecuteRequest) -> Result<ExecutionResult, Failure> {
+pub(super) fn execute(
+    backend: &BackendHandle,
+    req: ExecuteRequest,
+) -> Result<(String, oneshot::Receiver<ExecutionResult>), Failure> {
     let request_id = Uuid::new_v4().simple().to_string();
-    let (tx, mut rx) = oneshot::channel();
-    let timer = CancellationToken::new();
-    let execution_id;
+    let (tx, rx) = oneshot::channel();
+    let mut state = backend.0.state.lock().unwrap();
+    if state.stopping {
+        return Err(Failure::new(FailureCode::BackendStopping));
+    }
+    let Some((session_id, session)) = state.session_for_instance(&req.instance_id) else {
+        return Err(Failure::new(FailureCode::InstanceOffline));
+    };
+    let Some(sender) = session.sender.clone() else {
+        return Err(Failure::with_message(
+            FailureCode::InstanceOffline,
+            "the execution channel is not ready",
+        ));
+    };
+    let session_id = session_id.clone();
+    if state.jobs.values().any(|j| j.session_id == session_id) {
+        return Err(Failure::new(FailureCode::InstanceBusy));
+    }
+    let execution_id =
+        backend
+            .0
+            .store
+            .append(&req.workflow_id, &req.instance_id, req.code.clone(), req.name.clone())?;
+    let command = HostExecuteRequest {
+        execution_id: execution_id.clone(),
+        code: req.code,
+        workflow_id: req.workflow_id.clone(),
+        execution_name: Some(req.name),
+        filename: req.filename,
+    };
+    state.jobs.insert(
+        request_id.clone(),
+        Job {
+            session_id: session_id.clone(),
+            workflow: req.workflow_id,
+            execution: execution_id.clone(),
+            output_sequence: 0,
+            result: tx,
+        },
+    );
+    if sender
+        .try_send(envelope(request_id, Payload::HostExecuteRequest(command)))
+        .is_err()
     {
-        let mut state = backend.0.state.lock().unwrap();
-        if state.stopping {
-            return Err(Failure::new(FailureCode::BackendStopping));
-        }
-        let Some((session_id, session)) = state.session_for_instance(&req.instance_id) else {
-            return Err(Failure::new(FailureCode::InstanceOffline));
-        };
-        let Some(sender) = session.sender.clone() else {
-            return Err(Failure::with_message(
-                FailureCode::InstanceOffline,
-                "the execution channel is not ready",
-            ));
-        };
-        let session_id = session_id.clone();
-        if state.jobs.values().any(|j| j.session_id == session_id) {
-            return Err(Failure::new(FailureCode::InstanceBusy));
-        }
-        execution_id =
-            backend
-                .0
-                .store
-                .append(&req.workflow_id, &req.instance_id, req.code.clone(), req.name.clone())?;
-        let command = HostExecuteRequest {
-            execution_id: execution_id.clone(),
-            code: req.code,
-            workflow_id: req.workflow_id.clone(),
-            execution_name: Some(req.name),
-            filename: req.filename,
-        };
-        state.jobs.insert(
-            request_id.clone(),
-            Job {
-                session_id: session_id.clone(),
-                workflow: req.workflow_id,
-                execution: execution_id.clone(),
-                output_sequence: 0,
-                result: tx,
-                timer: timer.clone(),
-            },
-        );
-        if sender
-            .try_send(envelope(request_id.clone(), Payload::HostExecuteRequest(command)))
-            .is_err()
-        {
-            drop(state);
-            disconnect(backend, &session_id);
-            return Err(Failure::with_message(
-                FailureCode::ConnectionFailed,
-                "the execution channel is closed",
-            ));
-        }
-    }
-    let handle = backend.clone();
-    let rid = request_id.clone();
-    let eid = execution_id.clone();
-    tokio::spawn(async move {
-        tokio::select! {
-            _ = timer.cancelled() => {},
-            _ = handle.0.shutdown.cancelled() => {},
-            _ = tokio::time::sleep(Duration::from_secs(600)) => finish(&handle, &rid, ExecutionResult {
-                execution_id: eid, status: ExecutionStatus::Failed as i32, traceback: None,
-                error: Some(Failure::new(FailureCode::ExecutionTimeout)),
-            }),
-        }
-    });
-    match tokio::time::timeout(Duration::from_secs(5), &mut rx).await {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(_)) => Err(Failure::with_message(
+        drop(state);
+        disconnect(backend, &session_id);
+        return Err(Failure::with_message(
             FailureCode::ConnectionFailed,
-            "the execution response was lost",
-        )),
-        Err(_) => Ok(ExecutionResult {
-            execution_id,
-            status: ExecutionStatus::Running as i32,
-            traceback: None,
-            error: None,
-        }),
+            "the execution channel is closed",
+        ));
     }
+    Ok((execution_id, rx))
 }

@@ -178,15 +178,7 @@ impl Backend {
     }
 }
 
-fn finish(backend: &BackendHandle, request: &str, result: ExecutionResult) {
-    let job = backend.0.state.lock().unwrap().jobs.remove(request);
-    if let Some(job) = job {
-        finish_job(backend, job, result);
-    }
-}
-
 fn finish_job(backend: &BackendHandle, job: Job, result: ExecutionResult) {
-    job.timer.cancel();
     let persisted = backend.0.store.update(&job.workflow, &job.execution, |entry| {
         entry.status = result.status();
         entry.finished_at = Some(now());

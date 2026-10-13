@@ -93,11 +93,8 @@ fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
     assert_eq!(instance["instance_id"], report["instance_id"]);
     let workflow = app.workflow("csharp-runtime-export")?;
     let execution = app.execute(instance["instance_id"].as_str().unwrap(), &workflow, "ping", 0)?;
-    let mut detail = Value::Null;
-    wait_until(Duration::from_secs(15), || {
-        detail = app.details(&workflow, &execution, 0)?;
-        Ok(detail["status"] == "succeeded")
-    })?;
+    let mut detail = app.details(&workflow, &execution, 0)?;
+    assert_eq!(detail["status"], "succeeded");
     assert_eq!(detail["stdout"], "CSHARP_ZIP_OK\n");
     let failed = app.execute(instance["instance_id"].as_str().unwrap(), &workflow, "unsupported", 1)?;
     let failure = app.details(&workflow, &failed, 1)?;
@@ -111,7 +108,19 @@ fn exported_zip_connects_and_executes_in_dotnet() -> Result<()> {
             .contains("InvalidOperationException: unsupported_test_command")
     );
     assert_eq!(failed["error"], failure["error"]);
-    let execution = app.execute(instance["instance_id"].as_str().unwrap(), &workflow, "async", 0)?;
+    let execution = app.call(
+        "exec",
+        &[
+            "--instance-id",
+            instance["instance_id"].as_str().unwrap(),
+            "--workflow-id",
+            &workflow,
+            "--code",
+            "async",
+            "-d",
+        ],
+        0,
+    )?;
     wait_until(Duration::from_secs(10), || {
         detail = app.details(&workflow, &execution, 0)?;
         Ok(detail["stdout"] == "BEGIN\0🙂\n")
