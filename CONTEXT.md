@@ -53,7 +53,7 @@ The host-runtime value produced by preparing an execution request and supplied t
 The platform component that creates, reuses, configures, and releases a host's Bridge using the host's execution capabilities. It manages Bridge resources; connection policy belongs to the Bridge core.
 
 **Attach**:
-Starting a Bridge from outside its host process by injecting the Bridge into the running process, rather than the host loading the Bridge itself. Both paths connect the same Bridge to the backend; attach lets flint connect a host without the user running flint's code inside it. Attaching to a process whose Bridge it can reach applies the new settings to that Bridge, and a failure is reported back to the requester.
+Starting a Bridge from outside its host process by injecting the Bridge into the running process, rather than the host loading the Bridge itself. Both paths connect the same Bridge to the backend; attach lets flint connect a host without the user running flint's code inside it. Attaching to a process whose Bridge it can reach applies the new settings to that Bridge, and a failure is reported back to the requester. In a host whose scripting domain reloads, such as the Unity Editor, an attached Bridge returns after each reload until it is explicitly disconnected.
 _Avoid_: Inject for the whole operation; injection is only the entry step.
 
 **Host layout**:
@@ -65,7 +65,7 @@ A language platform that host integrations build their Bridges on, such as Pytho
 _Avoid_: Language or runtime for this layer.
 
 **Runtime plan**:
-The startup instructions for one host runtime that the injected bootstrap executes to start a Bridge. A host names its entry into its platform; the platform turns that entry into the runtime plan; the bootstrap translates its typed data into the call to Flint's platform entry inside the host process. It does not select host integrations.
+The startup instructions for one host runtime that the injected bootstrap executes to start a Bridge. A host names its entry into its platform; the platform turns that entry into the runtime plan; the bootstrap translates its typed data into the call to Flint's platform entry inside the host process. For a runtime whose domains reload, it also states when the bootstrap re-enters that entry. It does not select host integrations.
 _Avoid_: Attach plan.
 
 **Process claim**:

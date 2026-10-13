@@ -83,7 +83,7 @@ internal static class Program
                 case "attach":
                     return new JsonObject
                     {
-                        ["instance_id"] = manager.Attach(library, Settings(command["settings"]),
+                        ["instance_id"] = manager.Attach(() => manager.Configure(Settings(command["settings"]), library),
                         command["timeout_ms"]?.GetValue<int>() ?? 20000)
                     };
                 case "status": return manager.StatusJson == null ? null : JsonNode.Parse(manager.StatusJson);

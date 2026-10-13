@@ -1,4 +1,4 @@
-//! The .NET platform: a host type whose static `Manager` attaches the Bridge,
+//! The .NET platform: a host entry that attaches the Bridge,
 //! entered through the platform's `Flint.Bridge.Attach.Initialize`.
 
 use super::PlatformEntry;
@@ -16,10 +16,13 @@ use std::path::Path;
 pub(crate) struct Entry {
     /// The host assembly, compiled with the platform binding.
     pub assembly: &'static str,
-    /// The host type exposing the static `Manager`.
-    pub manager: &'static str,
-    /// Preferred Mono scripting domain.
+    /// The host type exposing Attach and Restore.
+    pub entry: &'static str,
+    /// Target Mono scripting domain.
     pub domain: &'static str,
+    /// Assemblies the entry's Restore needs in a reloaded domain, which is
+    /// entered before the host finishes loading it.
+    pub reload_assemblies: Option<&'static [&'static str]>,
 }
 
 pub(super) fn library(root: &str) -> Layout {
@@ -40,7 +43,10 @@ pub(super) fn plan(entry: &Entry, root: &Path, settings: HostSettings) -> Runtim
     RuntimePlan::Mono(MonoPlan {
         assembly: root.join(entry.assembly),
         domain: entry.domain.into(),
-        manager: entry.manager.into(),
+        entry: entry.entry.into(),
+        reload_assemblies: entry
+            .reload_assemblies
+            .map(|assemblies| assemblies.iter().map(|name| (*name).into()).collect()),
         native_library: root.join(CORE),
         settings,
     })

@@ -8,12 +8,30 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 
 use anyhow::Result;
 use windows_sys::Win32::Foundation::HMODULE;
-use windows_sys::Win32::System::LibraryLoader::{FreeLibraryAndExitThread, GetModuleHandleW, GetProcAddress};
+use windows_sys::Win32::System::LibraryLoader::{
+    FreeLibraryAndExitThread, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_PIN,
+    GetModuleHandleExW, GetModuleHandleW, GetProcAddress,
+};
 use windows_sys::Win32::System::ProcessStatus::{EnumProcessModules, GetModuleBaseNameW};
 use windows_sys::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
 static MODULE: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+
+/// Runtime callbacks can outlive an injection and must retain their native code.
+pub(crate) unsafe fn pin() -> Result<()> {
+    let mut module = null_mut();
+    anyhow::ensure!(
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+            MODULE.load(Ordering::Acquire).cast(),
+            &mut module,
+        ) != 0,
+        "cannot retain the bootstrap for runtime callbacks: {}",
+        std::io::Error::last_os_error()
+    );
+    Ok(())
+}
 
 /// Loader entry point; attach runs only through the explicit start export.
 #[no_mangle]

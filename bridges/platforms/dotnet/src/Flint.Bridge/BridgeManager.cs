@@ -34,6 +34,16 @@ namespace Flint.Bridge
         public bool Busy { get { lock (gate) return bridge != null && bridge.Busy; } }
         public string StatusJson { get { lock (gate) return bridge?.StatusJson; } }
         public string InstanceId { get { lock (gate) return bridge?.InstanceId; } }
+        public string NativeLibrary { get { lock (gate) return library; } }
+
+        public HostSettings Settings
+        {
+            get
+            {
+                var status = StatusJson;
+                return status == null ? null : Json.Read<BridgeStatus>(status).Settings;
+            }
+        }
 
         public void Connect(string nativeLibrary, HostSettings settings)
         {
@@ -80,7 +90,7 @@ namespace Flint.Bridge
         }
 
         /// <summary>Dispatch initialization once; cancellation only prevents work that has not begun.</summary>
-        public string Attach(string nativeLibrary, HostSettings settings, int timeoutMilliseconds = 20000)
+        public string Attach(Action initialize, int timeoutMilliseconds = 20000)
         {
             var elapsed = Stopwatch.StartNew();
             // 0 = queued, 1 = started, 2 = cancelled. The dispatch callback can
@@ -92,7 +102,7 @@ namespace Flint.Bridge
                 dispatch(() =>
                 {
                     if (Interlocked.CompareExchange(ref state, 1, 0) != 0) return;
-                    try { Configure(settings, nativeLibrary); completion.SetResult(true); }
+                    try { initialize(); completion.SetResult(true); }
                     catch (Exception error) { completion.SetException(error); }
                 });
             }

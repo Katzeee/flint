@@ -5,10 +5,13 @@ use anyhow::{Context, Result};
 use std::ffi::{CStr, CString};
 use std::mem::transmute;
 use std::os::raw::{c_char, c_void};
+use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 use windows_sys::Win32::Foundation::HMODULE;
 
 use flint_contracts::attach::MonoPlan;
+
+mod reload;
 
 type MonoDomainFn = unsafe extern "C" fn(*mut c_void, *mut c_void);
 type MonoFriendlyNameFn = unsafe extern "C" fn(*mut c_void) -> *const c_char;
@@ -87,76 +90,113 @@ unsafe fn attach_mono(mono: HMODULE, plan: &MonoPlan) -> Result<()> {
     let domain_foreach: unsafe extern "C" fn(MonoDomainFn, *mut c_void) =
         transmute(export(mono, b"mono_domain_foreach\0")?);
     let friendly_name: MonoFriendlyNameFn = transmute(export(mono, b"mono_domain_get_friendly_name\0")?);
-    let assembly_open: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void =
-        transmute(export(mono, b"mono_domain_assembly_open\0")?);
-    let get_image: unsafe extern "C" fn(*mut c_void) -> *mut c_void =
-        transmute(export(mono, b"mono_assembly_get_image\0")?);
-    let class_from_name: unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> *mut c_void =
-        transmute(export(mono, b"mono_class_from_name\0")?);
-    let method_from_name: unsafe extern "C" fn(*mut c_void, *const c_char, i32) -> *mut c_void =
-        transmute(export(mono, b"mono_class_get_method_from_name\0")?);
-    let string_new: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void =
-        transmute(export(mono, b"mono_string_new\0")?);
-    let string_to_utf8: unsafe extern "C" fn(*mut c_void) -> *mut c_char =
-        transmute(export(mono, b"mono_string_to_utf8\0")?);
-    let mono_free: unsafe extern "C" fn(*mut c_void) = transmute(export(mono, b"mono_free\0")?);
-    let runtime_invoke: unsafe extern "C" fn(
-        *mut c_void,
-        *mut c_void,
-        *mut *mut c_void,
-        *mut *mut c_void,
-    ) -> *mut c_void = transmute(export(mono, b"mono_runtime_invoke\0")?);
-
     let root = get_root_domain();
     if root.is_null() {
         return Err(anyhow::anyhow!("Mono root domain is unavailable"));
     }
     thread_attach(root);
 
-    // Prefer the host's scripting domain, falling back to the root domain.
+    // Attach only to the scripting domain selected by the host.
     let mut search = DomainSearch {
         name: &plan.domain,
         target: null_mut(),
         friendly_name,
     };
     domain_foreach(find_domain, &mut search as *mut _ as *mut c_void);
-    let domain = if search.target.is_null() { root } else { search.target };
-    domain_set(domain, 0);
+    let domain = search.target;
+    anyhow::ensure!(!domain.is_null(), "scripting domain {} is unavailable", plan.domain);
+    anyhow::ensure!(domain_set(domain, 0) != 0, "scripting domain is unloading");
     thread_attach(domain);
 
-    let payload = CString::new(plan.assembly.to_str().context("assembly path is not UTF-8")?)
-        .context("assembly path has a NUL")?;
-    let assembly = assembly_open(domain, payload.as_ptr());
-    if assembly.is_null() {
-        return Err(anyhow::anyhow!("could not open the attach assembly"));
+    let adapter = Adapter::load(mono, &plan.assembly, domain)?;
+    if let Some(assemblies) = &plan.reload_assemblies {
+        // An adapter the host loaded itself is reloaded by the host; entering the
+        // staged copy into a new domain first would take over that assembly name.
+        if adapter.loaded_from(&plan.assembly) {
+            reload::install(mono, plan, assemblies, domain)?;
+        }
     }
-    let image = get_image(assembly);
-    if image.is_null() {
-        return Err(anyhow::anyhow!("attach assembly has no image"));
-    }
-    let class = class_from_name(image, c"Flint.Bridge".as_ptr(), c"Attach".as_ptr());
-    if class.is_null() {
-        return Err(anyhow::anyhow!("Flint.Bridge.Attach was not found in the assembly"));
-    }
-    let method = method_from_name(class, c"Initialize".as_ptr(), 1);
-    if method.is_null() {
-        return Err(anyhow::anyhow!("Flint.Bridge.Attach.Initialize(string) was not found"));
+    adapter.call(mono, domain, c"Initialize", &serde_json::to_string(plan)?)
+}
+
+/// `Flint.Bridge.Attach` in the adapter a domain resolves for an assembly path.
+/// A domain that already loaded an assembly of the same name resolves to that one.
+struct Adapter {
+    class: *mut c_void,
+    location: PathBuf,
+}
+
+impl Adapter {
+    unsafe fn load(mono: HMODULE, assembly_path: &Path, domain: *mut c_void) -> Result<Self> {
+        let assembly_open: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void =
+            transmute(export(mono, b"mono_domain_assembly_open\0")?);
+        let get_image: unsafe extern "C" fn(*mut c_void) -> *mut c_void =
+            transmute(export(mono, b"mono_assembly_get_image\0")?);
+        let image_filename: unsafe extern "C" fn(*mut c_void) -> *const c_char =
+            transmute(export(mono, b"mono_image_get_filename\0")?);
+        let class_from_name: unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> *mut c_void =
+            transmute(export(mono, b"mono_class_from_name\0")?);
+
+        let payload = CString::new(assembly_path.to_str().context("assembly path is not UTF-8")?)
+            .context("assembly path has a NUL")?;
+        let assembly = assembly_open(domain, payload.as_ptr());
+        if assembly.is_null() {
+            return Err(anyhow::anyhow!("could not open the attach assembly"));
+        }
+        let image = get_image(assembly);
+        if image.is_null() {
+            return Err(anyhow::anyhow!("attach assembly has no image"));
+        }
+        let location = PathBuf::from(CStr::from_ptr(image_filename(image)).to_string_lossy().into_owned());
+        let class = class_from_name(image, c"Flint.Bridge".as_ptr(), c"Attach".as_ptr());
+        if class.is_null() {
+            return Err(anyhow::anyhow!("Flint.Bridge.Attach was not found in the assembly"));
+        }
+        Ok(Self { class, location })
     }
 
-    let argument = CString::new(serde_json::to_string(plan)?)?;
-    let managed = string_new(domain, argument.as_ptr());
-    let mut arguments: [*mut c_void; 1] = [managed];
-    let mut exception: *mut c_void = null_mut();
-    let failure = runtime_invoke(method, null_mut(), arguments.as_mut_ptr(), &mut exception);
-    if !exception.is_null() {
-        return Err(anyhow::anyhow!("the managed attach entry threw an exception"));
+    fn loaded_from(&self, assembly_path: &Path) -> bool {
+        matches!(
+            (std::fs::canonicalize(&self.location), std::fs::canonicalize(assembly_path)),
+            (Ok(loaded), Ok(requested)) if loaded == requested
+        )
     }
-    // The entry returns null on success, or why it could not start the Bridge.
-    if !failure.is_null() {
-        let utf8 = string_to_utf8(failure);
-        let message = CStr::from_ptr(utf8).to_string_lossy().into_owned();
-        mono_free(utf8.cast());
-        return Err(anyhow::anyhow!(message));
+
+    unsafe fn call(&self, mono: HMODULE, domain: *mut c_void, entry: &CStr, argument: &str) -> Result<()> {
+        let method_from_name: unsafe extern "C" fn(*mut c_void, *const c_char, i32) -> *mut c_void =
+            transmute(export(mono, b"mono_class_get_method_from_name\0")?);
+        let string_new: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void =
+            transmute(export(mono, b"mono_string_new\0")?);
+        let string_to_utf8: unsafe extern "C" fn(*mut c_void) -> *mut c_char =
+            transmute(export(mono, b"mono_string_to_utf8\0")?);
+        let mono_free: unsafe extern "C" fn(*mut c_void) = transmute(export(mono, b"mono_free\0")?);
+        let runtime_invoke: unsafe extern "C" fn(
+            *mut c_void,
+            *mut c_void,
+            *mut *mut c_void,
+            *mut *mut c_void,
+        ) -> *mut c_void = transmute(export(mono, b"mono_runtime_invoke\0")?);
+
+        let method = method_from_name(self.class, entry.as_ptr(), 1);
+        if method.is_null() {
+            return Err(anyhow::anyhow!("managed bootstrap entry was not found"));
+        }
+
+        let argument = CString::new(argument)?;
+        let managed = string_new(domain, argument.as_ptr());
+        let mut arguments: [*mut c_void; 1] = [managed];
+        let mut exception: *mut c_void = null_mut();
+        let failure = runtime_invoke(method, null_mut(), arguments.as_mut_ptr(), &mut exception);
+        if !exception.is_null() {
+            return Err(anyhow::anyhow!("the managed attach entry threw an exception"));
+        }
+        // The entry returns null on success, or why it could not complete.
+        if !failure.is_null() {
+            let utf8 = string_to_utf8(failure);
+            let message = CStr::from_ptr(utf8).to_string_lossy().into_owned();
+            mono_free(utf8.cast());
+            return Err(anyhow::anyhow!(message));
+        }
+        Ok(())
     }
-    Ok(())
 }

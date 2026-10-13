@@ -37,6 +37,7 @@ enum Command {
         #[arg(long, default_value = "")]
         description: String,
     },
+    /// Execute code in a connected instance.
     Exec(Execute),
     Execution {
         #[arg(long)]
@@ -112,7 +113,21 @@ async fn running_application() -> Result<Application> {
     Ok(application)
 }
 #[derive(Args)]
-#[command(group(clap::ArgGroup::new("source").required(true).args(["code", "file", "stdin"])))]
+#[command(
+    group(clap::ArgGroup::new("source").required(true).args(["code", "stdin", "file"])),
+    after_long_help = r#"PowerShell examples (Python instance):
+  Set $instanceId and $workflowId to the identifiers returned by Flint.
+
+  flint exec --instance-id $instanceId --workflow-id $workflowId --code 'print(1 + 1)' --json
+
+@'
+message = "Hello from Flint"
+print(message)
+'@ | flint exec --instance-id $instanceId --workflow-id $workflowId --stdin --json
+
+  In Windows PowerShell, set $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+  before piping Unicode code."#
+)]
 struct Execute {
     #[arg(long, allow_hyphen_values = true)]
     instance_id: String,
@@ -120,12 +135,12 @@ struct Execute {
     workflow_id: String,
     #[arg(long, default_value = "")]
     name: String,
-    #[arg(long)]
+    #[arg(long, help = "Pass code inline, e.g. a short snippet")]
     code: Option<String>,
-    #[arg(long)]
-    file: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(long, help = "Read code from standard input, e.g. multiline code or a pipeline")]
     stdin: bool,
+    #[arg(long, help = "Read code from a script file and include its filename")]
+    file: Option<PathBuf>,
 }
 #[derive(Serialize)]
 #[serde(untagged)]

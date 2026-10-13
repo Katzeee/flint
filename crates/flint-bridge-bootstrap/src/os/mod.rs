@@ -2,4 +2,4 @@
 
 mod windows;
 
-pub(crate) use windows::{export, find_module, list_modules, module_with_export};
+pub(crate) use windows::{export, find_module, list_modules, module_with_export, pin};

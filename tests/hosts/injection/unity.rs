@@ -8,10 +8,8 @@ use std::{
     time::Duration,
 };
 
-/// Attach into a fresh Unity Editor, reload its scripts, and attach again. The
-/// reload unloads the domain holding the attached Bridge, so it must release its
-/// registration and process claim, and a later injection must start a new Bridge.
-/// An attach whose settings that Bridge refuses reports why.
+/// A single attach restores the Bridge across script reloads, preserves updated
+/// settings, and respects an explicit disconnect. Refused settings leave it usable.
 #[cfg(windows)]
 #[test]
 #[ignore = "real host: set FLINT_UNITY_EXE and run `cargo xtask test hosts`"]
@@ -32,7 +30,9 @@ fn attach_survives_a_script_reload_and_reports_refused_settings() -> Result<()> 
     fs::write(
         project.join("Assets/Editor/FlintReload.cs"),
         format!(
-            r#"using System.IO;
+            r#"using System;
+using System.Linq;
+using System.IO;
 using UnityEditor;
 
 [InitializeOnLoad]
@@ -56,13 +56,22 @@ public static class FlintReload
             File.AppendAllText(Loads, "loaded\n");
         }}
         if (!File.Exists(Trigger)) return;
+        var command = File.ReadAllText(Trigger);
         File.Delete(Trigger);
+        if (command == "quit") {{ EditorApplication.Exit(0); return; }}
+        var bridge = AppDomain.CurrentDomain.GetAssemblies()
+            .Select(assembly => assembly.GetType("Flint.Unity.EditorBridge")).FirstOrDefault(type => type != null);
+        if (command == "rename")
+            bridge.GetMethod("ApplySettings").Invoke(null, new object[] {{ "127.0.0.1", {port}, "Reloaded Unity" }});
+        if (command == "disconnect" && !(bool)bridge.GetMethod("Disconnect").Invoke(null, null))
+            throw new Exception("Idle Bridge refused disconnect");
         EditorUtility.RequestScriptReload();
     }}
 }}
 "#,
             unity_path(&loads).display(),
-            unity_path(&trigger).display()
+            unity_path(&trigger).display(),
+            port = app.bridge_port,
         ),
     )?;
     let load_count = || -> usize { fs::read_to_string(&loads).map(|text| text.lines().count()).unwrap_or(0) };
@@ -77,7 +86,7 @@ public static class FlintReload
         .current_dir(unity_path(&project))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(fs::File::create(app.directory.join("unity.stderr"))?);
     hidden(&mut command);
     let mut host = OwnedProcess(command.spawn()?);
     let pid = host.0.id();
@@ -93,18 +102,21 @@ public static class FlintReload
     let first = attach().context("initial Unity attach")?;
     crate::hosts::unity::verify_scene_execution(&app, &first)?;
 
-    let before_reload = load_count();
-    fs::write(&trigger, "")?;
-    wait_until(Duration::from_secs(120), || Ok(load_count() > before_reload))?;
-    // The unloaded domain must take its Bridge with it.
-    wait_until(Duration::from_secs(30), || {
-        let instances = app.call("instances", &["--type", "unity"], 0)?;
-        Ok(instances["instances"].as_array().unwrap().is_empty())
-    })?;
-
-    // The released claim and a fresh bootstrap load let a new Bridge start.
-    let second = attach().context("Unity attach after script reload")?;
-    anyhow::ensure!(second == first, "script reload changed the process identity");
+    for command in ["rename", ""] {
+        let before_reload = load_count();
+        fs::write(&trigger, command)?;
+        wait_until(Duration::from_secs(120), || {
+            anyhow::ensure!(host.0.try_wait()?.is_none(), "Unity exited; inspect {}", log.display());
+            if load_count() <= before_reload {
+                return Ok(false);
+            }
+            Ok(app.instance("unity")?.is_some_and(|instance| {
+                instance["instance_id"] == first && instance["instance_name"] == "Reloaded Unity"
+            }))
+        })
+        .context("automatic Unity recovery after script reload")?;
+        crate::hosts::unity::verify_scene_execution(&app, &first)?;
+    }
 
     // Settings the running Bridge refuses come back as the attach's failure and
     // leave that Bridge connected.
@@ -121,10 +133,37 @@ public static class FlintReload
     );
     let instances = app.call("instances", &["--type", "unity"], 0)?;
     anyhow::ensure!(
-        instances["instances"][0]["instance_id"] == second.as_str(),
+        instances["instances"][0]["instance_id"] == first.as_str(),
         "the refused attach changed the Bridge: {instances}"
     );
-    crate::hosts::unity::verify_scene_execution(&app, &second)?;
-    assert!(host.0.try_wait()?.is_none());
+    crate::hosts::unity::verify_scene_execution(&app, &first)?;
+    let before_reload = load_count();
+    fs::write(&trigger, "disconnect")?;
+    wait_until(Duration::from_secs(120), || Ok(load_count() > before_reload))?;
+    // Observe several Editor updates after the new domain starts. An unwanted
+    // restore can register asynchronously, so an immediate empty list is insufficient.
+    let stopped = std::time::Instant::now();
+    wait_until(Duration::from_secs(10), || {
+        anyhow::ensure!(
+            app.instance("unity")?.is_none(),
+            "explicitly disconnected Bridge restarted after reload"
+        );
+        Ok(stopped.elapsed() >= Duration::from_secs(3))
+    })?;
+    anyhow::ensure!(attach()? == first, "reattach changed the process identity");
+    crate::hosts::unity::verify_scene_execution(&app, &first)?;
+    fs::write(&trigger, "quit")?;
+    wait_until(Duration::from_secs(30), || match host.0.try_wait()? {
+        Some(status) => {
+            anyhow::ensure!(
+                status.success(),
+                "Unity shutdown failed: {status}; inspect {}",
+                log.display()
+            );
+            Ok(true)
+        }
+        None => Ok(false),
+    })
+    .context("Unity shutdown with the reload observer installed")?;
     Ok(())
 }

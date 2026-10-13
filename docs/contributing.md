@@ -49,9 +49,9 @@ Workflow files own durable state; live connections and pending requests are tran
 
 ## Bridge
 
-Bridge integrations live under `bridges/hosts` and compose reusable capabilities from `bridges/platforms`. A capability that another host on the same platform can use belongs to the platform, even when it currently has one consumer. Hosts own application-specific startup, dispatch, settings storage, teardown, and delivery. Platform components depend on capabilities supplied by the host rather than selecting concrete hosts. Package loading and external attach converge on the same host adapter. Source ownership and distribution boundaries are independent.
+Bridge integrations live under `bridges/hosts` and compose reusable capabilities from `bridges/platforms`. A capability that another host on the same platform can use belongs to the platform, even when it currently has one consumer. Hosts own application-specific startup, dispatch, settings storage, teardown, and delivery. Platform components depend on capabilities supplied by the host rather than selecting concrete hosts. Package loading and external attach converge on the same host adapter. When a scripting domain reloads, the bootstrap re-enters an attached adapter, and the host decides whether its Bridge resumes; an adapter the host loaded itself handles its own reloads. Source ownership and distribution boundaries are independent.
 
-Persist only the connection target and instance name; connection state is transient. Bridge creation failures leave the settings UI available and report the reason through the host's diagnostics.
+Persist only the connection target and instance name; connection state is transient. A host whose scripting domain reloads within one process may carry its active settings, and whether its Bridge was explicitly disconnected, across that reload. Bridge creation failures leave the settings UI available and report the reason through the host's diagnostics.
 
 Runtime code supports the versions declared by its package, independently of the interpreter used by build tooling.
 

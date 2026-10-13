@@ -50,10 +50,12 @@ List connected instances, create a workflow, and use the returned identifiers to
 
 ```text
 flint workflow --name "My task" --json
-flint exec --instance-id <instance-id> --workflow-id <workflow-id> --file <script-file> --json
+flint exec --instance-id <instance-id> --workflow-id <workflow-id> --code "print(1 + 1)" --json
 flint execution --workflow-id <workflow-id> --execution-id 0001 --view full --json
 ```
 
-Submit code understood by the selected instance. exec accepts exactly one of --code, --file, or --stdin. Reuse a workflow ID to group related executions. The execution command returns recorded stdout, stderr, errors, and status; --view full also includes source code.
+Submit code understood by the selected instance; the example above uses Python. For input selection and PowerShell multiline examples, see `flint exec --help`.
+
+Reuse a workflow ID to group related executions. Query the execution to read recorded stdout, stderr, errors, and status; `--view full` also includes source code.
 
 Long executions return status running after five seconds and continue after the CLI exits. Query execution again to see incremental output and the final result. Exit code 0 includes accepted running work; it does not by itself mean host code has finished. A timeout or lost connection does not establish that host code has stopped.

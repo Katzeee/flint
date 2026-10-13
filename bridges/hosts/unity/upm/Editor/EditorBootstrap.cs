@@ -12,7 +12,7 @@ namespace Flint.Unity
         {
             EditorApplication.delayCall += () =>
             {
-                try { Connect(); }
+                try { Start(); }
                 catch (BridgeCreationException error)
                 {
                     // The settings page stays available so the user can start it with Connect.
@@ -23,13 +23,24 @@ namespace Flint.Unity
 
         internal static void Connect()
         {
-            var package = UnityEditor.PackageManager.PackageInfo.FindForPackageName("com.flint.bridge");
-            if (package == null) return;
-
-            var library = Path.Combine(package.resolvedPath, "Editor", "Plugins", "flint_bridge_core.dll");
-
+            var library = NativeLibrary();
+            if (library == null) return;
             var settings = EditorConnectionSettings.Read();
             EditorBridge.Connect(library, settings.address, settings.port, settings.name);
+        }
+
+        private static void Start()
+        {
+            var library = NativeLibrary();
+            if (library == null) return;
+            var settings = EditorConnectionSettings.Read();
+            EditorBridge.Start(library, settings.address, settings.port, settings.name);
+        }
+
+        private static string NativeLibrary()
+        {
+            var package = UnityEditor.PackageManager.PackageInfo.FindForPackageName("com.flint.bridge");
+            return package == null ? null : Path.Combine(package.resolvedPath, "Editor", "Plugins", "flint_bridge_core.dll");
         }
     }
 }

@@ -121,7 +121,8 @@ fn unity() -> HostBridge {
         attach: Some(dotnet::attach(
             dotnet::Entry {
                 assembly: "Flint.Unity.dll",
-                manager: "Flint.Unity.EditorBridge",
+                entry: "Flint.Unity.EditorAttach",
+                reload_assemblies: Some(&["UnityEditor.CoreModule"]),
                 domain: "Unity Child Domain",
             },
             UNITY_ADAPTER,

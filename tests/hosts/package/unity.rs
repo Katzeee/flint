@@ -1,6 +1,6 @@
 use crate::hosts::host_executable;
 use crate::support::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -39,6 +39,7 @@ fn exported_package_registers_and_executes() -> Result<()> {
         package.join("Editor/TestLifecycle.cs"),
     )?;
     let lifecycle = app.directory.join("lifecycle.txt");
+    let reload = app.directory.join("reload");
     let package_path = package.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/");
     fs::write(
         project.join("Packages/manifest.json"),
@@ -53,6 +54,7 @@ fn exported_package_registers_and_executes() -> Result<()> {
         .arg(unity_path(&log))
         .env("FLINT_TEST_BRIDGE_PORT", app.bridge_port.to_string())
         .env("FLINT_TEST_LIFECYCLE_RESULT", unity_path(&lifecycle))
+        .env("FLINT_TEST_RELOAD_TRIGGER", unity_path(&reload))
         .current_dir(unity_path(&project))
         .stdin(Stdio::null())
         .stdout(fs::File::create(app.directory.join("unity.stdout"))?)
@@ -103,6 +105,43 @@ fn exported_package_registers_and_executes() -> Result<()> {
     );
     crate::hosts::unity::verify_scene_execution(&app, id)?;
     crate::hosts::unity::verify_execution_failures(&app, id)?;
+
+    // Attaching to the package's Bridge leaves reloads to the package, so the
+    // reloaded domain must resolve the adapter from the package alone.
+    let loads = app.directory.join("reload.loads");
+    let load_count = || fs::read_to_string(&loads).map(|text| text.lines().count()).unwrap_or(0);
+    let before_reload = load_count();
+    fs::write(&reload, "")?;
+    wait_until(Duration::from_secs(120), || {
+        anyhow::ensure!(host.0.try_wait()?.is_none(), "Unity exited; inspect {}", log.display());
+        Ok(load_count() > before_reload
+            && app
+                .instance("unity")?
+                .is_some_and(|instance| instance["instance_id"] == id))
+    })
+    .context("package Bridge recovery after script reload")?;
+    let workflow = app.workflow("unity-package-reload")?;
+    let adapters = crate::hosts::unity::unity_execution(
+        &app,
+        id,
+        &workflow,
+        "var found = new System.Collections.Generic.List<string>();\n\
+         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())\n    \
+         if (assembly.GetName().Name == \"Flint.Unity\") found.Add(assembly.Location);\n\
+         Debug.Log(\"FLINT_ADAPTERS \" + string.Join(\"|\", found.ToArray()) + \" FLINT_END\");",
+    )?;
+    assert_eq!(adapters["status"], "succeeded", "{adapters:?}");
+    let stdout = adapters["stdout"].as_str().unwrap();
+    let locations = stdout
+        .split_once("FLINT_ADAPTERS ")
+        .and_then(|(_, rest)| rest.split_once(" FLINT_END"))
+        .map(|(locations, _)| locations.replace('\\', "/").to_lowercase())
+        .with_context(|| format!("adapter report missing: {stdout}"))?;
+    let locations: Vec<_> = locations.split('|').collect();
+    anyhow::ensure!(
+        locations.len() == 1 && locations[0].starts_with(&package_path.to_lowercase()),
+        "the reloaded domain resolved adapters {locations:?}, expected one from {package_path}"
+    );
     assert!(host.0.try_wait()?.is_none());
     println!("VALIDATION_PASSED unity {}", app.directory.display());
     Ok(())

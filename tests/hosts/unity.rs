@@ -39,7 +39,7 @@ pub fn verify_execution_failures(app: &App, id: &str) -> Result<()> {
     Ok(())
 }
 
-fn unity_execution(app: &App, instance: &str, workflow: &str, code: &str) -> Result<Value> {
+pub fn unity_execution(app: &App, instance: &str, workflow: &str, code: &str) -> Result<Value> {
     let submitted = run(
         app.command("exec")
             .args(["--instance-id", instance, "--workflow-id", workflow, "--code", code]),
