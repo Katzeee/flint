@@ -2,8 +2,8 @@
 //!
 //! Local host operations are associated functions that need neither a backend nor
 //! its configuration. Backend queries use the control protocol and never start a
-//! process implicitly. `start_backend`, `restart_backend`, and `attach` establish
-//! a running backend when their operation requires one.
+//! process implicitly. `start_backend` and `attach` establish a running backend
+//! when their operation requires one.
 
 mod attach;
 mod control;

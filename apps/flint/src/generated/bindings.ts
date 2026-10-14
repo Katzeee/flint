@@ -16,7 +16,6 @@ export const commands = {
 	focusApplication: (pid: number) => __TAURI_INVOKE<null>("focus_application", { pid }),
 	startBackend: () => __TAURI_INVOKE<PingResponse>("start_backend"),
 	stopBackend: () => __TAURI_INVOKE<BackendStopped>("stop_backend"),
-	restartBackend: () => __TAURI_INVOKE<PingResponse>("restart_backend"),
 };
 
 /** Events */
@@ -25,7 +24,7 @@ export const events = {
 };
 
 /* Constants */
-export const hostNames = { "blender": "Blender", "houdini": "Houdini", "max": "3ds Max", "maya": "Maya", "standalone_csharp": "C#", "standalone_python": "Python", "unity": "Unity" } as const;
+export const hostNames = {"blender":"Blender","houdini":"Houdini","max":"3ds Max","maya":"Maya","standalone_csharp":"C#","standalone_python":"Python","unity":"Unity"} as const;
 
 /* Types */
 export type ApplicationInfo = {
@@ -192,20 +191,20 @@ export type WorkflowSummary = {
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;
 
 function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deserialize?: (payload: any) => T) {
-	const mapEvent = (cb: __TAURI_EVENT.EventCallback<T>) => (event: __TAURI_EVENT.Event<any>) => cb({ ...event, payload: deserialize ? deserialize(event.payload) : event.payload });
-	const mapPayload = (payload: T) => serialize ? serialize(payload) : payload;
+    const mapEvent = (cb: __TAURI_EVENT.EventCallback<T>) => (event: __TAURI_EVENT.Event<any>) => cb({ ...event, payload: deserialize ? deserialize(event.payload) : event.payload });
+    const mapPayload = (payload: T) => serialize ? serialize(payload) : payload;
 
-	const base = {
-		listen: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.listen(name, mapEvent(cb)),
-		once: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.once(name, mapEvent(cb)),
-		emit: ((payload: T) => __TAURI_EVENT.emit(name, mapPayload(payload)) as unknown) as EventEmit<T>
-	};
+    const base = {
+        listen: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.listen(name, mapEvent(cb)),
+        once: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.once(name, mapEvent(cb)),
+        emit: ((payload: T) => __TAURI_EVENT.emit(name, mapPayload(payload)) as unknown) as EventEmit<T>
+    };
 
-	const fn = (target: import("@tauri-apps/api/webview").Webview | import("@tauri-apps/api/window").Window) => ({
-		listen: (cb: __TAURI_EVENT.EventCallback<T>) => target.listen(name, mapEvent(cb)),
-		once: (cb: __TAURI_EVENT.EventCallback<T>) => target.once(name, mapEvent(cb)),
-		emit: ((payload: T) => target.emit(name, mapPayload(payload)) as unknown) as EventEmit<T>
-	});
+    const fn = (target: import("@tauri-apps/api/webview").Webview | import("@tauri-apps/api/window").Window) => ({
+        listen: (cb: __TAURI_EVENT.EventCallback<T>) => target.listen(name, mapEvent(cb)),
+        once: (cb: __TAURI_EVENT.EventCallback<T>) => target.once(name, mapEvent(cb)),
+        emit: ((payload: T) => target.emit(name, mapPayload(payload)) as unknown) as EventEmit<T>
+    });
 
-	return Object.assign(fn, base);
+    return Object.assign(fn, base);
 }

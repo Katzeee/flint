@@ -97,12 +97,6 @@ async fn stop_backend(state: tauri::State<'_, Application>) -> Result<BackendSto
     state.stop_backend().await
 }
 
-#[tauri::command]
-#[specta::specta]
-async fn restart_backend(state: tauri::State<'_, Application>) -> Result<PingResponse, Failure> {
-    state.restart_backend().await
-}
-
 /// The command and event catalog shared by the desktop and `cargo codegen`.
 pub(super) fn bindings() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::new()
@@ -117,8 +111,7 @@ pub(super) fn bindings() -> tauri_specta::Builder<tauri::Wry> {
             host_info,
             focus_application,
             start_backend,
-            stop_backend,
-            restart_backend
+            stop_backend
         ])
         .events(tauri_specta::collect_events![DesktopOpened])
         .constant(

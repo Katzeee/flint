@@ -28,9 +28,9 @@ export function Settings({
   onAppearanceChange: (appearance: CairnAppearance) => void;
   preferenceError: string;
   ready: boolean;
-  busy: "start" | "stop" | "restart" | null;
+  busy: "start" | "stop" | null;
   error: string;
-  changeBackend: (operation: "start" | "stop" | "restart") => Promise<void>;
+  changeBackend: (operation: "start" | "stop") => Promise<void>;
 }>) {
   const info = useResource("desktop-info", readDesktopInfo);
   const [confirmStop, setConfirmStop] = useState(false);
@@ -68,7 +68,31 @@ export function Settings({
 
           <List.Section title="Backend">
             <List.Item
-              trailing={<Status tone={ready ? "success" : "neutral"}>{ready ? "Running" : "Not running"}</Status>}
+              trailing={
+                <Flex align="center" gap="3">
+                  <Status tone={ready ? "success" : "neutral"}>{ready ? "Running" : "Not running"}</Status>
+                  {ready ? (
+                    <Button
+                      disabled={busy !== null}
+                      loading={busy === "stop"}
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setConfirmStop(true)}
+                    >
+                      Stop
+                    </Button>
+                  ) : (
+                    <Button
+                      disabled={busy !== null}
+                      loading={busy === "start"}
+                      size="sm"
+                      onClick={() => void changeBackend("start")}
+                    >
+                      Start
+                    </Button>
+                  )}
+                </Flex>
+              }
             >
               Status
             </List.Item>
@@ -80,41 +104,8 @@ export function Settings({
             </List.Item>
             <List.Item trailing={info.data?.state_dir ?? pending}>Data directory</List.Item>
           </List.Section>
-          <ErrorNotice error={info.error} retry={info.reload} />
-
-          <List.Section description="Host applications and this window stay open. Bridges reconnect when the backend starts again.">
-            <List.Item
-              trailing={
-                <Button
-                  disabled={busy !== null}
-                  loading={busy === "start" || busy === "restart"}
-                  size="sm"
-                  onClick={() => void changeBackend(ready ? "restart" : "start")}
-                >
-                  {ready ? "Restart" : "Start"}
-                </Button>
-              }
-            >
-              {ready ? "Restart backend" : "Start backend"}
-            </List.Item>
-            <List.Item
-              description="Disconnects every Bridge. The desktop stays open."
-              trailing={
-                <Button
-                  disabled={!ready || busy !== null}
-                  loading={busy === "stop"}
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => setConfirmStop(true)}
-                >
-                  Stop
-                </Button>
-              }
-            >
-              Stop backend
-            </List.Item>
-          </List.Section>
           <ErrorNotice error={error} />
+          <ErrorNotice error={info.error} retry={info.reload} />
 
           <List.Section title="About">
             <List.Item trailing={info.data?.version ?? pending}>Version</List.Item>
@@ -126,7 +117,7 @@ export function Settings({
         <AlertDialog.Content>
           <AlertDialog.Title>Stop backend?</AlertDialog.Title>
           <AlertDialog.Description>
-            The backend will disconnect its Bridges. This window and running host applications remain open.
+            Every Bridge disconnects, and any running execution is interrupted.
           </AlertDialog.Description>
           <AlertDialog.Actions>
             <AlertDialog.Cancel>

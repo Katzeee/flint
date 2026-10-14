@@ -20,7 +20,6 @@ enum Command {
     Start,
     Status,
     Stop,
-    Restart,
     Serve,
     Gui,
     Instances {
@@ -300,7 +299,6 @@ async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<O
         Command::Start => Output::Status(Some(Application::load()?.start_backend().await?)),
         Command::Status => Output::Status(Application::load()?.backend_status().await?),
         Command::Stop => Output::Stopped(Application::load()?.stop_backend().await?),
-        Command::Restart => Output::Status(Some(Application::load()?.restart_backend().await?)),
         Command::Instances { instance_type } => Output::Instances {
             instances: running_application().await?.instances(instance_type).await?,
         },

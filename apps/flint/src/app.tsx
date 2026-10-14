@@ -18,7 +18,6 @@ import {
   discoverHosts,
   onDesktopOpened,
   readSnapshot,
-  restartBackend,
   startBackend,
   stopBackend,
 } from "./backend.js";
@@ -44,16 +43,15 @@ export function App() {
   const [appearance, setAppearance] = useState(savedAppearance);
   const [preferenceError, setPreferenceError] = useState("");
   const [chrome, setChrome] = useState(false);
-  const [backendBusy, setBackendBusy] = useState<"start" | "stop" | "restart" | null>("start");
+  const [backendBusy, setBackendBusy] = useState<"start" | "stop" | null>("start");
   const [backendError, setBackendError] = useState("");
   const backendPending = useRef(Promise.resolve());
-  const changeBackend = (operation: "start" | "stop" | "restart") => {
+  const changeBackend = (operation: "start" | "stop") => {
     const pending = backendPending.current.then(async () => {
       setBackendBusy(operation);
       setBackendError("");
       try {
         if (operation === "start") await startBackend();
-        else if (operation === "restart") await restartBackend();
         else await stopBackend();
       } catch (failure) {
         setBackendError(messageOf(failure));

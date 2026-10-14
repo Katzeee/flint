@@ -2,9 +2,9 @@
 
 Export `flint-houdini.zip` with `flint bridge export houdini`. Extract `flint.json` and the adjacent `flint` directory into `$HOUDINI_USER_PREF_DIR/packages`, then restart Houdini. The package connects when the UI is ready. Open **Flint > Connection Settings** for the shared [connection controls](../../README.md#connection-settings).
 
-The adapter uses Houdini's Python runtime and runs submitted code on the UI thread. The execution namespace includes `hou`. This integration requires an interactive Houdini session; `hython` and Houdini Engine are outside its scope.
+Keep Houdini open and responsive while running Python code through Flint. Use `hou` to work with the current scene. Connecting through `hython` or Houdini Engine is not supported.
 
-External attach uses the same adapter and requires no package installation. Use `flint hosts --help` and `flint attach --help` to discover and connect a running Houdini process.
+To connect without installing the package, use `flint hosts` to find Houdini's PID, then run `flint attach --pid <pid>`.
 
 For direct control from Houdini's Python shell:
 

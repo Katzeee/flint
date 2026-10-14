@@ -96,7 +96,3 @@ export function startBackend() {
 export function stopBackend() {
   return withFailure(commands.stopBackend());
 }
-
-export function restartBackend() {
-  return withFailure(commands.restartBackend());
-}

@@ -295,8 +295,8 @@ test("backend controls recover from refusal and preserve pending work across nav
   await withDesktop(async (page, url) => {
     await page.addInitScript(() => {
       window.__invokeCalls = [];
-      window.__startDuringRestart = [];
-      let restarting = false;
+      window.__startDuringStop = [];
+      let stopping = false;
       const backend = {
         ready: true,
         pid: 4312,
@@ -319,23 +319,23 @@ test("backend controls recover from refusal and preserve pending work across nav
           };
         if (command === "stop_backend") {
           if (!window.__allowStop) throw { code: "backend_busy", message: "executions are still active" };
-          window.__mockSnapshot = { backend: null, instances: [] };
-          return { stopped_pid: backend.pid };
-        }
-        if (command === "start_backend") {
-          window.__startDuringRestart.push(restarting);
-          window.__mockSnapshot = { backend, instances: [] };
-          return backend;
-        }
-        if (command === "restart_backend") {
-          restarting = true;
+          if (!window.__holdStop) {
+            window.__mockSnapshot = { backend: null, instances: [] };
+            return { stopped_pid: backend.pid };
+          }
+          stopping = true;
           return new Promise((resolve) => {
-            window.__finishRestart = () => {
-              restarting = false;
-              window.__mockSnapshot = { backend, instances: [] };
-              resolve(backend);
+            window.__finishStop = () => {
+              stopping = false;
+              window.__mockSnapshot = { backend: null, instances: [] };
+              resolve({ stopped_pid: backend.pid });
             };
           });
+        }
+        if (command === "start_backend") {
+          window.__startDuringStop.push(stopping);
+          window.__mockSnapshot = { backend, instances: [] };
+          return backend;
         }
         throw new Error(`Unexpected command: ${command}`);
       };
@@ -358,28 +358,32 @@ test("backend controls recover from refusal and preserve pending work across nav
     await page.getByText("Not running", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Start", exact: true }).click();
     await page.getByText("Running", { exact: true }).waitFor();
-    await page.getByRole("button", { name: "Restart", exact: true }).click();
-    await page.waitForFunction(() => typeof window.__finishRestart === "function");
-    assert.equal(await page.getByRole("button", { name: "Restart", exact: true }).isDisabled(), true);
+    await page.evaluate(() => {
+      window.__holdStop = true;
+    });
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Stop backend", exact: true }).click();
+    await page.waitForFunction(() => typeof window.__finishStop === "function");
+    assert.equal(await page.getByRole("button", { name: "Stop", exact: true }).isDisabled(), true);
     await page.getByRole("link", { name: "Applications", exact: true }).click();
     await page.getByText("No applications running", { exact: true }).waitFor();
     await page.getByRole("link", { name: "Settings", exact: true }).click();
-    assert.equal(await page.getByRole("button", { name: "Restart", exact: true }).isDisabled(), true);
-    // Reopening while restart is pending must establish the backend after that operation.
+    assert.equal(await page.getByRole("button", { name: "Stop", exact: true }).isDisabled(), true);
+    // Reopening while stop is pending must establish the backend after that operation.
     await page.evaluate(() => window.__emitEvent("desktop-opened", null));
-    await page.evaluate(() => window.__finishRestart());
+    await page.evaluate(() => window.__finishStop());
     await page.waitForFunction(
       () => window.__invokeCalls.filter((call) => call.command === "start_backend").length === 3,
     );
     assert.deepEqual(
-      await page.evaluate(() => window.__startDuringRestart),
+      await page.evaluate(() => window.__startDuringStop),
       [false, false, false],
-      "opening, starting, and reopening must not overlap a pending restart",
+      "opening, starting, and reopening must not overlap a pending stop",
     );
-    await page.getByRole("button", { name: "Restart", exact: true }).and(page.locator(":enabled")).waitFor();
+    await page.getByRole("button", { name: "Stop", exact: true }).and(page.locator(":enabled")).waitFor();
     assert.equal(
-      await page.evaluate(() => window.__invokeCalls.filter((call) => call.command === "restart_backend").length),
-      1,
+      await page.evaluate(() => window.__invokeCalls.filter((call) => call.command === "stop_backend").length),
+      3,
     );
     await page.getByRole("link", { name: "Applications", exact: true }).click();
     await page.getByText("No applications running", { exact: true }).waitFor();

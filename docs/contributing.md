@@ -27,7 +27,7 @@ Dependencies stay acyclic and follow ownership. Tauri and UI dependencies stay i
 
 Expose product operations through `application` in `apps/flint/src-tauri`, independently of terminal input and window presentation. CLI and Tauri commands call this API. Use the single runtime configuration entry in `flint-contracts::config` for the application and its backend child; callers supply no per-invocation overrides. Local host inspection, focus, and export remain independent of the backend and its configuration; backend operations use the control protocol.
 
-API queries never start a backend; startup and restart are explicit operations. Frontends ensure it is running for CLI commands that need it and for opening or reopening the desktop. Status queries and polling leave a stopped backend stopped. Attach establishes a backend before injecting a Bridge.
+API queries never start a backend; startup and shutdown are explicit operations. Frontends ensure it is running for CLI commands that need it and for opening or reopening the desktop. Status queries and polling leave a stopped backend stopped. Attach establishes a backend before injecting a Bridge.
 
 Discovery identifies host processes, including batch-mode editors, and excludes recognized internal workers; a visible window does not make a process a host candidate.
 

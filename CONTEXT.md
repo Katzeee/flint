@@ -16,7 +16,7 @@ _Avoid_: Runtime without qualification.
 
 **Host candidate**:
 A discovered host application process that may support a Bridge but has not necessarily connected to the backend.
-_Avoid_: Instance for a merely discovered process.
+_Avoid_: Connected instance for a merely discovered process.
 
 **Window preview**:
 A reduced image of a host candidate's own main window, captured on request. It never contains other windows or screen content, and an unavailable preview has a stated reason.
@@ -89,15 +89,22 @@ _Avoid_: Server or core when referring to this service as a whole.
 The serving backend's exclusive hold on its state directory, through an operating-system lock. At most one backend serves a state directory, and the lease releases when that backend ends.
 
 **Lifecycle lock**:
-The lock a control client holds while it starts, stops, or restarts the backend, so those operations from the CLI and the desktop never interleave. Only its holder may probe whether a backend lease is held.
+The lock a control client holds while it starts or stops the backend, so those operations from the CLI and the desktop never interleave. Only its holder may probe whether a backend lease is held.
 
 **Desktop**:
-Flint's window and tray, running in a process separate from the backend. It controls the backend as a control client, and neither its exit nor a backend stop or restart ends the other.
+Flint's window and tray, running in a process separate from the backend. It controls the backend as a control client; quitting the desktop leaves the backend running, and stopping the backend leaves the desktop running.
 _Avoid_: GUI backend, tray service.
 
+**Instance**:
+One lifetime of a host application process, identified by an instance ID that remains stable across Bridge recreation, reconnection, settings changes, backend restarts, and host runtime domain reloads. Starting a new process creates a new instance, even when its process ID is reused.
+_Avoid_: Session for this process identity.
+
 **Connected instance**:
-A transient backend registration of a Bridge in a host application, identified by an instance ID. Reconnection can produce a new instance ID for the same Bridge.
-_Avoid_: Host application for the registered connection.
+An instance whose Bridge has a current registration with a backend. It is ready to execute when that registration's execution channel is connected.
+
+**Bridge session**:
+A transient registration of an instance's Bridge with a backend, identified by a session ID and shared by its heartbeat and execution channels. Each registration creates a new session; a replacement registration for the same instance retires its previous session on that backend.
+_Avoid_: Instance for a registration's lifetime.
 
 **Control client**:
 The component of the CLI and desktop that sends a command to the backend and receives its response. It is separate from the host-side Bridge.
@@ -117,7 +124,7 @@ _Avoid_: Registry endpoint or host endpoint for this connection boundary.
 A durable group of related executions with its own identifier, name, and description. Its records remain after a backend restart.
 
 **Execution**:
-One submitted code run associated with a workflow and a connected instance, together with its recorded status, output, and error information. A lost connection can leave the host outcome unknown.
+One submitted code run associated with a workflow and an instance, together with its recorded status, output, and error information. Submission requires a connected instance ready to execute; a lost connection can leave the host outcome unknown.
 
 **Wire protocol**:
 The versioned messages and length-prefixed framing exchanged between the backend, control clients, and Bridges.

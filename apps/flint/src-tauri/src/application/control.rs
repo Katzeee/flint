@@ -209,12 +209,6 @@ impl Application {
             pause(deadline).await?;
         }
     }
-    pub async fn restart_backend(&self) -> ApplicationResult<PingResponse> {
-        let deadline = self.deadline();
-        let _lifecycle = self.lifecycle(deadline).await?;
-        self.stop(deadline).await?;
-        Ok(self.ensure(deadline).await?)
-    }
 }
 async fn pause(deadline: Instant) -> Result<()> {
     if Instant::now() >= deadline {

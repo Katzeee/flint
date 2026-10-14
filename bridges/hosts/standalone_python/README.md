@@ -1,6 +1,6 @@
 # Standalone Python Bridge
 
-Export the bundle with `flint bridge export python`. The bundle contains the Python integration and native Bridge core and needs no pip installation. Load it inside the Python process you want to control, replacing the ZIP path with your exported file:
+Export the bundle with `flint bridge export python`; no pip installation is needed. Run this inside the Python process you want to control, replacing the ZIP path with your exported file:
 
 ```python
 import sys
@@ -10,6 +10,6 @@ from flint_bridge.standalone_python import manager
 bridge = manager.connect(name="My Python process")
 ```
 
-Keep the process running while using the Bridge. The Bridge uses background threads and does not keep an otherwise finished script alive. Submitted code runs on a worker thread and retains its Python namespace between requests. Output from that execution thread is returned to Flint; output from unrelated host threads remains with the host.
+Keep the Python process running while using Flint; connecting does not keep a finished script alive. Variables defined by submitted code remain available to later submissions. Output from submitted code is returned to Flint; output from other threads is not captured.
 
-Repeated connection calls reuse the matching Bridge. Use the Bridge's status to inspect readiness and the reason for a retry. The host integration's configure and reconnect methods update settings or retry the connection without replacing the execution context. When finishing, call `manager.disconnect()`; a false return means shutdown is still waiting for running code and resources cannot yet be released.
+Use `bridge.connected` to check the connection and `bridge.status` for connection details. Call `manager.reconnect()` to retry. When finishing, call `manager.disconnect()`; if it returns `False`, wait for running code to finish and call it again.

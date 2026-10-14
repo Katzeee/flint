@@ -21,7 +21,7 @@ import {
   TextArea,
 } from "@cairn/ui";
 import { AppWindow, Play, RefreshCw, SquareArrowOutUpRight, Zap } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   attachHost,
   focusApplication,
@@ -160,11 +160,15 @@ function Fact({ label, children }: Readonly<{ label: string; children: ReactNode
 function ApplicationDetail({
   instance,
   candidate,
+  snapshot,
   loading,
+  refresh,
 }: Readonly<{
   instance?: ConnectedInstance;
   candidate?: HostCandidate;
+  snapshot: Snapshot | null;
   loading: boolean;
+  refresh: () => void;
 }>) {
   const pid = instance?.pid ?? candidate?.pid;
   const host = instance?.instance_type ?? candidate?.host;
@@ -175,6 +179,19 @@ function ApplicationDetail({
   );
   const [actionError, setActionError] = useState("");
   const [attaching, setAttaching] = useState(false);
+  const [attached, setAttached] = useState(false);
+  const snapshotWhenAttached = useRef<Snapshot | null | undefined>(undefined);
+  // A confirmed attach stays busy until a later snapshot shows the instance; a snapshot without it
+  // means the Bridge dropped, so attach is offered again.
+  useEffect(() => {
+    if (!attached) return;
+    if (snapshotWhenAttached.current === undefined) snapshotWhenAttached.current = snapshot;
+    else if (snapshotWhenAttached.current !== snapshot) {
+      snapshotWhenAttached.current = undefined;
+      setAttached(false);
+    }
+  }, [attached, snapshot]);
+  const busy = attaching || attached;
   const desktop = useResource("desktop-info", readDesktopInfo);
   const attachSupported = desktop.data?.attach_supported ?? false;
   const focus = async () => {
@@ -191,9 +208,9 @@ function ApplicationDetail({
     setActionError("");
     setAttaching(true);
     try {
-      // The backend confirms registration; snapshot polling then reveals the
-      // connected instance and this view re-renders for it.
       await attachHost(candidate.pid, candidate.host);
+      setAttached(true);
+      refresh();
     } catch (error) {
       setActionError(messageOf(error));
     } finally {
@@ -228,7 +245,7 @@ function ApplicationDetail({
             label="Attach Bridge"
             onSelect={() => void attach()}
             priority="primary"
-            disabled={attaching}
+            disabled={busy}
           />
         ) : null}
         {hostWindow ? (
@@ -300,9 +317,9 @@ function ApplicationDetail({
                         : `Load the Flint Bridge inside ${application}. Once it connects, this application moves to Connected and can run code from Flint.`}
                     </Text>
                     {candidate && attachSupported ? (
-                      <Button onClick={() => void attach()} disabled={attaching}>
-                        {attaching ? <Spinner size="sm" /> : <Icon glyph={Zap} size="sm" />}
-                        {attaching ? "Attaching…" : "Attach Bridge"}
+                      <Button onClick={() => void attach()} disabled={busy}>
+                        {busy ? <Spinner size="sm" /> : <Icon glyph={Zap} size="sm" />}
+                        {busy ? "Attaching…" : "Attach Bridge"}
                       </Button>
                     ) : null}
                   </Flex>
@@ -453,7 +470,9 @@ export function Applications({
           key={instance?.pid ?? candidate?.pid ?? route.id}
           instance={instance}
           candidate={candidate}
+          snapshot={snapshot}
           loading={loading || discovery.loading}
+          refresh={refresh}
         />
         {/* The shell's banner reports a backend that cannot be reached. */}
         {discovery.error ? (

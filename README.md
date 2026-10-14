@@ -8,16 +8,15 @@ To build Flint from source, follow [Development environment and first build](doc
 
 On Windows, install WebView2 and the Microsoft Visual C++ x64 runtime. Put flint.exe on PATH or invoke its full path.
 
-Opening flint without arguments starts or reuses the backend and opens the desktop window. The desktop and backend run in separate processes. Closing the window hides it in the tray; stopping or restarting the backend leaves the desktop open. Settings provides backend startup, shutdown, and restart. Quitting the desktop leaves the backend running.
+Opening flint without arguments starts or reuses the backend and opens the desktop window. The desktop and backend run in separate processes. Closing the window hides it in the tray; stopping the backend leaves the desktop open. Settings provides backend startup and shutdown. Quitting the desktop leaves the backend running.
 
 ```text
 flint
 flint status --json
-flint restart --json
 flint stop --json
 ```
 
-All terminals and agent sessions for the same user share one local backend. Commands that need the backend start it automatically, and so does opening the desktop, including launching flint while the desktop already runs. `flint status` and the desktop's status display only observe it, so a stopped backend stays stopped until the next such command or launch. Stop and restart refuse while executions are active and leave host applications running. Submitted code is not automatically replayed after a communication failure.
+All terminals and agent sessions for the same user share one local backend. Commands that need the backend start it automatically, and so does opening the desktop, including launching flint while the desktop already runs. `flint status` and the desktop's status display only observe it, so a stopped backend stays stopped until the next such command or launch. Stop refuses while executions are active and leaves host applications running. Submitted code is not automatically replayed after a communication failure.
 
 Use `flint --help` or `flint <command> --help` for options. Commands find the local backend automatically; no endpoint selection is required.
 
@@ -32,7 +31,7 @@ flint hosts --json
 flint instances --json
 ```
 
-hosts discovers running applications; instances lists registered connections. Discovery alone does not establish a connection. Use a connected instance's ID when submitting code.
+hosts discovers running applications; instances lists connected instances. Discovery alone does not establish a connection. Use a connected instance's ID when submitting code.
 
 Alternatively, on Windows, attach injects the Bridge into a running host so it connects without loading any flint code yourself:
 
@@ -40,7 +39,7 @@ Alternatively, on Windows, attach injects the Bridge into a running host so it c
 flint attach --pid <pid>
 ```
 
-attach starts a Bridge inside the process and prints the registered instance once it connects. A host process runs at most one Bridge. Attaching to an existing Bridge applies the requested settings; a changed name or endpoint can produce a new instance ID. Use the ID returned by attach for subsequent requests. Pass `--host-kind` for a process discovery does not classify (such as a plain Python interpreter), and `--name` to label the instance. Maya, 3ds Max, Blender, and Unity support execution through their attached Bridge. For in-host loading and host-specific behavior, follow the Bridge guides above.
+attach starts a Bridge inside the process and prints the registered instance once it connects. A host process runs at most one Bridge. Attaching to an existing Bridge applies the requested settings. Use the ID returned by attach for subsequent requests; it remains stable for the host process's lifetime. Pass `--host-kind` for a process discovery does not classify (such as a plain Python interpreter), and `--name` to label the instance. For supported hosts, in-host loading, and host-specific behavior, follow the Bridge guides above.
 
 The desktop's application discovery, inspection, and window switching use the same local services as the CLI. Use `flint hosts info --help` and `flint hosts focus --help` to inspect or focus a local application by PID. Information queries return process identity and window metadata without capturing an image. Request a preview explicitly when visual context is needed; image capture failure leaves the process information available and includes the reason. Minimized and headless processes remain discoverable. Inspection does not restore windows; window switching is an explicit action. Unity asset import workers are internal editor processes and are excluded from discovery.
 
