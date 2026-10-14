@@ -9,10 +9,11 @@ pub fn verify_scene_execution(app: &App, id: &str) -> Result<()> {
         app,
         id,
         &workflow,
-        "var item = new GameObject(\"Flint Unity validation\");\nDebug.Log(\"UNITY_SCENE_OK \" + System.Diagnostics.Process.GetCurrentProcess().Id);\nUnityEngine.Object.DestroyImmediate(item);",
+        "var item = new GameObject(\"Flint Unity validation\");\nDebug.Log(\"UNITY_SCENE_OK \" + System.Diagnostics.Process.GetCurrentProcess().Id);\nUnityEngine.Object.DestroyImmediate(item);\nDebug.Log(\"UNITY_EDITOR_OK \" + UnityEditor.EditorApplication.applicationPath);",
     )?;
     assert_eq!(scene["status"], "succeeded", "{scene:?}");
     assert!(scene["stdout"].as_str().unwrap().contains("UNITY_SCENE_OK"));
+    assert!(scene["stdout"].as_str().unwrap().contains("UNITY_EDITOR_OK"));
     Ok(())
 }
 

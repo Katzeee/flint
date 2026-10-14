@@ -39,7 +39,7 @@ namespace Flint.Unity
 
         private static string NativeLibrary()
         {
-            var package = UnityEditor.PackageManager.PackageInfo.FindForPackageName("com.flint.bridge");
+            var package = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(EditorBootstrap).Assembly);
             return package == null ? null : Path.Combine(package.resolvedPath, "Editor", "Plugins", "flint_bridge_core.dll");
         }
     }

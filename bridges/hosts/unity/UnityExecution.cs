@@ -50,6 +50,10 @@ namespace Flint.Unity
                     "using System; using UnityEngine; using UnityEditor;");
                 var builder = Activator.CreateInstance(UnityRuntime.Builder,
                     Path.Combine(program.Folder, program.ClassName + ".dll"), new[] { source });
+                var flags = UnityRuntime.Builder.GetProperty("flags");
+                flags.SetValue(builder, Enum.Parse(flags.PropertyType, "EditorAssembly"), null);
+                var references = UnityRuntime.Builder.GetProperty("referencesOptions");
+                references.SetValue(builder, Enum.Parse(references.PropertyType, "UseEngineModules"), null);
                 program.Unsubscribe = ReflectionApi.Subscribe(UnityRuntime.Builder, builder, "buildFinished", arguments =>
                 {
                     var errors = new StringBuilder();
