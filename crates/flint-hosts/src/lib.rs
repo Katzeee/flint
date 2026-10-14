@@ -1,7 +1,7 @@
 mod host;
 pub use host::HostKind;
 use serde::Serialize;
-use std::ffi::OsString;
+use strum::IntoEnumIterator;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 mod attach;
@@ -54,7 +54,7 @@ fn collect(processes: ProcessesToUpdate<'_>) -> Vec<HostCandidate> {
     let mut found = vec![];
     for (pid, process) in system.processes() {
         let name = process.name().to_string_lossy().to_ascii_lowercase();
-        let Some(host) = host_kind(&name, process.cmd()) else {
+        let Some(host) = HostKind::iter().find(|host| host.matches_process(&name, process.cmd())) else {
             continue;
         };
         found.push(HostCandidate {
@@ -65,30 +65,4 @@ fn collect(processes: ProcessesToUpdate<'_>) -> Vec<HostCandidate> {
     }
     found.sort_by_key(|p| p.pid);
     found
-}
-
-fn host_kind(name: &str, command: &[OsString]) -> Option<HostKind> {
-    match name {
-        "maya.exe" | "maya" => Some(HostKind::Maya),
-        "3dsmax.exe" => Some(HostKind::Max),
-        "blender.exe" | "blender" => Some(HostKind::Blender),
-        // Asset import workers run the editor executable but are not independent hosts.
-        // Batch-mode editors remain discoverable even when they have no window.
-        "unity.exe" if !is_unity_import_worker(command) => Some(HostKind::Unity),
-        _ => None,
-    }
-}
-
-fn is_unity_import_worker(command: &[OsString]) -> bool {
-    command
-        .iter()
-        .skip(1)
-        .any(|arg| arg.eq_ignore_ascii_case("-assetImportWorker"))
-        || command.windows(2).any(|pair| {
-            pair[0].eq_ignore_ascii_case("-name")
-                && pair[1]
-                    .to_string_lossy()
-                    .to_ascii_lowercase()
-                    .starts_with("assetimportworker")
-        })
 }

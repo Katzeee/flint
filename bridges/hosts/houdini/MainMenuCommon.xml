@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mainMenu>
+  <menuBar>
+    <subMenu id="flint_menu">
+      <label>Flint</label>
+      <scriptItem id="flint_connection_settings">
+        <label>Connection Settings</label>
+        <scriptCode><![CDATA[
+import flint_houdini
+flint_houdini.show_settings()
+]]></scriptCode>
+      </scriptItem>
+    </subMenu>
+  </menuBar>
+</mainMenu>

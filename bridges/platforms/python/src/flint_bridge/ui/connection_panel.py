@@ -1,4 +1,4 @@
-"""The common Qt connection panel used by the Maya and 3ds Max packages.
+"""The shared Qt connection panel for host packages.
 
 The status area shows the Bridge's own snapshot, including why its connection
 is retrying. A refused connection action is that action's result: it appears

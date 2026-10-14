@@ -121,7 +121,12 @@ pub(super) fn bindings() -> tauri_specta::Builder<tauri::Wry> {
             restart_backend
         ])
         .events(tauri_specta::collect_events![DesktopOpened])
-        .constant("hostKinds", HostKind::iter().collect::<Vec<_>>())
+        .constant(
+            "hostNames",
+            HostKind::iter()
+                .map(|host| (<&'static str>::from(host), host.display_name()))
+                .collect::<std::collections::BTreeMap<_, _>>(),
+        )
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         // Workflow counts cross JSON as numbers, matching their Serde representation.
         .dangerously_cast_bigints_to_number()

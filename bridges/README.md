@@ -1,6 +1,6 @@
 # Bridges
 
-For installation and host behavior, follow the guides for [Maya](hosts/maya/README.md), [3ds Max](hosts/max/README.md), [Blender](hosts/blender/README.md), [Unity](hosts/unity/README.md), or [standalone Python](hosts/standalone_python/README.md).
+For installation and host behavior, follow the guides for [Maya](hosts/maya/README.md), [3ds Max](hosts/max/README.md), [Blender](hosts/blender/README.md), [Houdini](hosts/houdini/README.md), [Unity](hosts/unity/README.md), or [standalone Python](hosts/standalone_python/README.md).
 
 Start the backend with `flint start` before connecting a Bridge. Confirm registration with `flint instances --json`, then follow the [execution guide](../README.md#execute-and-inspect) to submit code and inspect results. For command options, use `flint bridge export --help` or the relevant command's help.
 

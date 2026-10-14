@@ -94,6 +94,26 @@ pub(crate) fn bridge(host: HostKind) -> HostBridge {
             )),
             attach: Some(python::attach("flint_bridge.blender")),
         },
+        HostKind::Houdini => {
+            let mut layout = Layout::default()
+                .file("flint.json", bridges!("hosts/houdini/flint.json"))
+                .file("flint/MainMenuCommon.xml", bridges!("hosts/houdini/MainMenuCommon.xml"))
+                .file(
+                    "flint/scripts/python/flint_houdini.py",
+                    bridges!("hosts/houdini/flint_houdini.py"),
+                )
+                .merge(python_library("flint/scripts/python"));
+            for minor in 9..=14 {
+                layout = layout.file(
+                    &format!("flint/python3.{minor}libs/pythonrc.py"),
+                    bridges!("hosts/houdini/pythonrc.py"),
+                );
+            }
+            HostBridge {
+                install: Some(Install::zip(layout)),
+                attach: Some(python::attach("flint_bridge.houdini")),
+            }
+        }
         HostKind::Unity => unity(),
         HostKind::StandalonePython => HostBridge {
             install: None,

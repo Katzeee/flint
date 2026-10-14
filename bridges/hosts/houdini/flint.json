@@ -1,0 +1,3 @@
+{
+  "env": [{ "HOUDINI_PATH": "$HOUDINI_PACKAGE_PATH/flint" }]
+}

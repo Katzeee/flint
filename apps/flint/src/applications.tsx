@@ -35,22 +35,11 @@ import { instancePath, navigate, workflowPath, type Route } from "./navigation.j
 import { messageOf, useResource } from "./resource.js";
 import { ErrorNotice, formatTime, Loading } from "./shared.js";
 import { loadWindowPreview } from "./window-preview.js";
-import { hostKinds, type HostKind } from "./generated/bindings.js";
+import { hostNames as generatedHostNames } from "./generated/bindings.js";
 
-const hostNames: Readonly<Record<HostKind, string>> = {
-  maya: "Maya",
-  max: "3ds Max",
-  blender: "Blender",
-  unity: "Unity",
-  standalone_python: "Python",
-  standalone_csharp: "C#",
-};
+const hostNames: Readonly<Record<string, string>> = generatedHostNames;
 // eslint-disable-next-line cairn/no-raw-visual-values -- Preview tile width is a Flint layout choice.
 const cardColumns = "repeat(auto-fill, min(100%, 280px))";
-function hostName(host: string) {
-  const kind = hostKinds.find((kind) => kind === host);
-  return kind === undefined ? host : hostNames[kind];
-}
 
 function ApplicationCard({
   instance,
@@ -65,7 +54,7 @@ function ApplicationCard({
   const host = instance?.instance_type ?? candidate!.host;
   const href = `#/${instance ? instancePath(instance.instance_id) : `apps/candidates/${pid}`}`;
   const preview = useResource(`preview:${host}:${pid}`, (signal) => loadWindowPreview(pid, signal), 10000, revision);
-  const title = preview.data?.window?.title || instance?.instance_name || hostName(host);
+  const title = preview.data?.window?.title || instance?.instance_name || (hostNames[host] ?? host);
   const windowPreview = preview.data?.preview;
   return (
     <Card as="article">
@@ -95,7 +84,7 @@ function ApplicationCard({
             <Card.Link href={href}>{title}</Card.Link>
           </Heading>
           <Text size="label" tone="muted">
-            {hostName(host)} · PID {pid}
+            {hostNames[host] ?? host} · PID {pid}
           </Text>
           <Flex align="center" justify="between" gap="2">
             <Status tone={instance ? (instance.execution_ready ? "success" : "warning") : "neutral"}>
@@ -215,7 +204,7 @@ function ApplicationDetail({
   const records = related.data?.filter((item) => instance && item.instance_ids.includes(instance.instance_id)) ?? [];
   const hostWindow = preview.data?.window;
   const windowPreview = preview.data?.preview;
-  const application = host ? hostName(host) : "Application";
+  const application = host ? (hostNames[host] ?? host) : "Application";
   const name = instance?.instance_name || application;
   const executable = preview.data?.executable || candidate?.executable;
   const [view, setView] = useState("overview");
@@ -496,7 +485,7 @@ export function Applications({
                 {firstLoad ? <Spinner size="sm" /> : <Icon glyph={AppWindow} size="lg" />}
               </EmptyState.Illustration>
               <EmptyState.Title>{firstLoad ? "Looking for applications…" : "No applications running"}</EmptyState.Title>
-              <EmptyState.Description>Open Blender, Maya, 3ds Max or Unity to get started.</EmptyState.Description>
+              <EmptyState.Description>Open a supported application to get started.</EmptyState.Description>
             </EmptyState>
           </Section>
         ) : (

@@ -47,15 +47,12 @@ fn python_library(bridges: &Path) -> Vec<(String, PathBuf)> {
     let manifest = bridges.join("pyproject.toml");
     println!("cargo:rerun-if-changed={}", manifest.display());
     let manifest: toml::Table = fs::read_to_string(&manifest).unwrap().parse().unwrap();
-    let setuptools = &manifest["tool"]["setuptools"];
-    let directories = setuptools["package-dir"].as_table().unwrap();
-    setuptools["packages"]
-        .as_array()
+    manifest["tool"]["setuptools"]["package-dir"]
+        .as_table()
         .unwrap()
         .iter()
-        .flat_map(|package| {
-            let package = package.as_str().unwrap();
-            let directory = directories[package].as_str().unwrap();
+        .flat_map(|(package, directory)| {
+            let directory = directory.as_str().unwrap();
             sources(
                 &bridges.join(directory),
                 "py",
