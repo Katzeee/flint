@@ -110,9 +110,9 @@ public static class FlintReload
             if load_count() <= before_reload {
                 return Ok(false);
             }
-            Ok(app.instance("unity")?.is_some_and(|instance| {
-                instance["instance_id"] == first && instance["instance_name"] == "Reloaded Unity"
-            }))
+            Ok(app
+                .instance("unity")?
+                .is_some_and(|instance| instance["instance_id"] == first && instance["name"] == "Reloaded Unity"))
         })
         .context("automatic Unity recovery after script reload")?;
         crate::hosts::unity::verify_scene_execution(&app, &first)?;
@@ -131,10 +131,10 @@ public static class FlintReload
             .is_some_and(|message| message.contains("Invalid Bridge connection settings")),
         "unexpected attach result: {refused}"
     );
-    let instances = app.call("instances", &["--type", "unity"], 0)?;
+    let instances = app.connected("unity")?;
     anyhow::ensure!(
-        instances["instances"][0]["instance_id"] == first.as_str(),
-        "the refused attach changed the Bridge: {instances}"
+        instances.len() == 1 && instances[0]["instance_id"] == first.as_str(),
+        "the refused attach changed the Bridge: {instances:?}"
     );
     crate::hosts::unity::verify_scene_execution(&app, &first)?;
     let before_reload = load_count();

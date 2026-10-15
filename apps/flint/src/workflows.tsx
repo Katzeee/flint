@@ -13,7 +13,7 @@ import {
   Text,
 } from "@cairn/ui";
 import { RefreshCw } from "lucide-react";
-import { readWorkflow, readWorkflows, type ConnectedInstance, type Execution, type Workflow } from "./backend.js";
+import { readWorkflow, readWorkflows, type App, type Execution, type Workflow } from "./backend.js";
 import { executionPath, navigate, workflowPath } from "./navigation.js";
 import { useResource } from "./resource.js";
 import { Deferred, ErrorNotice, formatTime } from "./shared.js";
@@ -51,8 +51,8 @@ function statusLabel(status: string) {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function instanceName(instances: readonly ConnectedInstance[], id: string) {
-  return instances.find((item) => item.instance_id === id)?.instance_name ?? id;
+function appName(apps: readonly App[], id: string) {
+  return apps.find((item) => item.instance_id === id)?.name ?? id;
 }
 
 function executionName(execution: Execution) {
@@ -75,11 +75,11 @@ function OutputBlock({ title, children }: Readonly<{ title: string; children: st
 function ExecutionPage({
   workflow,
   execution,
-  instances,
+  apps,
 }: Readonly<{
   workflow: Workflow;
   execution: Execution | undefined;
-  instances: readonly ConnectedInstance[];
+  apps: readonly App[];
 }>) {
   const back = <PageBar.Back label="Back to workflow" onSelect={() => navigate(workflowPath(workflow.workflow_id))} />;
   if (!execution) {
@@ -110,7 +110,7 @@ function ExecutionPage({
         <Flex direction="column" gap="6">
           <List.Section title="Details">
             <List.Item trailing={<Badge tone={statusTone(status)}>{statusLabel(status)}</Badge>}>Status</List.Item>
-            <List.Item trailing={instanceName(instances, execution.instance_id)}>Application</List.Item>
+            <List.Item trailing={appName(apps, execution.instance_id)}>Application</List.Item>
             <List.Item trailing={formatTime(execution.started_at)}>Started</List.Item>
             {execution.finished_at ? (
               <List.Item trailing={formatTime(execution.finished_at)}>Finished</List.Item>
@@ -140,10 +140,10 @@ function ExecutionPage({
 
 function WorkflowPage({
   workflow,
-  instances,
+  apps,
 }: Readonly<{
   workflow: Workflow;
-  instances: readonly ConnectedInstance[];
+  apps: readonly App[];
 }>) {
   return (
     <Flex direction="column" gap="6">
@@ -160,7 +160,7 @@ function WorkflowPage({
           <List.Item
             key={execution.execution_id}
             href={`#/${executionPath(workflow.workflow_id, execution.execution_id)}`}
-            description={`${instanceName(instances, execution.instance_id)} · ${formatTime(execution.started_at)}`}
+            description={`${appName(apps, execution.instance_id)} · ${formatTime(execution.started_at)}`}
             trailing={<Badge tone={statusTone(execution.status)}>{statusLabel(execution.status)}</Badge>}
           >
             {executionName(execution)}
@@ -174,11 +174,11 @@ function WorkflowPage({
 export function Workflows({
   selectedId,
   executionId,
-  instances,
+  apps,
 }: Readonly<{
   selectedId?: string;
   executionId?: string;
-  instances: readonly ConnectedInstance[];
+  apps: readonly App[];
 }>) {
   const index = useResource("workflows", readWorkflows, 3000);
   const selected = useResource(selectedId ? `workflow:${selectedId}` : null, () => readWorkflow(selectedId!), 1500);
@@ -232,7 +232,7 @@ export function Workflows({
             key={executionId}
             workflow={selected.data}
             execution={selected.data.execs.find((item) => item.execution_id === executionId)}
-            instances={instances}
+            apps={apps}
           />
         ) : (
           <>
@@ -262,7 +262,7 @@ export function Workflows({
             ) : null}
             {selected.data ? (
               <Box px="5" pt="2" pb="6">
-                <WorkflowPage workflow={selected.data} instances={instances} />
+                <WorkflowPage workflow={selected.data} apps={apps} />
               </Box>
             ) : null}
           </>

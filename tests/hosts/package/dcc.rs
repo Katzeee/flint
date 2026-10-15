@@ -172,19 +172,9 @@ pub(super) fn verify_host(kind: &str, variable: &str, expected_executable: &str,
     let instance = app.await_instance(kind, None)?;
     let id = instance["instance_id"].as_str().unwrap();
     assert_eq!(instance["pid"], host.0.id());
-    let candidates: Value = serde_json::from_str(
-        &checked(
-            Command::new(&app.binary).args(["hosts", "--json"]),
-            Duration::from_secs(10),
-        )?
-        .stdout,
-    )?;
     assert!(
-        candidates["hosts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|candidate| { candidate["pid"] == host.0.id() && candidate["host"] == kind })
+        instance["executable"].is_string(),
+        "discovery did not recognize the connected process: {instance}"
     );
     evidence.checkpoint("native_startup_and_registration")?;
     let workflow = app.workflow(&format!("{kind}-rust-validation"))?;

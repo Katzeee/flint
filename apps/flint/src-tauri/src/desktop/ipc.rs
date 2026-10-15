@@ -1,7 +1,7 @@
 //! Desktop IPC commands and the registry used by both Tauri and binding generation.
 use crate::application::{
-    Application, ApplicationInfo, AttachResult, BackendStopped, Failure, GetWorkflowResponse, HostCandidate, HostInfo,
-    HostKind, PingResponse, Snapshot, WorkflowSummary,
+    App, Application, ApplicationInfo, BackendStopped, Failure, GetWorkflowResponse, HostInfo, HostKind, PingResponse,
+    Snapshot, WorkflowSummary,
 };
 use strum::IntoEnumIterator;
 use tauri_plugin_decoration::WebviewWindowExt;
@@ -53,18 +53,8 @@ async fn snapshot(state: tauri::State<'_, Application>) -> Result<Snapshot, Fail
 
 #[tauri::command]
 #[specta::specta]
-async fn candidates() -> Result<Vec<HostCandidate>, Failure> {
-    Application::hosts().await
-}
-
-#[tauri::command]
-#[specta::specta]
-async fn attach(
-    state: tauri::State<'_, Application>,
-    pid: u32,
-    host_kind: Option<HostKind>,
-) -> Result<AttachResult, Failure> {
-    state.attach(pid, host_kind, None).await
+async fn attach(state: tauri::State<'_, Application>, pid: u32) -> Result<App, Failure> {
+    state.attach(pid, None, None).await
 }
 
 #[tauri::command]
@@ -103,7 +93,6 @@ pub(super) fn bindings() -> tauri_specta::Builder<tauri::Wry> {
         .commands(tauri_specta::collect_commands![
             activate_title_bar,
             snapshot,
-            candidates,
             attach,
             workflows,
             workflow,

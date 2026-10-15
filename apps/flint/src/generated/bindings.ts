@@ -7,8 +7,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	activateTitleBar: () => __TAURI_INVOKE<TitleBarMode>("activate_title_bar"),
 	snapshot: () => __TAURI_INVOKE<Snapshot>("snapshot"),
-	candidates: () => __TAURI_INVOKE<HostCandidate[]>("candidates"),
-	attach: (pid: number, hostKind: "maya" | "max" | "blender" | "houdini" | "unity" | "standalone_python" | "standalone_csharp" | null) => __TAURI_INVOKE<AttachResult>("attach", { pid, hostKind }),
+	attach: (pid: number) => __TAURI_INVOKE<App>("attach", { pid }),
 	workflows: () => __TAURI_INVOKE<WorkflowSummary[]>("workflows"),
 	workflow: (id: string) => __TAURI_INVOKE<GetWorkflowResponse_Serialize>("workflow", { id }),
 	desktopInfo: () => __TAURI_INVOKE<ApplicationInfo>("desktop_info"),
@@ -27,6 +26,22 @@ export const events = {
 export const hostNames = {"blender":"Blender","houdini":"Houdini","max":"3ds Max","maya":"Maya","standalone_csharp":"C#","standalone_python":"Python","unity":"Unity"} as const;
 
 /* Types */
+export type App = {
+	instance_id: string,
+	/**  A built-in host kind, or the type an independently loaded Bridge registered. */
+	host: string,
+	/**  The registered instance name; absent until a Bridge connects. */
+	name: string | null,
+	/**  Only meaningful on this machine when `local` is true. */
+	pid: number,
+	local: boolean,
+	connection: Connection,
+	/**  Present when discovery recognizes the process on this machine. */
+	executable: string | null,
+	runtime_version: string | null,
+	bridge_version: string | null,
+};
+
 export type ApplicationInfo = {
 	version: string,
 	control_endpoint: string,
@@ -35,16 +50,11 @@ export type ApplicationInfo = {
 	attach_supported: boolean,
 };
 
-export type AttachResult = {
-	pid: number,
-	host: HostKind,
-	instance_id: string,
-	execution_ready: boolean,
-};
-
 export type BackendStopped = {
 	stopped_pid: number | null,
 };
+
+export type Connection = "ready" | "connecting" | "not_connected";
 
 export type DesktopOpened = null;
 
@@ -143,17 +153,6 @@ export type HostInfo_Serialize = {
  */
 export type HostKind = "maya" | "max" | "blender" | "houdini" | "unity" | "standalone_python" | "standalone_csharp";
 
-export type InstanceInfo = {
-	instance_id: string,
-	instance_name: string,
-	instance_type: string,
-	pid: number,
-	runtime_version: string,
-	bridge_version: string,
-	/**  The execution connection is established; this does not mean the instance is idle. */
-	execution_ready: boolean,
-};
-
 export type PingResponse = {
 	ready: boolean,
 	pid: number,
@@ -166,7 +165,7 @@ export type Preview = ({ image: string }) & { unavailable_reason?: never } | ({ 
 export type Snapshot = {
 	/**  No backend is listening. This is distinct from a running backend with no instances. */
 	backend: PingResponse | null,
-	instances: InstanceInfo[],
+	apps: App[],
 };
 
 export type TitleBarMode = "custom" | "native";

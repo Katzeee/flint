@@ -5,6 +5,7 @@
 //! process implicitly. `start_backend` and `attach` establish a running backend
 //! when their operation requires one.
 
+mod apps;
 mod attach;
 mod control;
 mod hosts;
@@ -13,7 +14,7 @@ mod workflows;
 use serde::Serialize;
 use std::path::PathBuf;
 
-pub use attach::AttachResult;
+pub use apps::{App, Connection};
 pub use control::{BackendStopped, Snapshot};
 use flint_contracts::config::Config;
 pub use flint_contracts::protocol::{

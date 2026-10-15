@@ -70,7 +70,12 @@ fn offline_queries_and_unsupported_attach_do_not_start_backend() -> Result<()> {
     tokio::runtime::Runtime::new()?.block_on(async {
         let snapshot = api.snapshot().await?;
         assert!(snapshot.backend.is_none());
-        assert!(snapshot.instances.is_empty());
+        assert!(
+            snapshot
+                .apps
+                .iter()
+                .all(|app| app.connection == Connection::NotConnected)
+        );
         assert!(
             api.instances(None)
                 .await
@@ -133,7 +138,12 @@ fn snapshot_preserves_query_errors_when_backend_disappears() -> Result<()> {
             match (expected, snapshot) {
                 (None, Ok(snapshot)) => {
                     assert!(snapshot.backend.is_none());
-                    assert!(snapshot.instances.is_empty());
+                    assert!(
+                        snapshot
+                            .apps
+                            .iter()
+                            .all(|app| app.connection == Connection::NotConnected)
+                    );
                 }
                 (Some(code), Err(failure)) => assert_eq!(failure.code, code),
                 _ => panic!("snapshot must recover only a lost backend connection"),
@@ -141,6 +151,53 @@ fn snapshot_preserves_query_errors_when_backend_disappears() -> Result<()> {
         }
         Ok::<_, anyhow::Error>(())
     })
+}
+
+#[test]
+fn apps_join_by_instance_identity_rather_than_pid() {
+    let instance = |id: &str, pid| InstanceInfo {
+        instance_id: id.into(),
+        instance_type: "maya".into(),
+        pid,
+        execution_ready: true,
+        ..Default::default()
+    };
+    let candidate = |id: &str, pid| {
+        (
+            id.into(),
+            HostCandidate {
+                pid,
+                host: HostKind::Maya,
+                executable: format!("maya-{pid}.exe"),
+            },
+        )
+    };
+    // A remote instance can share a PID with an unrelated local process.
+    let apps = apps::join(
+        vec![instance("connected", 10), instance("remote", 20)],
+        vec![candidate("local", 20), candidate("connected", 10)],
+        |_| false,
+    );
+    let summary: Vec<_> = apps
+        .iter()
+        .map(|app| {
+            (
+                app.instance_id.as_str(),
+                app.pid,
+                app.local,
+                app.connection,
+                app.executable.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("connected", 10, true, Connection::Ready, Some("maya-10.exe")),
+            ("remote", 20, false, Connection::Ready, None),
+            ("local", 20, true, Connection::NotConnected, Some("maya-20.exe")),
+        ]
+    );
 }
 
 #[test]

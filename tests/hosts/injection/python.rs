@@ -115,11 +115,8 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
         0,
     )?;
     anyhow::ensure!(again["instance_id"] == instance, "re-attach changed instance: {again}");
-    let instances = app.call("instances", &["--type", "standalone_python"], 0)?;
-    anyhow::ensure!(
-        instances["instances"].as_array().unwrap().len() == 1,
-        "expected one instance: {instances}"
-    );
+    let instances = app.connected("standalone_python")?;
+    anyhow::ensure!(instances.len() == 1, "expected one instance: {instances:?}");
 
     // A new name requires the bootstrap to dispatch another plan; finding the
     // existing instance cannot make this attach succeed.
@@ -135,15 +132,14 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
         ],
         0,
     )?;
-    let instances = app.call("instances", &["--type", "standalone_python"], 0)?;
-    let instances = instances["instances"].as_array().unwrap();
+    let instances = app.connected("standalone_python")?;
     anyhow::ensure!(
         instances.len() == 1,
         "expected one instance after rename: {instances:?}"
     );
     anyhow::ensure!(
         instances[0]["pid"].as_u64() == Some(pid as u64)
-            && instances[0]["instance_name"] == "Reattached"
+            && instances[0]["name"] == "Reattached"
             && instances[0]["instance_id"] == renamed["instance_id"],
         "attach did not register the new name in the target: {instances:?}"
     );

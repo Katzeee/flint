@@ -3,7 +3,7 @@ use anyhow::Result;
 use std::{process::Stdio, time::Duration};
 
 #[test]
-fn desktop_survives_backend_stop_and_restart_and_reuses_its_window_process() -> Result<()> {
+fn desktop_survives_backend_stop_and_reuses_its_window_process() -> Result<()> {
     let app = App::new();
     let mut command = app.launch_command();
     command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
@@ -24,13 +24,9 @@ fn desktop_survives_backend_stop_and_restart_and_reuses_its_window_process() -> 
     })?;
     let reopened = app.call("status", &[], 0)?["pid"].as_u64().unwrap();
     assert_ne!(reopened, first);
-    let restarted = app.call("restart", &[], 0)?["pid"].as_u64().unwrap();
-    assert_ne!(restarted, reopened);
-    assert_ne!(restarted, u64::from(desktop.0.id()));
-    checked(&mut app.command("gui"), Duration::from_secs(10))?;
     assert!(desktop.0.try_wait()?.is_none());
     // Killing the desktop process leaves the backend running.
     drop(desktop);
-    assert_eq!(app.call("status", &[], 0)?["pid"], restarted);
+    assert_eq!(app.call("status", &[], 0)?["pid"], reopened);
     Ok(())
 }

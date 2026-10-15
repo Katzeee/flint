@@ -23,7 +23,7 @@ fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
     let host = OwnedProcess(command.spawn()?);
     let pid = host.0.id().to_string();
     for preview in [false, true] {
-        let mut command = app.command("hosts");
+        let mut command = app.command("apps");
         command.args(["info", "--pid", &pid]);
         if preview {
             command.arg("--preview");

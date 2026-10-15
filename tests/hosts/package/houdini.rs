@@ -55,7 +55,7 @@ fn package_and_attach_execute_on_houdinis_main_thread() -> Result<()> {
         if !install {
             wait_until(Duration::from_secs(90), || {
                 anyhow::ensure!(host.0.try_wait()?.is_none(), "Houdini exited before attach");
-                let info = app.call("hosts", &["info", "--pid", &host.0.id().to_string()], 0)?;
+                let info = app.call("apps", &["info", "--pid", &host.0.id().to_string()], 0)?;
                 Ok(!info["window"].is_null())
             })?;
             app.call("attach", &["--pid", &host.0.id().to_string()], 0)?;

@@ -56,10 +56,6 @@ pub struct ExportResult {
 }
 
 impl Application {
-    pub async fn hosts() -> Result<Vec<HostCandidate>> {
-        blocking(|| Ok(flint_hosts::discover())).await
-    }
-
     pub async fn host_info(pid: u32, preview: bool) -> Result<HostInfo> {
         flint_hosts::host_info(pid, preview)
             .await

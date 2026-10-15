@@ -22,13 +22,14 @@ enum Command {
     Stop,
     Serve,
     Gui,
-    Instances {
-        #[arg(long = "type")]
-        instance_type: Option<String>,
-    },
-    Hosts {
+    /// List host applications: connected instances and local processes that can connect.
+    ///
+    /// Process operations (attach, info, focus) take an application's pid; exec takes its instance_id.
+    Apps {
+        #[arg(long, help = "Only list applications of this host kind")]
+        host: Option<String>,
         #[command(subcommand)]
-        command: Option<HostCommand>,
+        command: Option<AppCommand>,
     },
     Workflow {
         #[arg(long)]
@@ -72,7 +73,7 @@ fn host_kind_parser() -> impl TypedValueParser<Value = HostKind> {
 }
 
 #[derive(Subcommand)]
-enum HostCommand {
+enum AppCommand {
     /// Inspect a local host process and its window without changing window state.
     Info {
         #[arg(long)]
@@ -148,9 +149,10 @@ struct Execute {
 enum Output {
     Status(Option<application::PingResponse>),
     Stopped(application::BackendStopped),
-    Instances {
-        instances: Vec<application::InstanceInfo>,
+    Apps {
+        apps: Vec<application::App>,
     },
+    App(application::App),
     Workflow(application::StartWorkflowResponse),
     Executed {
         workflow_id: String,
@@ -158,11 +160,7 @@ enum Output {
         result: application::ExecutionResult,
     },
     Execution(application::GetExecutionResponse),
-    Attached(application::AttachResult),
     Exported(application::ExportResult),
-    Hosts {
-        hosts: Vec<application::HostCandidate>,
-    },
     Host(application::HostInfo),
     Focused {
         pid: u32,
@@ -299,9 +297,20 @@ async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<O
         Command::Start => Output::Status(Some(Application::load()?.start_backend().await?)),
         Command::Status => Output::Status(Application::load()?.backend_status().await?),
         Command::Stop => Output::Stopped(Application::load()?.stop_backend().await?),
-        Command::Instances { instance_type } => Output::Instances {
-            instances: running_application().await?.instances(instance_type).await?,
+        Command::Apps { host, command: None } => Output::Apps {
+            apps: running_application().await?.apps(host).await?,
         },
+        Command::Apps {
+            command: Some(AppCommand::Info { pid, preview }),
+            ..
+        } => Output::Host(Application::host_info(pid, preview).await?),
+        Command::Apps {
+            command: Some(AppCommand::Focus { pid }),
+            ..
+        } => {
+            Application::focus_application(pid).await?;
+            Output::Focused { pid, focused: true }
+        }
         Command::Workflow { name, description } => Output::Workflow(
             running_application()
                 .await?
@@ -333,20 +342,10 @@ async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<O
                     .await?,
             )
         }
-        Command::Attach(a) => Output::Attached(Application::load()?.attach(a.pid, a.host_kind, a.name).await?),
+        Command::Attach(a) => Output::App(Application::load()?.attach(a.pid, a.host_kind, a.name).await?),
         Command::Bridge {
             command: BridgeCommand::Export { target, output },
         } => Output::Exported(Application::export_bridge(target, output).await?),
-        Command::Hosts { command, .. } => match command {
-            None => Output::Hosts {
-                hosts: Application::hosts().await?,
-            },
-            Some(HostCommand::Info { pid, preview }) => Output::Host(Application::host_info(pid, preview).await?),
-            Some(HostCommand::Focus { pid }) => {
-                Application::focus_application(pid).await?;
-                Output::Focused { pid, focused: true }
-            }
-        },
         Command::Serve | Command::Gui => unreachable!("handled before dispatch"),
     })
 }

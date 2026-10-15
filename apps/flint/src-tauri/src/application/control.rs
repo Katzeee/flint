@@ -1,5 +1,5 @@
 //! Backend lifecycle, observation, and control requests.
-use super::{Application, Result as ApplicationResult};
+use super::{Application, Result as ApplicationResult, apps, apps::App};
 use flint_contracts::lock::FileLock;
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
@@ -222,7 +222,7 @@ async fn pause(deadline: Instant) -> Result<()> {
 pub struct Snapshot {
     /// No backend is listening. This is distinct from a running backend with no instances.
     pub backend: Option<PingResponse>,
-    pub instances: Vec<InstanceInfo>,
+    pub apps: Vec<App>,
 }
 
 impl Application {
@@ -244,25 +244,25 @@ impl Application {
         result
     }
 
+    /// Observes the backend without starting it; local processes are listed either way.
     pub async fn snapshot(&self) -> ApplicationResult<Snapshot> {
-        let stopped = Snapshot {
-            backend: None,
-            instances: vec![],
+        let (backend, instances) = match self.backend_status().await? {
+            None => (None, vec![]),
+            Some(backend) => match self.instances(None).await {
+                Ok(instances) => (Some(backend), instances),
+                // The backend can stop between the two requests.
+                Err(failure)
+                    if failure.is(FailureCode::BackendUnavailable) && self.backend_status().await?.is_none() =>
+                {
+                    (None, vec![])
+                }
+                Err(failure) => return Err(failure),
+            },
         };
-        let Some(backend) = self.backend_status().await? else {
-            return Ok(stopped);
-        };
-        match self.instances(None).await {
-            Ok(instances) => Ok(Snapshot {
-                backend: Some(backend),
-                instances,
-            }),
-            // The backend can stop between the two requests.
-            Err(failure) if failure.is(FailureCode::BackendUnavailable) && self.backend_status().await?.is_none() => {
-                Ok(stopped)
-            }
-            Err(failure) => Err(failure),
-        }
+        Ok(Snapshot {
+            backend,
+            apps: apps::with_local(instances, None).await?,
+        })
     }
 
     pub async fn instances(&self, instance_type: Option<String>) -> ApplicationResult<Vec<InstanceInfo>> {

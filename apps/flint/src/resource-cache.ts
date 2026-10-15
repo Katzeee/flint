@@ -7,6 +7,7 @@ export type ResourceEntry<T> = {
   data: T | null;
   updatedAt: number;
   users: number;
+  version: number;
   request?: Request<T>;
 };
 
@@ -24,7 +25,7 @@ export class ResourceCache {
   }
 
   acquire<T>(key: string): ResourceEntry<T> {
-    const entry = this.peek<T>(key) ?? { data: null, updatedAt: 0, users: 0 };
+    const entry = this.peek<T>(key) ?? { data: null, updatedAt: 0, users: 0, version: 0 };
     entry.users += 1;
     this.entries.delete(key);
     this.entries.set(key, entry);
@@ -41,12 +42,15 @@ export class ResourceCache {
   read<T>(entry: ResourceEntry<T>, reader: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (entry.request) return entry.request.promise;
     const controller = new AbortController();
+    const version = entry.version;
     const promise = Promise.resolve()
       .then(() => {
         controller.signal.throwIfAborted();
         return reader(controller.signal);
       })
       .then((data) => {
+        // A read that started before a write may describe the state that write replaced.
+        if (entry.version !== version) return entry.data as T;
         // An IPC read already executing may finish after release. Keep that result for this key,
         // without publishing it to a page that has left or starting another identical native job.
         entry.data = data;
@@ -54,11 +58,21 @@ export class ResourceCache {
         return data;
       })
       .finally(() => {
-        entry.request = undefined;
+        if (entry.request?.promise === promise) entry.request = undefined;
         this.trim();
       });
     entry.request = { controller, promise };
     return promise;
+  }
+
+  // Later reads start after the write instead of joining a read it outdated.
+  write<T>(entry: ResourceEntry<T>, update: (data: T | null) => T): T {
+    const data = update(entry.data);
+    entry.data = data;
+    entry.updatedAt = Date.now();
+    entry.version += 1;
+    entry.request = undefined;
+    return data;
   }
 
   private trim() {

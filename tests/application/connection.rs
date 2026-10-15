@@ -52,7 +52,7 @@ fn backend_reports_rejected_registrations_before_closing_the_connection() -> Res
         }
         Ok::<_, anyhow::Error>(())
     })?;
-    assert_eq!(app.call("instances", &[], 0)?["instances"], serde_json::json!([]));
+    assert!(app.connected("test")?.is_empty());
     Ok(())
 }
 
@@ -84,7 +84,8 @@ fn backend_lifecycle_preserves_python_host_and_records() -> Result<()> {
     let stored = app.details(&workflow, &execution, 0)?;
     assert_eq!(stored["code"], file_code);
     assert_eq!(stored["stdout"], "中文😀 42\n");
-    app.call("restart", &[], 0)?;
+    app.call("stop", &[], 0)?;
+    app.call("start", &[], 0)?;
     let reconnected = app.await_instance("standalone_python", Some(id))?;
     assert_eq!(app.details(&workflow, &execution, 0)?, stored);
     let stdin_code = "print(answer)";

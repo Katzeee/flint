@@ -1,19 +1,11 @@
 //! Resolves the host, injects the Bridge, and waits for its backend registration.
 
-use super::{Application, Result, blocking};
+use super::{Application, Result, apps, apps::App, blocking};
 use flint_contracts::config::StateDir;
 use flint_contracts::host_settings::HostSettings;
 use flint_contracts::protocol::{Failure, FailureCode};
 use flint_hosts::{Attach, HostKind};
 use std::time::{Duration, Instant};
-
-#[derive(Debug, serde::Serialize, specta::Type)]
-pub struct AttachResult {
-    pub pid: u32,
-    pub host: HostKind,
-    pub instance_id: String,
-    pub execution_ready: bool,
-}
 
 /// Reject unsupported hosts before the caller starts a backend or prepares files.
 fn resolve(pid: u32, host: Option<HostKind>) -> Result<(HostKind, Attach)> {
@@ -49,7 +41,7 @@ fn pending(state: &StateDir, pid: u32, deadline: Instant) -> Result<()> {
 }
 
 impl Application {
-    pub async fn attach(&self, pid: u32, host: Option<HostKind>, name: Option<String>) -> Result<AttachResult> {
+    pub async fn attach(&self, pid: u32, host: Option<HostKind>, name: Option<String>) -> Result<App> {
         let (host, attach) = blocking(move || resolve(pid, host)).await?;
         let expected_id = blocking(move || {
             flint_contracts::instance::id_for_process(pid)
@@ -82,12 +74,7 @@ impl Application {
                 .into_iter()
                 .find(|instance| instance.instance_id == expected_id && instance.instance_name == name)
             {
-                return Ok(AttachResult {
-                    pid,
-                    host,
-                    instance_id: instance.instance_id,
-                    execution_ready: instance.execution_ready,
-                });
+                return apps::of_instance(instance).await;
             }
             pending(&self.config.state, pid, deadline)?;
             tokio::time::sleep(Duration::from_millis(200)).await;

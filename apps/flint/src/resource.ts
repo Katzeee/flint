@@ -82,10 +82,21 @@ export function useResource<T>(
     };
   }, [key, interval, revision, refreshVersion, freshness]);
   const reload = useCallback(() => setRevision((value) => value + 1), []);
+  // Publishes the outcome of an operation that changed this resource, ahead of the next read.
+  const mutate = useCallback(
+    (update: (data: T | null) => T) => {
+      const entry = key === null ? undefined : resources.peek<T>(key);
+      if (entry === undefined) return;
+      const data = resources.write(entry, update);
+      setResult({ key, data, error: "", loading: false });
+    },
+    [key],
+  );
   return {
     data: result.key === key ? result.data : (cached?.data ?? null),
     error: result.key === key ? result.error : "",
     loading: key !== null && (result.key !== key || result.loading),
     reload,
+    mutate,
   };
 }

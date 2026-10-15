@@ -1,7 +1,7 @@
 use crate::hosts::host_executable;
 use crate::support::*;
 use anyhow::{Context, Result};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{
     fs,
     path::PathBuf,
@@ -89,19 +89,9 @@ fn exported_package_registers_and_executes() -> Result<()> {
     )?;
     assert_eq!(attached["instance_id"], instance["instance_id"]);
     assert_eq!(instance["pid"], host.0.id());
-    let candidates: Value = serde_json::from_str(
-        &checked(
-            Command::new(&app.binary).args(["hosts", "--json"]),
-            Duration::from_secs(10),
-        )?
-        .stdout,
-    )?;
     assert!(
-        candidates["hosts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|candidate| { candidate["pid"] == host.0.id() && candidate["host"] == "unity" })
+        instance["executable"].is_string(),
+        "discovery did not recognize the connected Editor: {instance}"
     );
     crate::hosts::unity::verify_scene_execution(&app, id)?;
     crate::hosts::unity::verify_execution_failures(&app, id)?;

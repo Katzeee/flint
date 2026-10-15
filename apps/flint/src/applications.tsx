@@ -21,17 +21,9 @@ import {
   TextArea,
 } from "@cairn/ui";
 import { AppWindow, Play, RefreshCw, SquareArrowOutUpRight, Zap } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  attachHost,
-  focusApplication,
-  readDesktopInfo,
-  readWorkflows,
-  type ConnectedInstance,
-  type HostCandidate,
-  type Snapshot,
-} from "./backend.js";
-import { instancePath, navigate, workflowPath, type Route } from "./navigation.js";
+import { useState, type ReactNode } from "react";
+import { attachHost, focusApplication, readDesktopInfo, readWorkflows, type App, type Snapshot } from "./backend.js";
+import { appPath, navigate, workflowPath, type Route } from "./navigation.js";
 import { messageOf, useResource } from "./resource.js";
 import { ErrorNotice, formatTime, Loading } from "./shared.js";
 import { loadWindowPreview } from "./window-preview.js";
@@ -41,21 +33,24 @@ const hostNames: Readonly<Record<string, string>> = generatedHostNames;
 // eslint-disable-next-line cairn/no-raw-visual-values -- Preview tile width is a Flint layout choice.
 const cardColumns = "repeat(auto-fill, min(100%, 280px))";
 
-function ApplicationCard({
-  instance,
-  candidate,
-  revision,
-}: Readonly<{
-  instance?: ConnectedInstance;
-  candidate?: HostCandidate;
-  revision: number;
-}>) {
-  const pid = instance?.pid ?? candidate!.pid;
-  const host = instance?.instance_type ?? candidate!.host;
-  const href = `#/${instance ? instancePath(instance.instance_id) : `apps/candidates/${pid}`}`;
-  const preview = useResource(`preview:${host}:${pid}`, (signal) => loadWindowPreview(pid, signal), 10000, revision);
-  const title = preview.data?.window?.title || instance?.instance_name || (hostNames[host] ?? host);
+const connectionTone = { ready: "success", connecting: "warning", not_connected: "neutral" } as const;
+const remotePreviewReason = "Running on another machine";
+
+function useWindowPreview(app: App | undefined, revision = 0) {
+  return useResource(
+    app?.local ? `preview:${app.host}:${app.pid}` : null,
+    (signal) => loadWindowPreview(app!.pid, signal),
+    10000,
+    revision,
+  );
+}
+
+function ApplicationCard({ app, revision }: Readonly<{ app: App; revision: number }>) {
+  const href = `#/${appPath(app.instance_id)}`;
+  const preview = useWindowPreview(app, revision);
+  const title = preview.data?.window?.title || app.name || (hostNames[app.host] ?? app.host);
   const windowPreview = preview.data?.preview;
+  const connected = app.connection !== "not_connected";
   return (
     <Card as="article">
       <Card.Media>
@@ -68,11 +63,13 @@ function ApplicationCard({
             <>
               <Icon glyph={AppWindow} size="lg" />
               <Text size="label" tone="muted">
-                {preview.loading
-                  ? "Loading preview"
-                  : windowPreview && "unavailable_reason" in windowPreview
-                    ? windowPreview.unavailable_reason
-                    : preview.error || "Window preview unavailable"}
+                {!app.local
+                  ? remotePreviewReason
+                  : preview.loading
+                    ? "Loading preview"
+                    : windowPreview && "unavailable_reason" in windowPreview
+                      ? windowPreview.unavailable_reason
+                      : preview.error || "Window preview unavailable"}
               </Text>
             </>
           }
@@ -84,14 +81,14 @@ function ApplicationCard({
             <Card.Link href={href}>{title}</Card.Link>
           </Heading>
           <Text size="label" tone="muted">
-            {hostNames[host] ?? host} · PID {pid}
+            {hostNames[app.host] ?? app.host} · PID {app.pid}
           </Text>
           <Flex align="center" justify="between" gap="2">
-            <Status tone={instance ? (instance.execution_ready ? "success" : "warning") : "neutral"}>
-              {instance ? (instance.execution_ready ? "Ready" : "Connecting") : "Not connected"}
+            <Status tone={connectionTone[app.connection]}>
+              {{ ready: "Ready", connecting: "Connecting", not_connected: "Not connected" }[app.connection]}
             </Status>
             <Button size="sm" variant="ghost" onClick={() => navigate(href.slice(2))}>
-              {instance ? "Details" : "Set up"}
+              {connected ? "Details" : "Set up"}
             </Button>
           </Flex>
         </Flex>
@@ -105,8 +102,6 @@ function ApplicationGroup({
   count,
   ready,
   loading,
-  error,
-  retry,
   emptyTitle,
   description,
   children,
@@ -115,8 +110,6 @@ function ApplicationGroup({
   count: number;
   ready: boolean;
   loading: boolean;
-  error?: string;
-  retry: () => void;
   emptyTitle: string;
   description: string;
   children: ReactNode;
@@ -129,17 +122,16 @@ function ApplicationGroup({
           {ready ? <Badge>{count}</Badge> : null}
           {loading ? <Spinner size="sm" aria-label={`Updating ${title.toLowerCase()}`} /> : null}
         </Flex>
-        <ErrorNotice error={error ?? ""} retry={retry} />
         {count > 0 ? (
           <Grid columns={cardColumns} gap="4">
             {children}
           </Grid>
-        ) : !error ? (
+        ) : (
           <Flex direction="column" gap="1" role="status">
             <Text>{ready ? emptyTitle : "Looking for applications…"}</Text>
             <Text tone="muted">{description}</Text>
           </Flex>
-        ) : null}
+        )}
       </Flex>
     </Section>
   );
@@ -158,80 +150,56 @@ function Fact({ label, children }: Readonly<{ label: string; children: ReactNode
 }
 
 function ApplicationDetail({
-  instance,
-  candidate,
-  snapshot,
+  app,
   loading,
-  refresh,
+  onAttached,
 }: Readonly<{
-  instance?: ConnectedInstance;
-  candidate?: HostCandidate;
-  snapshot: Snapshot | null;
+  app?: App;
   loading: boolean;
-  refresh: () => void;
+  onAttached: (app: App) => void;
 }>) {
-  const pid = instance?.pid ?? candidate?.pid;
-  const host = instance?.instance_type ?? candidate?.host;
-  const preview = useResource(
-    pid !== undefined ? `preview:${host}:${pid}` : null,
-    (signal) => loadWindowPreview(pid!, signal),
-    10000,
-  );
+  const preview = useWindowPreview(app);
   const [actionError, setActionError] = useState("");
   const [attaching, setAttaching] = useState(false);
-  const [attached, setAttached] = useState(false);
-  const snapshotWhenAttached = useRef<Snapshot | null | undefined>(undefined);
-  // A confirmed attach stays busy until a later snapshot shows the instance; a snapshot without it
-  // means the Bridge dropped, so attach is offered again.
-  useEffect(() => {
-    if (!attached) return;
-    if (snapshotWhenAttached.current === undefined) snapshotWhenAttached.current = snapshot;
-    else if (snapshotWhenAttached.current !== snapshot) {
-      snapshotWhenAttached.current = undefined;
-      setAttached(false);
-    }
-  }, [attached, snapshot]);
-  const busy = attaching || attached;
   const desktop = useResource("desktop-info", readDesktopInfo);
-  const attachSupported = desktop.data?.attach_supported ?? false;
+  const connected = app !== undefined && app.connection !== "not_connected";
+  const attachable = app?.connection === "not_connected" && (desktop.data?.attach_supported ?? false);
   const focus = async () => {
-    if (pid === undefined) return;
+    if (app === undefined) return;
     setActionError("");
     try {
-      await focusApplication(pid);
+      await focusApplication(app.pid);
     } catch (error) {
       setActionError(messageOf(error));
     }
   };
   const attach = async () => {
-    if (candidate === undefined) return;
+    if (app === undefined) return;
     setActionError("");
     setAttaching(true);
     try {
-      await attachHost(candidate.pid, candidate.host);
-      setAttached(true);
-      refresh();
+      onAttached(await attachHost(app.pid));
     } catch (error) {
       setActionError(messageOf(error));
     } finally {
       setAttaching(false);
     }
   };
-  const related = useResource(instance ? "workflows" : null, readWorkflows, 5000);
-  const records = related.data?.filter((item) => instance && item.instance_ids.includes(instance.instance_id)) ?? [];
+  const related = useResource(connected ? "workflows" : null, readWorkflows, 5000);
+  const records = related.data?.filter((item) => app && item.instance_ids.includes(app.instance_id)) ?? [];
   const hostWindow = preview.data?.window;
   const windowPreview = preview.data?.preview;
-  const application = host ? (hostNames[host] ?? host) : "Application";
-  const name = instance?.instance_name || application;
-  const executable = preview.data?.executable || candidate?.executable;
+  const application = app ? (hostNames[app.host] ?? app.host) : "Application";
+  const name = app?.name || application;
+  const executable = preview.data?.executable || app?.executable;
   const [view, setView] = useState("overview");
   return (
     <>
       <PageBar.Root>
         <PageBar.Back label="Back to applications" onSelect={() => navigate("apps")} />
-        <PageBar.Title>{pid === undefined ? name : `${name} · PID ${pid}`}</PageBar.Title>
+        <PageBar.Title>{app === undefined ? name : `${name} · PID ${app.pid}`}</PageBar.Title>
         {hostWindow?.title ? <PageBar.Subtitle>{hostWindow.title}</PageBar.Subtitle> : null}
-        {instance || candidate ? (
+        {app?.local ? (
           <PageBar.Action
             icon={RefreshCw}
             label="Refresh preview"
@@ -239,13 +207,13 @@ function ApplicationDetail({
             disabled={preview.loading}
           />
         ) : null}
-        {candidate && !instance && attachSupported ? (
+        {attachable ? (
           <PageBar.Action
             icon={Zap}
             label="Attach Bridge"
             onSelect={() => void attach()}
             priority="primary"
-            disabled={busy}
+            disabled={attaching}
           />
         ) : null}
         {hostWindow ? (
@@ -258,22 +226,20 @@ function ApplicationDetail({
         ) : null}
       </PageBar.Root>
       <Container size="4" px="5" pb="6">
-        {loading && !instance && !candidate ? <Loading /> : null}
-        {!loading && !instance && !candidate ? (
+        {loading && !app ? <Loading /> : null}
+        {!loading && !app ? (
           <EmptyState>
             <EmptyState.Title>Application no longer available</EmptyState.Title>
-            <EmptyState.Description>
-              The process may have exited or its Bridge may have reconnected.
-            </EmptyState.Description>
+            <EmptyState.Description>The process may have exited.</EmptyState.Description>
           </EmptyState>
         ) : null}
-        {instance || candidate ? (
+        {app ? (
           <Flex direction="column" gap="6" pt="2">
             <Flex gap="5" wrap="wrap" align="start">
               {/* eslint-disable-next-line cairn/no-raw-visual-values -- Matches the application cards' preview width. */}
               <Box width="280px" maxWidth="100%" flexShrink="0">
                 <Image
-                  key={pid}
+                  key={app.instance_id}
                   src={windowPreview && "image" in windowPreview ? windowPreview.image : undefined}
                   alt={`Window preview of ${hostWindow?.title || name}`}
                   aspectRatio="16/10"
@@ -283,11 +249,13 @@ function ApplicationDetail({
                     <>
                       <Icon glyph={AppWindow} size="lg" />
                       <Text size="label" tone="muted">
-                        {preview.loading
-                          ? "Loading preview"
-                          : windowPreview && "unavailable_reason" in windowPreview
-                            ? windowPreview.unavailable_reason
-                            : "Window preview unavailable"}
+                        {!app.local
+                          ? remotePreviewReason
+                          : preview.loading
+                            ? "Loading preview"
+                            : windowPreview && "unavailable_reason" in windowPreview
+                              ? windowPreview.unavailable_reason
+                              : "Window preview unavailable"}
                       </Text>
                     </>
                   }
@@ -297,29 +265,33 @@ function ApplicationDetail({
               <Flex direction="column" gap="4" flexGrow="1" flexBasis="320px" minWidth="0" pt="1">
                 <Grid columns="2" gapX="6" gapY="4">
                   <Fact label="Bridge">
-                    <Status tone={instance ? (instance.execution_ready ? "success" : "warning") : "neutral"}>
-                      {instance ? (instance.execution_ready ? "Ready to execute" : "Connecting") : "Not connected"}
+                    <Status tone={connectionTone[app.connection]}>
+                      {
+                        { ready: "Ready to execute", connecting: "Connecting", not_connected: "Not connected" }[
+                          app.connection
+                        ]
+                      }
                     </Status>
                   </Fact>
                   <Fact label="Application">{application}</Fact>
-                  {instance ? (
+                  {connected ? (
                     <>
-                      <Fact label="Runtime">{instance.runtime_version}</Fact>
-                      <Fact label="Bridge version">{instance.bridge_version}</Fact>
+                      <Fact label="Runtime">{app.runtime_version}</Fact>
+                      <Fact label="Bridge version">{app.bridge_version}</Fact>
                     </>
                   ) : null}
                 </Grid>
-                {instance ? null : (
+                {connected ? null : (
                   <Flex direction="column" gap="3" align="start">
                     <Text as="p" size="label" tone="muted" wrap="pretty">
-                      {attachSupported
+                      {attachable
                         ? `Attach injects the Flint Bridge into ${application} so it connects without running any code inside it. You can also load the Bridge inside the application yourself.`
                         : `Load the Flint Bridge inside ${application}. Once it connects, this application moves to Connected and can run code from Flint.`}
                     </Text>
-                    {candidate && attachSupported ? (
-                      <Button onClick={() => void attach()} disabled={busy}>
-                        {busy ? <Spinner size="sm" /> : <Icon glyph={Zap} size="sm" />}
-                        {busy ? "Attaching…" : "Attach Bridge"}
+                    {attachable ? (
+                      <Button onClick={() => void attach()} disabled={attaching}>
+                        {attaching ? <Spinner size="sm" /> : <Icon glyph={Zap} size="sm" />}
+                        {attaching ? "Attaching…" : "Attach Bridge"}
                       </Button>
                     ) : null}
                   </Flex>
@@ -339,10 +311,8 @@ function ApplicationDetail({
               <Tabs.Content value="overview">
                 <Flex direction="column" gap="6" pt="2">
                   <List.Section title="Details">
-                    {instance ? (
-                      <List.Item trailing={<Code>{instance.instance_id}</Code>}>Instance ID</List.Item>
-                    ) : null}
-                    <List.Item trailing={pid}>Process ID</List.Item>
+                    {connected ? <List.Item trailing={<Code>{app.instance_id}</Code>}>Instance ID</List.Item> : null}
+                    <List.Item trailing={app.pid}>Process ID</List.Item>
                     {hostWindow?.title ? <List.Item description={hostWindow.title}>Window</List.Item> : null}
                     {executable ? <List.Item description={executable}>Executable</List.Item> : null}
                   </List.Section>
@@ -350,7 +320,7 @@ function ApplicationDetail({
               </Tabs.Content>
 
               <Tabs.Content value="console">
-                {instance ? (
+                {connected ? (
                   <Flex direction="column" gap="4" pt="2">
                     <TextArea
                       aria-label="Code to run"
@@ -388,7 +358,7 @@ function ApplicationDetail({
               </Tabs.Content>
 
               <Tabs.Content value="workflows">
-                {instance ? (
+                {connected ? (
                   <Flex direction="column" gap="3" pt="2">
                     {records.length > 0 ? (
                       <List.Section>
@@ -436,65 +406,39 @@ export function Applications({
   snapshot,
   loading,
   refresh,
-  discovery,
+  onAttached,
 }: Readonly<{
   route: Route;
   snapshot: Snapshot | null;
   loading: boolean;
   refresh: () => void;
-  discovery: Readonly<{
-    data: readonly HostCandidate[] | null;
-    loading: boolean;
-    error: string;
-    reload: () => void;
-  }>;
+  onAttached: (app: App) => void;
 }>) {
   const [previewRevision, setPreviewRevision] = useState(0);
-  const instances = snapshot?.instances ?? [];
-  const connectedPids = new Set(instances.map((instance) => instance.pid));
-  const candidates = (discovery.data ?? []).filter((candidate) => !connectedPids.has(candidate.pid));
+  const apps = snapshot?.apps ?? [];
+  const connected = apps.filter((app) => app.connection !== "not_connected");
+  const available = apps.filter((app) => app.connection === "not_connected");
   const reload = () => {
     setPreviewRevision((value) => value + 1);
-    discovery.reload();
     refresh();
   };
   if (route.id) {
-    const instance = route.candidate
-      ? instances.find((item) => item.pid === Number(route.id))
-      : instances.find((item) => item.instance_id === route.id);
-    const candidate =
-      !instance && route.candidate ? candidates.find((item) => item.pid === Number(route.id)) : undefined;
     return (
-      <>
-        <ApplicationDetail
-          key={instance?.pid ?? candidate?.pid ?? route.id}
-          instance={instance}
-          candidate={candidate}
-          snapshot={snapshot}
-          loading={loading || discovery.loading}
-          refresh={refresh}
-        />
-        {/* The shell's banner reports a backend that cannot be reached. */}
-        {discovery.error ? (
-          <Box p="5">
-            <ErrorNotice error={discovery.error} retry={reload} />
-          </Box>
-        ) : null}
-      </>
+      <ApplicationDetail
+        key={route.id}
+        app={apps.find((app) => app.instance_id === route.id)}
+        loading={loading}
+        onAttached={onAttached}
+      />
     );
   }
-  const firstLoad = snapshot === null || discovery.data === null;
-  const pageEmpty = instances.length === 0 && candidates.length === 0 && !discovery.error;
+  const firstLoad = snapshot === null;
+  const pageEmpty = apps.length === 0;
   return (
     <>
       <PageBar.Root>
         <PageBar.Title>Applications</PageBar.Title>
-        <PageBar.Action
-          icon={RefreshCw}
-          label="Refresh applications"
-          onSelect={reload}
-          disabled={loading || discovery.loading}
-        />
+        <PageBar.Action icon={RefreshCw} label="Refresh applications" onSelect={reload} disabled={loading} />
       </PageBar.Root>
       <Container size="4" px="5" pb="6">
         {pageEmpty ? (
@@ -511,29 +455,26 @@ export function Applications({
           <>
             <ApplicationGroup
               title="Connected"
-              count={instances.length}
-              ready={snapshot !== null}
+              count={connected.length}
+              ready={!firstLoad}
               loading={loading}
-              retry={refresh}
               emptyTitle="No connected applications"
               description="Choose an application below to set up its Bridge."
             >
-              {instances.map((instance) => (
-                <ApplicationCard key={instance.pid} instance={instance} revision={previewRevision} />
+              {connected.map((app) => (
+                <ApplicationCard key={app.instance_id} app={app} revision={previewRevision} />
               ))}
             </ApplicationGroup>
             <ApplicationGroup
               title="Available to connect"
-              count={candidates.length}
-              ready={discovery.data !== null}
-              loading={discovery.loading}
-              error={discovery.error}
-              retry={discovery.reload}
+              count={available.length}
+              ready={!firstLoad}
+              loading={loading}
               emptyTitle="No other applications found"
               description="Open another supported application and it will appear here."
             >
-              {candidates.map((candidate) => (
-                <ApplicationCard key={candidate.pid} candidate={candidate} revision={previewRevision} />
+              {available.map((app) => (
+                <ApplicationCard key={app.instance_id} app={app} revision={previewRevision} />
               ))}
             </ApplicationGroup>
           </>

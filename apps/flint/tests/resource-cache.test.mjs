@@ -79,6 +79,27 @@ test(
   },
 );
 
+test("a write outlives a read that started before it, and later reads start fresh", { timeout: 2000 }, async () => {
+  const cache = new ResourceCache();
+  const entry = cache.acquire("snapshot");
+  const stale = Promise.withResolvers();
+  const pending = cache.read(entry, () => stale.promise);
+  cache.write(entry, () => "attached");
+  let reads = 0;
+  const fresh = Promise.withResolvers();
+  const next = cache.read(entry, () => {
+    reads += 1;
+    return fresh.promise;
+  });
+  stale.resolve("before attach");
+  assert.equal(await pending, "attached");
+  assert.equal(entry.data, "attached");
+  fresh.resolve("after attach");
+  assert.equal(await next, "after attach");
+  assert.equal(reads, 1);
+  cache.release(entry);
+});
+
 test("cache eviction removes inactive results without duplicating active requests", { timeout: 2000 }, async () => {
   const cache = new ResourceCache(2);
   let finish;

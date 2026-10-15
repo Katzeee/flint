@@ -237,14 +237,21 @@ impl App {
             expected,
         )
     }
-    pub fn instance(&self, host: &str) -> Result<Option<Value>> {
-        let response = self.call("instances", &["--type", host], 0)?;
-        Ok(response["instances"]
+    pub fn connected(&self, host: &str) -> Result<Vec<Value>> {
+        let response = self.call("apps", &["--host", host], 0)?;
+        Ok(response["apps"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|i| i["execution_ready"] == true)
-            .cloned())
+            .filter(|app| app["connection"] != "not_connected")
+            .cloned()
+            .collect())
+    }
+    pub fn instance(&self, host: &str) -> Result<Option<Value>> {
+        Ok(self
+            .connected(host)?
+            .into_iter()
+            .find(|app| app["connection"] == "ready"))
     }
     pub fn await_instance(&self, host: &str, expected: Option<&str>) -> Result<Value> {
         let mut instance = None;

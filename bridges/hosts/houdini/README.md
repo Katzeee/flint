@@ -4,7 +4,7 @@ Export `flint-houdini.zip` with `flint bridge export houdini`. Extract `flint.js
 
 Keep Houdini open and responsive while running Python code through Flint. Use `hou` to work with the current scene. Connecting through `hython` or Houdini Engine is not supported.
 
-To connect without installing the package, use `flint hosts` to find Houdini's PID, then run `flint attach --pid <pid>`.
+To connect without installing the package, use `flint apps` to find Houdini's PID, then run `flint attach --pid <pid>`.
 
 For direct control from Houdini's Python shell:
 

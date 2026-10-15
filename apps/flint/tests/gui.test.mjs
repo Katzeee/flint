@@ -78,6 +78,17 @@ test("desktop navigation preserves connection identity and asynchronous selectio
   await withDesktop(async (page, url) => {
     await page.addInitScript(() => {
       window.__invokeCalls = [];
+      window.__mayaApp = {
+        instance_id: "maya-1",
+        host: "maya",
+        name: null,
+        pid: 4520,
+        local: true,
+        connection: "not_connected",
+        executable: "C:/Maya/maya.exe",
+        runtime_version: null,
+        bridge_version: null,
+      };
       window.__mockSnapshot = {
         backend: {
           ready: true,
@@ -85,7 +96,7 @@ test("desktop navigation preserves connection identity and asynchronous selectio
           bridge_address: "127.0.0.1",
           bridge_port: 6321,
         },
-        instances: [],
+        apps: [window.__mayaApp],
       };
       const summary = (id, name) => ({
         workflow_id: id,
@@ -122,15 +133,13 @@ test("desktop navigation preserves connection identity and asynchronous selectio
       window.__mockInvoke = async (command, args) => {
         window.__invokeCalls.push({ command, args });
         if (command === "activate_title_bar") return "custom";
-        if (command === "snapshot") return structuredClone(window.__mockSnapshot);
-        if (command === "candidates")
-          return [
-            {
-              host: "maya",
-              pid: 4520,
-              executable: "C:/Maya/maya.exe",
-            },
-          ];
+        if (command === "snapshot") {
+          const current = structuredClone(window.__mockSnapshot);
+          if (!window.__holdSnapshot) return current;
+          return new Promise((resolve) => {
+            window.__releaseSnapshot = () => resolve(current);
+          });
+        }
         if (command === "workflows") return structuredClone(window.__workflows);
         if (command === "workflow") {
           if (args.id === "first" && window.__delayFirst)
@@ -175,8 +184,17 @@ test("desktop navigation preserves connection identity and asynchronous selectio
           };
         }
         if (command === "focus_application") return;
-        if (command === "attach")
-          return { pid: args.pid, host: args.hostKind, instance_id: "maya-1", execution_ready: true };
+        if (command === "attach") {
+          const attached = {
+            ...window.__mayaApp,
+            name: "Maya session",
+            connection: "ready",
+            runtime_version: "Python 3.11",
+            bridge_version: "0.1.0",
+          };
+          window.__mockSnapshot.apps = [attached];
+          return attached;
+        }
         if (command === "desktop_info")
           return {
             version: "0.1.0",
@@ -193,28 +211,39 @@ test("desktop navigation preserves connection identity and asynchronous selectio
     await page.getByText("No connected applications", { exact: true }).waitFor();
     await page.getByRole("article").getByRole("link").click();
     await page.getByText("C:/Maya/maya.exe", { exact: true }).waitFor();
+
+    // A status poll already in flight when attach succeeds still reports the process as not connected.
+    // The attached application must not fall back to that answer, not even for one render.
+    await page.evaluate(() => {
+      window.__holdSnapshot = true;
+    });
+    await page.waitForFunction(() => typeof window.__releaseSnapshot === "function");
     await page.getByRole("button", { name: "Attach Bridge", exact: true }).last().click();
+    await page.getByText("Ready to execute", { exact: true }).waitFor();
     assert.deepEqual(await page.evaluate(() => window.__invokeCalls.find((call) => call.command === "attach").args), {
       pid: 4520,
-      hostKind: "maya",
     });
+    const pollsBeforeRelease = await page.evaluate(() => {
+      window.__attachReappeared = false;
+      new MutationObserver(() => {
+        if (
+          [...document.querySelectorAll("button")].some(
+            (button) => button.textContent === "Attach Bridge" || button.ariaLabel === "Attach Bridge",
+          )
+        )
+          window.__attachReappeared = true;
+      }).observe(document.body, { childList: true, subtree: true, characterData: true });
+      window.__holdSnapshot = false;
+      window.__releaseSnapshot();
+      return window.__invokeCalls.filter((call) => call.command === "snapshot").length;
+    });
+    await page.waitForFunction(
+      (count) => window.__invokeCalls.filter((call) => call.command === "snapshot").length > count,
+      pollsBeforeRelease,
+    );
+    assert.equal(await page.evaluate(() => window.__attachReappeared), false);
 
-    // A discovered process becomes connected while its detail is open. The same PID must not
-    // remain in both sections, and its window operations retain the process identity.
-    await page.evaluate(() => {
-      window.__mockSnapshot.instances = [
-        {
-          instance_id: "maya-1",
-          instance_name: "Maya session",
-          instance_type: "maya",
-          pid: 4520,
-          runtime_version: "Python 3.11",
-          bridge_version: "0.1.0",
-          execution_ready: true,
-        },
-      ];
-    });
-    await page.getByText("Ready to execute", { exact: true }).waitFor();
+    // The same process must not remain in both sections, and its window operations retain its identity.
     await page.getByRole("button", { name: "Switch to application", exact: true }).click();
     await page.waitForFunction(() => {
       const image = document.querySelector('img[alt="Window preview of Character_Rig.ma"]');
@@ -243,11 +272,13 @@ test("desktop navigation preserves connection identity and asynchronous selectio
     assert.equal(new URL(page.url()).hash, "#/apps/maya-1");
 
     // More cards than capture slots must all receive previews without flooding native workers.
+    // A remote application sharing a local PID must not borrow that local window.
     await page.evaluate(() => {
-      const instance = window.__mockSnapshot.instances[0];
-      window.__mockSnapshot.instances.push(
-        { ...instance, instance_id: "custom-2", instance_type: "custom-editor", pid: 4521 },
-        { ...instance, instance_id: "maya-3", pid: 4522 },
+      const app = window.__mockSnapshot.apps[0];
+      window.__mockSnapshot.apps.push(
+        { ...app, instance_id: "custom-2", host: "custom-editor", pid: 4521 },
+        { ...app, instance_id: "maya-3", pid: 4522 },
+        { ...app, instance_id: "remote-1", name: "Remote Maya", local: false, executable: null },
       );
     });
     await page.getByRole("button", { name: "Back to applications" }).click();
@@ -264,6 +295,11 @@ test("desktop navigation preserves connection identity and asynchronous selectio
         has: page.getByRole("link", { name: "Scene maya-3", exact: true }),
       })
       .getByText("Window is minimized", { exact: true })
+      .waitFor();
+    await page
+      .getByRole("article")
+      .filter({ has: page.getByRole("link", { name: "Remote Maya", exact: true }) })
+      .getByText("Running on another machine", { exact: true })
       .waitFor();
 
     await page.getByRole("link", { name: "Workflows", exact: true }).click();
@@ -303,7 +339,7 @@ test("backend controls recover from refusal and preserve pending work across nav
         bridge_address: "127.0.0.1",
         bridge_port: 6321,
       };
-      window.__mockSnapshot = { backend, instances: [] };
+      window.__mockSnapshot = { backend, apps: [] };
       window.__mockInvoke = async (command, args) => {
         window.__invokeCalls.push({ command, args });
         if (command === "activate_title_bar") return "custom";
@@ -320,21 +356,21 @@ test("backend controls recover from refusal and preserve pending work across nav
         if (command === "stop_backend") {
           if (!window.__allowStop) throw { code: "backend_busy", message: "executions are still active" };
           if (!window.__holdStop) {
-            window.__mockSnapshot = { backend: null, instances: [] };
+            window.__mockSnapshot = { backend: null, apps: [] };
             return { stopped_pid: backend.pid };
           }
           stopping = true;
           return new Promise((resolve) => {
             window.__finishStop = () => {
               stopping = false;
-              window.__mockSnapshot = { backend: null, instances: [] };
+              window.__mockSnapshot = { backend: null, apps: [] };
               resolve({ stopped_pid: backend.pid });
             };
           });
         }
         if (command === "start_backend") {
           window.__startDuringStop.push(stopping);
-          window.__mockSnapshot = { backend, instances: [] };
+          window.__mockSnapshot = { backend, apps: [] };
           return backend;
         }
         throw new Error(`Unexpected command: ${command}`);

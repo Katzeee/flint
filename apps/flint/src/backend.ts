@@ -1,11 +1,10 @@
-import { commands, events, type Failure, type HostKind, type Snapshot } from "./generated/bindings.js";
+import { commands, events, type Failure, type Snapshot } from "./generated/bindings.js";
 
 export type {
+  App,
   Failure,
   Snapshot,
-  HostCandidate,
   HostInfo_Serialize as HostInfo,
-  InstanceInfo as ConnectedInstance,
   GetExecutionResponse_Serialize as Execution,
   GetWorkflowResponse_Serialize as Workflow,
   WorkflowSummary,
@@ -61,8 +60,8 @@ export function focusApplication(pid: number) {
   return withFailure(commands.focusApplication(pid));
 }
 
-export function attachHost(pid: number, hostKind?: HostKind) {
-  return withFailure(commands.attach(pid, hostKind ?? null));
+export function attachHost(pid: number) {
+  return withFailure(commands.attach(pid));
 }
 
 // Launching flint while the desktop runs reopens this window instead of starting another desktop.
@@ -83,10 +82,6 @@ export async function readSnapshot(): Promise<Snapshot> {
   if (previousSnapshot && JSON.stringify(previousSnapshot) === JSON.stringify(next)) return previousSnapshot;
   previousSnapshot = next;
   return next;
-}
-
-export function discoverHosts() {
-  return withFailure(commands.candidates());
 }
 
 export function startBackend() {

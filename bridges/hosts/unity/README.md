@@ -6,7 +6,7 @@ Use Flint to run C# code in Unity Editor on Windows x64 with Mono.
 
 Run `flint bridge export unity` and install the resulting `flint-unity.tgz` in Unity's Package Manager with **Add package from tarball**. The installed package connects from the Editor to the local backend. Open **Window > Flint Bridge > Connection Settings** for the shared [connection settings](../../README.md#connection-settings). If the Bridge cannot start, the reason appears in the Console; resolve it and use **Connect** to retry.
 
-To connect without installing the package, use `flint hosts` to find the Editor's PID, then run `flint attach --pid <pid>`.
+To connect without installing the package, use `flint apps` to find the Editor's PID, then run `flint attach --pid <pid>`.
 
 ## Run code
 

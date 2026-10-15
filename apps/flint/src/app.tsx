@@ -15,11 +15,11 @@ import { useEffect, useRef, useState } from "react";
 import { Applications } from "./applications.js";
 import {
   activateTitleBar,
-  discoverHosts,
   onDesktopOpened,
   readSnapshot,
   startBackend,
   stopBackend,
+  type App as Application,
 } from "./backend.js";
 import { navigate, useRoute } from "./navigation.js";
 import { messageOf, useResource } from "./resource.js";
@@ -39,7 +39,6 @@ function savedAppearance(): CairnAppearance {
 export function App() {
   const route = useRoute();
   const snapshot = useResource("snapshot", readSnapshot, 1500);
-  const discovery = useResource(route.page === "apps" ? "candidates" : null, discoverHosts, 10000);
   const [appearance, setAppearance] = useState(savedAppearance);
   const [preferenceError, setPreferenceError] = useState("");
   const [chrome, setChrome] = useState(false);
@@ -92,7 +91,13 @@ export function App() {
   const ready = snapshot.data?.backend?.ready === true && !snapshot.error;
   const connecting = !ready && (backendBusy !== null || (snapshot.loading && !snapshot.data));
   const stoppedMessage = backendError ? `Backend operation failed: ${backendError}` : "The backend is stopped.";
-  const instances = snapshot.data?.instances ?? [];
+  const apps = snapshot.data?.apps ?? [];
+  const connectedCount = apps.filter((app) => app.connection !== "not_connected").length;
+  const showAttached = (attached: Application) =>
+    snapshot.mutate((current) => ({
+      backend: current?.backend ?? null,
+      apps: [attached, ...(current?.apps ?? []).filter((app) => app.instance_id !== attached.instance_id)],
+    }));
   return (
     <CairnTheme appearance={appearance}>
       <AppShell.Root scroll="panes" windowChrome={chrome ? tauriDragRegion : undefined}>
@@ -106,7 +111,7 @@ export function App() {
         ) : null}
         <AppShell.Navigation collapsible label="Flint navigation">
           <AppShell.NavGroup>
-            <AppShell.NavItem active={route.page === "apps"} href="#/apps" icon={AppWindow} badge={instances.length}>
+            <AppShell.NavItem active={route.page === "apps"} href="#/apps" icon={AppWindow} badge={connectedCount}>
               Applications
             </AppShell.NavItem>
             <AppShell.NavItem active={route.page === "workflows"} href="#/workflows" icon={Layers}>
@@ -168,11 +173,11 @@ export function App() {
               snapshot={snapshot.data}
               loading={snapshot.loading}
               refresh={snapshot.reload}
-              discovery={discovery}
+              onAttached={showAttached}
             />
           ) : null}
           {route.page === "workflows" ? (
-            <Workflows selectedId={route.id} executionId={route.execution} instances={instances} />
+            <Workflows selectedId={route.id} executionId={route.execution} apps={apps} />
           ) : null}
           {route.page === "settings" ? (
             <Settings

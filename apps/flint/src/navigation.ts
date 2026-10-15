@@ -4,7 +4,6 @@ export type Route = Readonly<{
   page: "apps" | "workflows" | "settings" | "legal";
   id?: string;
   execution?: string;
-  candidate?: boolean;
 }>;
 
 function readRoute(): Route {
@@ -17,11 +16,7 @@ function readRoute(): Route {
         execution: segments[1] === "executions" && segments[2] ? decodeURIComponent(segments[2]) : undefined,
       };
     if (page === "settings" || page === "legal") return { page };
-    return {
-      page: "apps",
-      id: segments[0] === "candidates" ? segments[1] : segments[0] ? decodeURIComponent(segments[0]) : undefined,
-      candidate: segments[0] === "candidates",
-    };
+    return { page: "apps", id: segments[0] ? decodeURIComponent(segments[0]) : undefined };
   } catch {
     return { page: "apps" };
   }
@@ -47,6 +42,6 @@ export function workflowPath(id: string) {
 export function executionPath(workflowId: string, executionId: string) {
   return `${workflowPath(workflowId)}/executions/${encodeURIComponent(executionId)}`;
 }
-export function instancePath(id: string) {
+export function appPath(id: string) {
   return `apps/${encodeURIComponent(id)}`;
 }

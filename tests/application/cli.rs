@@ -1,6 +1,5 @@
 use crate::support::*;
 use anyhow::Result;
-use serde_json::json;
 use std::time::Duration;
 
 #[cfg(windows)]
@@ -64,13 +63,19 @@ fn concurrent_cli_calls_share_one_backend() -> Result<()> {
         "backend_locked"
     );
     assert_eq!(app.call("status", &[], 0)?["pid"], responses[0]["pid"]);
-    assert_ne!(app.call("restart", &[], 0)?["pid"], responses[0]["pid"]);
-    assert_eq!(app.call("instances", &[], 0)?["instances"], json!([]));
+    let apps = app.call("apps", &[], 0)?;
+    assert!(
+        apps["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|app| app["connection"] == "not_connected")
+    );
     Ok(())
 }
 
 #[test]
-fn input_loading_and_host_discovery_do_not_start_backend() -> Result<()> {
+fn input_loading_does_not_start_backend() -> Result<()> {
     let app = App::new();
     assert!(app.call("status", &[], 0)?.is_null());
     assert_eq!(
@@ -88,9 +93,6 @@ fn input_loading_and_host_discovery_do_not_start_backend() -> Result<()> {
         )?["error"]["code"],
         "command_failed"
     );
-    let output = checked(&mut app.command("hosts"), Duration::from_secs(10))?;
-    let discovery: serde_json::Value = serde_json::from_str(&output.stdout)?;
-    assert!(discovery["hosts"].is_array());
     assert!(!app.directory.join("workflows").exists());
     assert!(!app.directory.join("runtime").exists());
     Ok(())
