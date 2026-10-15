@@ -7,6 +7,9 @@ pub struct HostSettings {
     pub address: String,
     pub port: u16,
     pub name: String,
+    /// Empty selects this machine's Bridge token.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub token: String,
 }
 
 impl HostSettings {

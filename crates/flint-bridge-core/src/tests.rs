@@ -140,7 +140,7 @@ fn config(port: u16) -> String {
 }
 
 fn settings(port: u16, name: &str) -> Value {
-    json!({"address":"127.0.0.1","port":port,"name":name})
+    json!({"address":"127.0.0.1","port":port,"name":name,"token":"configured"})
 }
 
 fn wait_until(mut condition: impl FnMut() -> bool) {
@@ -340,6 +340,7 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
     let original = first.registration();
     assert_eq!(original.instance_name, "场景");
     assert_eq!(original.instance_type, "custom-editor");
+    assert_eq!(original.token, "configured");
 
     first.send(execute("active"));
     assert_eq!(core.wait_request(WAIT).unwrap()["request_id"], "active");

@@ -1,4 +1,5 @@
 use super::*;
+use flint_contracts::config::bridge_token;
 use std::time::Instant;
 
 pub(super) async fn connection(backend: BackendHandle, socket: TcpStream) -> Result<()> {
@@ -22,12 +23,37 @@ async fn reject(mut wire: Wire, request_id: String, reason: &str) -> Result<()> 
     Err(failure.into())
 }
 
+// Compares in constant time so response timing does not reveal the token.
+fn token_matches(expected: &str, presented: &str) -> bool {
+    !expected.is_empty()
+        && expected.len() == presented.len()
+        && expected
+            .bytes()
+            .zip(presented.bytes())
+            .fold(0, |difference, (a, b)| difference | (a ^ b))
+            == 0
+}
+
 async fn heartbeat_connection(
     backend: BackendHandle,
     mut wire: Wire,
     request_id: String,
     req: RegisterInstance,
 ) -> Result<()> {
+    let token = match bridge_token::load_or_create() {
+        Ok(token) => token,
+        Err(error) => {
+            return reject(
+                wire,
+                request_id,
+                &format!("the backend cannot read its Bridge token: {error}"),
+            )
+            .await;
+        }
+    };
+    if !token_matches(&token, &req.token) {
+        return reject(wire, request_id, "the Bridge token does not match this backend").await;
+    }
     if req.pid == 0
         || req.instance_id.len() != 16
         || !req

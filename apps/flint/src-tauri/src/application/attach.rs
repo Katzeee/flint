@@ -54,6 +54,7 @@ impl Application {
             address: self.config.endpoints.bridge.ip().to_string(),
             port: self.config.endpoints.bridge.port(),
             name: name.clone(),
+            token: String::new(),
         };
         let state = self.config.state.clone();
         blocking(move || {

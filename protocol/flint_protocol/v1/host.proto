@@ -12,6 +12,8 @@ message RegisterInstance {
   string instance_id = 4;
   string runtime_version = 5;
   string bridge_version = 6;
+  // The backend user's Bridge token; registration without the exact token is rejected.
+  string token = 7;
 }
 // Joins the session established on the registration/heartbeat connection.
 message RegisterExecutionChannel { string session_id = 1; }

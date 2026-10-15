@@ -11,8 +11,21 @@ fn backend_reports_rejected_registrations_before_closing_the_connection() -> Res
 
     let app = App::new();
     app.call("start", &[], 0)?;
+    let token = flint_contracts::config::bridge_token::read()?;
     tokio::runtime::Runtime::new()?.block_on(async {
-        for (request_id, request) in [
+        for (request_id, request, reason) in [
+            (
+                "wrong-token",
+                Payload::RegisterInstance(RegisterInstance {
+                    pid: 42,
+                    instance_id: "abcdefghijklmnop".into(),
+                    instance_name: "Rejected Bridge".into(),
+                    instance_type: "test".into(),
+                    token: "wrong".into(),
+                    ..Default::default()
+                }),
+                "token",
+            ),
             (
                 "invalid-bridge",
                 Payload::RegisterInstance(RegisterInstance {
@@ -20,14 +33,17 @@ fn backend_reports_rejected_registrations_before_closing_the_connection() -> Res
                     instance_id: "invalid-pid".into(),
                     instance_name: "Rejected Bridge".into(),
                     instance_type: "test".into(),
+                    token: token.clone(),
                     ..Default::default()
                 }),
+                "identity",
             ),
             (
                 "unregistered-channel",
                 Payload::RegisterExecutionChannel(RegisterExecutionChannel {
                     session_id: "unregistered".into(),
                 }),
+                "session",
             ),
         ] {
             tokio::time::timeout(Duration::from_secs(5), async {
@@ -40,7 +56,7 @@ fn backend_reports_rejected_registrations_before_closing_the_connection() -> Res
                     anyhow::bail!("{request_id}: expected a registration rejection");
                 };
                 assert_eq!(failure.code, "registration_rejected", "{request_id}");
-                assert!(!failure.message.trim().is_empty(), "{request_id}");
+                assert!(failure.message.contains(reason), "{request_id}: {}", failure.message);
                 assert_eq!(
                     read_envelope(&mut wire).await.unwrap_err().kind(),
                     std::io::ErrorKind::UnexpectedEof,

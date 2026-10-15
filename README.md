@@ -20,7 +20,7 @@ All terminals and agent sessions for the same user share one local backend. Comm
 
 Use `flint --help` or `flint <command> --help` for options. Commands find the local backend automatically; no endpoint selection is required.
 
-Workflow records, runtime locks, and logs live in flint's local application-data directory. Completed records survive a backend restart.
+Workflow records, runtime locks, logs, and the Bridge token every Bridge registration must present live in flint's local application-data directory. Completed records survive a backend restart.
 
 ## Connect an application
 

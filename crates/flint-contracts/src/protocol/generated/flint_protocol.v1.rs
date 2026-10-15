@@ -310,6 +310,9 @@ pub struct RegisterInstance {
     pub runtime_version: ::prost::alloc::string::String,
     #[prost(string, tag = "6")]
     pub bridge_version: ::prost::alloc::string::String,
+    /// The backend user's Bridge token; registration without the exact token is rejected.
+    #[prost(string, tag = "7")]
+    pub token: ::prost::alloc::string::String,
 }
 /// Joins the session established on the registration/heartbeat connection.
 #[derive(serde::Serialize, serde::Deserialize)]

@@ -39,8 +39,8 @@ fn loader_hands_the_request_to_the_platform_entry() {
     let settings = HostSettings {
         address: "127.0.0.1".into(),
         port: 6321,
-
         name: "a\"b\\c\n场景".into(),
+        token: String::new(),
     };
     let root = r"C:\tools\flint-bridge";
     let error_path = r"C:\temp\42.error";

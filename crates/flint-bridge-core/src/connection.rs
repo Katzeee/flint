@@ -4,6 +4,7 @@ use crate::{
     state::{BridgeState, Obstacle, ObstacleKind},
 };
 use anyhow::{Context, Result};
+use flint_contracts::config::bridge_token;
 use flint_contracts::protocol::timing::{HEARTBEAT_ACK_TIMEOUT, HEARTBEAT_INTERVAL};
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
@@ -101,6 +102,10 @@ async fn register(
     instance_id: &str,
     heartbeat_wire: &mut Wire,
 ) -> Result<Wire> {
+    let token = match settings_snapshot.settings.token.as_str() {
+        "" => bridge_token::read().context("cannot read this machine's Bridge token")?,
+        token => token.into(),
+    };
     let request_id = Uuid::new_v4().simple().to_string();
     heartbeat_wire
         .send(envelope(
@@ -112,6 +117,7 @@ async fn register(
                 instance_id: instance_id.into(),
                 runtime_version: identity.runtime_version.clone(),
                 bridge_version: env!("CARGO_PKG_VERSION").into(),
+                token,
             }),
         ))
         .await?;

@@ -18,6 +18,7 @@ fn registration(id: &str) -> Payload {
         instance_id: id.into(),
         instance_name: "Editor".into(),
         instance_type: "unity".into(),
+        token: flint_contracts::config::bridge_token::load_or_create().unwrap(),
         ..Default::default()
     })
 }
@@ -122,4 +123,12 @@ async fn stable_instances_share_pids_and_replacement_isolates_old_sessions_and_j
     })
     .await
     .unwrap();
+}
+
+#[test]
+fn only_the_exact_nonempty_token_matches() {
+    assert!(token_matches("secret", "secret"));
+    assert!(!token_matches("secret", "secreT"));
+    assert!(!token_matches("secret", "secret2"));
+    assert!(!token_matches("", ""));
 }

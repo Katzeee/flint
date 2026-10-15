@@ -35,7 +35,7 @@ The CLI owns terminal input, output, and exit codes. Keep the desktop and backen
 
 Backend listen addresses describe local interfaces; application control and local injection explicitly target loopback. Host connection settings accept IP addresses or domain names and may target a remote backend.
 
-Config owns directory policy and cross-process coordination; consumers own other filesystem operations. Serialize backend lifecycle operations and lease checks through the lifecycle lock; status queries remain independent of it. Bootstrap execution must not depend on the host's directory configuration. Bridge process claims span backend endpoints and isolated test runtime roots so one host process cannot acquire multiple Bridges through different configurations.
+Config owns directory policy and cross-process coordination; consumers own other filesystem operations. Serialize backend lifecycle operations and lease checks through the lifecycle lock; status queries remain independent of it. Bootstrap execution must not depend on the host's directory configuration. Bridge process claims span backend endpoints and isolated test runtime roots so one host process cannot acquire multiple Bridges through different configurations. The Bridge token spans them the same way, so test Bridges authenticate with the token they would use in production.
 
 ## Desktop interface
 

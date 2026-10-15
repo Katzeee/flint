@@ -7,6 +7,7 @@ fn settings(name: &str) -> HostSettings {
         address: "127.0.0.1".into(),
         port: 6321,
         name: name.into(),
+        token: String::new(),
     }
 }
 

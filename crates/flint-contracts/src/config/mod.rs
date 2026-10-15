@@ -1,4 +1,5 @@
 //! Local endpoints, the control timeout, and the backend's state directory.
+pub mod bridge_token;
 mod state;
 #[cfg(feature = "test-runtime")]
 use anyhow::Context;

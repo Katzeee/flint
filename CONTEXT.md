@@ -27,7 +27,10 @@ The host-side connector that registers an application with the backend and carri
 _Avoid_: Host application, instance.
 
 **Host settings**:
-The backend address (IP or domain name), port, and instance name applied to a Bridge. Creation, reconfiguration, and attach share these settings; a host owns how its settings are persisted. Connection and disconnection are operations, not persisted settings.
+The backend address (IP or domain name), port, instance name, and optional Bridge token applied to a Bridge. Creation, reconfiguration, and attach share these settings; a host owns how its settings are persisted. Connection and disconnection are operations, not persisted settings.
+
+**Bridge token**:
+The per-user secret that every Bridge registration must present; the backend rejects a registration without the exact token, whatever address it comes from. It lives in the user's local data directory and is shared by every backend of that user, including isolated test runtimes. A Bridge whose host settings carry no token presents this machine's token, so only a Bridge on another machine needs it configured.
 
 **Bridge core**:
 The shared native component of a Bridge that owns its connection, registration, heartbeat, framing, and reconnection behavior. It orchestrates each execution's preparation, invocation, cancellation, and result through the host's execution capabilities; the host runtime executes the code. It holds a process-wide claim so a host process runs at most one Bridge.

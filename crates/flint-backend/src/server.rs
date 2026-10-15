@@ -127,6 +127,7 @@ impl Backend {
             .claim_backend()
             .context("cannot claim the backend runtime")?
             .ok_or(BindError::Locked)?;
+        flint_contracts::config::bridge_token::load_or_create().context("cannot prepare the Bridge token")?;
         let control = listen(config.endpoints.control).await?;
         let bridge = listen(config.endpoints.bridge).await?;
         let store = Store::open(config.state.workflows()).context("cannot open the workflow store")?;

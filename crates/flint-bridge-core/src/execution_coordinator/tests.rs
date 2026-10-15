@@ -28,6 +28,7 @@ impl Fixture {
                 address: "127.0.0.1".into(),
                 port: 1,
                 name: "test".into(),
+                token: String::new(),
             },
         });
         let mut state = BridgeState::new("instance".into(), settings.clone());
