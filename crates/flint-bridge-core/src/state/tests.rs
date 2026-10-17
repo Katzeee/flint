@@ -138,7 +138,7 @@ fn current_session_failure_keeps_execution_but_does_not_reroute_its_reports() {
     assert_eq!(output.stdout_delta, "new output");
     let result = new_received.try_recv().unwrap();
     assert_eq!(result.request_id, "new-request");
-    assert!(matches!(result.payload, Some(Payload::ExecutionResult(_))));
+    assert!(matches!(result.payload, Some(Payload::HostExecuteResponse(_))));
     assert!(matches!(
         new_received.try_recv(),
         Err(mpsc::error::TryRecvError::Disconnected)

@@ -43,7 +43,7 @@ fn loader_hands_the_request_to_the_platform_entry() {
         token: String::new(),
     };
     let root = r"C:\tools\flint-bridge";
-    let error_path = r"C:\temp\42.error";
+    let report_path = r"C:\temp\42.report";
     let plan = CpythonPlan {
         import_root: root.into(),
         module: "flint_bridge.maya".into(),
@@ -54,7 +54,7 @@ fn loader_hands_the_request_to_the_platform_entry() {
     let mut process = PythonProcess(
         Command::new("python")
             .args(["-I", "-X", "utf8", "-c", include_str!("tests/python_bootstrap.py")])
-            .arg(source(&plan, Path::new(error_path)).unwrap())
+            .arg(source(&plan, Path::new(report_path)).unwrap())
             .stdin(Stdio::null())
             .stdout(stdout.try_clone().unwrap())
             .stderr(stderr.try_clone().unwrap())
@@ -86,7 +86,7 @@ fn loader_hands_the_request_to_the_platform_entry() {
         observed,
         json!({
             "import_root": root,
-            "error_path": error_path,
+            "report_path": report_path,
             "request": {
                 "module": "flint_bridge.maya",
                 "import_root": root,

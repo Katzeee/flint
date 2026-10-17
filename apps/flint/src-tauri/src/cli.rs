@@ -22,7 +22,7 @@ enum Command {
     Stop,
     Serve,
     Gui,
-    /// List host applications: connected instances and local processes that can connect.
+    /// List host applications: connected instances and processes on the backend's machine that can connect.
     ///
     /// Process operations (attach, info, focus) take an application's pid; exec takes its instance_id.
     Apps {
@@ -74,17 +74,17 @@ fn host_kind_parser() -> impl TypedValueParser<Value = HostKind> {
 
 #[derive(Subcommand)]
 enum AppCommand {
-    /// Inspect a local host process and its window without changing window state.
+    /// Inspect a host process and its window without changing window state.
     Info {
         #[arg(long)]
         pid: u32,
         #[arg(
             long,
-            help = "Capture and include a PNG data URL; unavailable captures include a reason"
+            help = "Capture and include a base64 PNG; unavailable captures include a reason"
         )]
         preview: bool,
     },
-    /// Restore and focus a local application's window.
+    /// Restore and focus an application's window.
     Focus {
         #[arg(long)]
         pid: u32,
@@ -151,31 +151,20 @@ struct Execute {
 enum Output {
     Status(Option<application::PingResponse>),
     Stopped(application::BackendStopped),
-    Apps {
-        apps: Vec<application::App>,
-    },
+    Apps { apps: Vec<application::App> },
     App(application::App),
     Workflow(application::StartWorkflowResponse),
-    Executed {
-        workflow_id: String,
-        #[serde(flatten)]
-        result: application::ExecutionResult,
-    },
-    Execution(application::GetExecutionResponse),
+    Executed(application::ExecuteResponse),
+    Execution(application::Execution),
     Exported(application::ExportResult),
-    Token {
-        token: String,
-    },
-    Host(application::HostInfo),
-    Focused {
-        pid: u32,
-        focused: bool,
-    },
+    Token { token: String },
+    AppInfo(application::GetAppInfoResponse),
+    Focused { pid: u32, focused: bool },
 }
 impl Output {
     fn print(self, json: bool) -> Result<i32> {
         let failed = match &self {
-            Self::Executed { result, .. } => result.status() == ExecutionStatus::Failed,
+            Self::Executed(result) => result.status() == ExecutionStatus::Failed,
             Self::Execution(result) => result.status() == ExecutionStatus::Failed,
             _ => false,
         };
@@ -308,12 +297,12 @@ async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<O
         Command::Apps {
             command: Some(AppCommand::Info { pid, preview }),
             ..
-        } => Output::Host(Application::host_info(pid, preview).await?),
+        } => Output::AppInfo(running_application().await?.app_info(pid, preview).await?),
         Command::Apps {
             command: Some(AppCommand::Focus { pid }),
             ..
         } => {
-            Application::focus_application(pid).await?;
+            running_application().await?.focus_app(pid).await?;
             Output::Focused { pid, focused: true }
         }
         Command::Workflow { name, description } => Output::Workflow(
@@ -324,11 +313,7 @@ async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<O
         ),
         Command::Exec(_) => {
             let request = execute.expect("exec input is read before dispatch");
-            let workflow_id = request.workflow_id.clone();
-            Output::Executed {
-                workflow_id,
-                result: running_application().await?.execute(request).await?,
-            }
+            Output::Executed(running_application().await?.execute(request).await?)
         }
         Command::Execution {
             workflow_id,
@@ -347,7 +332,7 @@ async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<O
                     .await?,
             )
         }
-        Command::Attach(a) => Output::App(Application::load()?.attach(a.pid, a.host_kind, a.name).await?),
+        Command::Attach(a) => Output::App(running_application().await?.attach(a.pid, a.host_kind, a.name).await?),
         Command::Bridge {
             command: BridgeCommand::Export { target, output },
         } => Output::Exported(Application::export_bridge(target, output).await?),

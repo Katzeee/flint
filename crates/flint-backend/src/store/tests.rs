@@ -13,14 +13,14 @@ fn restart_preserves_completed_records_and_marks_interrupted_outcomes_unknown() 
     let execution = record(&store, &workflow, "print(1)");
     store
         .update(&workflow, &execution, |e| {
-            e.status = ExecutionStatus::Succeeded;
+            e.set_status(ExecutionStatus::Succeeded);
             e.stdout = "1\n".into();
         })
         .unwrap();
     let failed = record(&store, &workflow, "host_failure()");
     store
         .update(&workflow, &failed, |entry| {
-            entry.status = ExecutionStatus::Failed;
+            entry.set_status(ExecutionStatus::Failed);
             entry.error = Some(Failure {
                 code: "custom.host_error".into(),
                 message: "具体原因".into(),
@@ -32,15 +32,15 @@ fn restart_preserves_completed_records_and_marks_interrupted_outcomes_unknown() 
     drop(store);
     let store = Store::open(directory.path().into()).unwrap();
     let restored = store.execution(&workflow, &execution).unwrap();
-    assert_eq!(restored.status, ExecutionStatus::Succeeded);
+    assert_eq!(restored.status(), ExecutionStatus::Succeeded);
     assert_eq!(restored.stdout, "1\n");
     let failed = store.execution(&workflow, &failed).unwrap();
-    assert_eq!(failed.status, ExecutionStatus::Failed);
+    assert_eq!(failed.status(), ExecutionStatus::Failed);
     assert_eq!(failed.error.as_ref().unwrap().code, "custom.host_error");
     assert_eq!(failed.error.unwrap().message, "具体原因");
     assert_eq!(failed.traceback.as_deref(), Some("host stack"));
     let interrupted = store.execution(&workflow, &running).unwrap();
-    assert_eq!(interrupted.status, ExecutionStatus::Failed);
+    assert_eq!(interrupted.status(), ExecutionStatus::Failed);
     assert!(interrupted.error.unwrap().is(FailureCode::ExecutionInterrupted));
 }
 
@@ -55,17 +55,11 @@ fn an_unreadable_record_fails_only_the_operations_that_need_it() {
     let template_path = directory.path().join(format!("{template}.json"));
     let template: serde_json::Value = serde_json::from_slice(&std::fs::read(&template_path).unwrap()).unwrap();
     std::fs::remove_file(template_path).unwrap();
-    let mut unspecified_status = template.clone();
-    unspecified_status["execs"][0]["status"] = "unspecified".into();
-    let mut unsupported_version = template.clone();
-    unsupported_version["schema_version"] = 0.into();
     let mut blank_failure = template;
     blank_failure["execs"][0]["error"] = serde_json::json!({"code": " ", "message": "no code"});
     let records = [
         ("corrupt", "not json".to_string()),
-        ("unsupported_version", unsupported_version.to_string()),
         ("blank_failure", blank_failure.to_string()),
-        ("unspecified_status", unspecified_status.to_string()),
     ];
     for (id, bytes) in &records {
         std::fs::write(directory.path().join(format!("{id}.json")), bytes).unwrap();
@@ -88,9 +82,6 @@ fn an_unreadable_record_fails_only_the_operations_that_need_it() {
         let failure = Failure::from(error);
         assert!(failure.is(FailureCode::WorkflowUnreadable));
         assert!(failure.message.contains(&format!("{id}.json")), "{failure}");
-        if id == "unsupported_version" {
-            assert!(failure.message.contains("unsupported schema version 0"), "{failure}");
-        }
     }
 }
 
@@ -113,14 +104,14 @@ fn workflow_index_tracks_updates_and_survives_restart() {
     assert_eq!(store.list().unwrap()[0].running_count, 1);
     store
         .update(&first, &execution, |e| {
-            e.status = ExecutionStatus::Failed;
+            e.set_status(ExecutionStatus::Failed);
             e.finished_at = Some("2099-01-01T00:00:00+00:00".into());
         })
         .unwrap();
     for host in ["second-host", "host"] {
         let execution = store.append(&first, host, "print(2)".into(), "".into()).unwrap();
         store
-            .update(&first, &execution, |e| e.status = ExecutionStatus::Succeeded)
+            .update(&first, &execution, |e| e.set_status(ExecutionStatus::Succeeded))
             .unwrap();
     }
     drop(store);

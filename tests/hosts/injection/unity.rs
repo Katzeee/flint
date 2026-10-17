@@ -110,9 +110,9 @@ public static class FlintReload
             if load_count() <= before_reload {
                 return Ok(false);
             }
-            Ok(app
-                .instance("unity")?
-                .is_some_and(|instance| instance["instance_id"] == first && instance["name"] == "Reloaded Unity"))
+            Ok(app.instance("unity")?.is_some_and(|instance| {
+                instance["instance_id"] == first && instance["registration"]["name"] == "Reloaded Unity"
+            }))
         })
         .context("automatic Unity recovery after script reload")?;
         crate::hosts::unity::verify_scene_execution(&app, &first)?;

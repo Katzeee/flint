@@ -69,7 +69,7 @@ fn concurrent_cli_calls_share_one_backend() -> Result<()> {
             .as_array()
             .unwrap()
             .iter()
-            .all(|app| app["connection"] == "not_connected")
+            .all(|app| app["registration"].is_null())
     );
     Ok(())
 }

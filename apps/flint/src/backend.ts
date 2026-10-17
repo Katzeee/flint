@@ -5,9 +5,9 @@ export type {
   Failure,
   PingResponse as BackendStatus,
   Snapshot,
-  HostInfo_Serialize as HostInfo,
-  GetExecutionResponse_Serialize as Execution,
-  GetWorkflowResponse_Serialize as Workflow,
+  GetAppInfoResponse_Serialize as AppInfo,
+  Execution_Serialize as Execution,
+  Workflow_Serialize as Workflow,
   WorkflowSummary,
 } from "./generated/bindings.js";
 
@@ -57,15 +57,15 @@ export function readBridgeToken() {
   return withFailure(commands.bridgeToken());
 }
 
-export function readHostInfo(pid: number, preview = false) {
-  return withFailure(commands.hostInfo(pid, preview));
+export function readAppInfo(pid: number, preview = false) {
+  return withFailure(commands.appInfo(pid, preview));
 }
 
-export function focusApplication(pid: number) {
-  return withFailure(commands.focusApplication(pid));
+export function focusApp(pid: number) {
+  return withFailure(commands.focusApp(pid));
 }
 
-export function attachHost(pid: number) {
+export function attachApp(pid: number) {
   return withFailure(commands.attach(pid));
 }
 

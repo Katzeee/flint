@@ -244,7 +244,7 @@ impl App {
             .as_array()
             .unwrap()
             .iter()
-            .filter(|app| app["connection"] != "not_connected")
+            .filter(|app| !app["registration"].is_null())
             .cloned()
             .collect())
     }
@@ -252,7 +252,7 @@ impl App {
         Ok(self
             .connected(host)?
             .into_iter()
-            .find(|app| app["connection"] == "ready"))
+            .find(|app| app["registration"]["execution_ready"] == true))
     }
     pub fn await_instance(&self, host: &str, expected: Option<&str>) -> Result<Value> {
         let mut instance = None;

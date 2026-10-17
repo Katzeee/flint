@@ -5,8 +5,9 @@ import "flint_protocol/v1/common.proto";
 // Opens the registration/heartbeat connection; execution uses a separate connection.
 message RegisterInstance {
   uint32 pid = 1;
-  string instance_name = 2;
-  string instance_type = 3;
+  string name = 2;
+  // A host kind, or an identifier outside the built-in set.
+  string host = 3;
   // Host-generated 16-character Base64URL identity of one process lifetime.
   // Stable across Bridge recreation, reconnects, and backend changes.
   string instance_id = 4;
@@ -21,18 +22,19 @@ message Heartbeat {}
 message SessionRegistered { string session_id = 1; }
 // Confirms execution-channel registration or a heartbeat.
 message Ack {}
+
+// Output updates and the response echo the request's request_id, which identifies the execution.
 message HostExecuteRequest {
-  string execution_id = 1;
-  string code = 2;
-  string workflow_id = 3;
-  optional string execution_name = 4;
-  optional string filename = 5;
+  string code = 1;
+  optional string filename = 2;
 }
 message ExecutionOutputUpdate {
-  string execution_id = 1;
-  string workflow_id = 2;
-  // Starts at 1 per execution. Repeated sequences are ignored; a gap closes the connection.
-  uint64 sequence = 3;
-  string stdout_delta = 4;
-  string stderr_delta = 5;
+  string stdout_delta = 1;
+  string stderr_delta = 2;
+}
+// The status is SUCCEEDED or FAILED.
+message HostExecuteResponse {
+  ExecutionStatus status = 1;
+  optional string traceback = 2;
+  Failure error = 3;
 }

@@ -90,7 +90,7 @@ fn exported_package_registers_and_executes() -> Result<()> {
     assert_eq!(attached["instance_id"], instance["instance_id"]);
     assert_eq!(instance["pid"], host.0.id());
     assert!(
-        instance["executable"].is_string(),
+        instance["candidate"]["executable"].is_string(),
         "discovery did not recognize the connected Editor: {instance}"
     );
     crate::hosts::unity::verify_scene_execution(&app, id)?;

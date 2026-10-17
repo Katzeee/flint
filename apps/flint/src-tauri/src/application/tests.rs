@@ -39,7 +39,7 @@ async fn execution_wait_outlives_control_deadline() -> Result<()> {
         released.await?;
         wire.send(envelope(
             request.request_id,
-            Payload::ExecutionResult(ExecutionResult {
+            Payload::ExecuteResponse(ExecuteResponse {
                 execution_id: "0001".into(),
                 status: ExecutionStatus::Succeeded as i32,
                 ..Default::default()
@@ -67,31 +67,14 @@ async fn execution_wait_outlives_control_deadline() -> Result<()> {
 }
 
 #[test]
-fn offline_queries_and_unsupported_attach_do_not_start_backend() -> Result<()> {
+fn offline_queries_do_not_start_backend() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let api = application(directory.path())?;
     tokio::runtime::Runtime::new()?.block_on(async {
         let snapshot = api.snapshot().await?;
         assert!(snapshot.backend.is_none());
-        assert!(
-            snapshot
-                .apps
-                .iter()
-                .all(|app| app.connection == Connection::NotConnected)
-        );
-        assert!(
-            api.instances(None)
-                .await
-                .unwrap_err()
-                .is(FailureCode::BackendUnavailable)
-        );
-        assert_eq!(
-            api.attach(1, Some(HostKind::StandaloneCsharp), None)
-                .await
-                .unwrap_err()
-                .code,
-            "invalid_arguments"
-        );
+        assert!(snapshot.apps.is_empty());
+        assert!(api.apps(None).await.unwrap_err().is(FailureCode::BackendUnavailable));
         Ok::<_, anyhow::Error>(())
     })?;
     assert!(!directory.path().join("runtime").exists());
@@ -125,7 +108,7 @@ fn snapshot_preserves_query_errors_when_backend_disappears() -> Result<()> {
                 .await?;
                 let mut query = framed(listener.accept().await?.0);
                 let request = read_envelope(&mut query).await?;
-                assert!(matches!(request.payload, Some(Payload::ListInstancesRequest(_))));
+                assert!(matches!(request.payload, Some(Payload::ListAppsRequest(_))));
                 // The backend is gone before the query's outcome reaches the client.
                 drop(listener);
                 if let Some(reply) = reply {
@@ -141,12 +124,7 @@ fn snapshot_preserves_query_errors_when_backend_disappears() -> Result<()> {
             match (expected, snapshot) {
                 (None, Ok(snapshot)) => {
                     assert!(snapshot.backend.is_none());
-                    assert!(
-                        snapshot
-                            .apps
-                            .iter()
-                            .all(|app| app.connection == Connection::NotConnected)
-                    );
+                    assert!(snapshot.apps.is_empty());
                 }
                 (Some(code), Err(failure)) => assert_eq!(failure.code, code),
                 _ => panic!("snapshot must recover only a lost backend connection"),
@@ -157,53 +135,6 @@ fn snapshot_preserves_query_errors_when_backend_disappears() -> Result<()> {
 }
 
 #[test]
-fn apps_join_by_instance_identity_rather_than_pid() {
-    let instance = |id: &str, pid| InstanceInfo {
-        instance_id: id.into(),
-        instance_type: "maya".into(),
-        pid,
-        execution_ready: true,
-        ..Default::default()
-    };
-    let candidate = |id: &str, pid| {
-        (
-            id.into(),
-            HostCandidate {
-                pid,
-                host: HostKind::Maya,
-                executable: format!("maya-{pid}.exe"),
-            },
-        )
-    };
-    // A remote instance can share a PID with an unrelated local process.
-    let apps = apps::join(
-        vec![instance("connected", 10), instance("remote", 20)],
-        vec![candidate("local", 20), candidate("connected", 10)],
-        |_| false,
-    );
-    let summary: Vec<_> = apps
-        .iter()
-        .map(|app| {
-            (
-                app.instance_id.as_str(),
-                app.pid,
-                app.local,
-                app.connection,
-                app.executable.as_deref(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        summary,
-        [
-            ("connected", 10, true, Connection::Ready, Some("maya-10.exe")),
-            ("remote", 20, false, Connection::Ready, None),
-            ("local", 20, true, Connection::NotConnected, Some("maya-20.exe")),
-        ]
-    );
-}
-
-#[test]
 fn workflow_queries_return_records_and_respect_execution_view() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let store = Store::open(directory.path().join("workflows"))?;
@@ -211,7 +142,7 @@ fn workflow_queries_return_records_and_respect_execution_view() -> Result<()> {
     let code = "print('details')";
     let execution = store.append(&workflow, "query-host", code.into(), "capture".into())?;
     store.update(&workflow, &execution, |entry| {
-        entry.status = ExecutionStatus::Succeeded;
+        entry.set_status(ExecutionStatus::Succeeded);
     })?;
     drop(store);
     let api = application(directory.path())?;

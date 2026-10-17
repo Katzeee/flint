@@ -199,7 +199,6 @@ namespace Flint.Bridge
                 if (result == 1) throw new BridgeBusyException();
                 if (result == 2) throw new ArgumentException("Invalid Bridge connection settings", nameof(settingsJson));
                 if (result == 3) throw new BridgeStoppedException();
-                if (result != 0) throw new InvalidOperationException("Unknown Bridge settings result");
             }
             finally { Marshal.FreeHGlobal(settings); }
         }

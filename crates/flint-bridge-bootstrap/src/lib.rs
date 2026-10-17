@@ -3,17 +3,20 @@
 #![cfg(windows)]
 mod os;
 mod runtimes;
-use flint_contracts::attach::{BootstrapRequest, RuntimePlan};
+use flint_contracts::attach::{BootstrapRequest, RuntimePlan, write_report};
 
 fn run(request: BootstrapRequest) -> u32 {
     let result = match &request.plan {
-        RuntimePlan::Cpython(plan) => runtimes::cpython::attach(plan, &request.error_path),
-        RuntimePlan::Mono(plan) => runtimes::mono::attach(plan),
+        // The Python entry returns once started and reports the outcome itself.
+        RuntimePlan::Cpython(plan) => runtimes::cpython::attach(plan, &request.report_path),
+        RuntimePlan::Mono(plan) => runtimes::mono::attach(plan).map(|()| {
+            let _ = write_report(&request.report_path, Ok(()));
+        }),
     };
     match result {
         Ok(()) => 0,
         Err(error) => {
-            let _ = std::fs::write(&request.error_path, format!("{error:#}"));
+            let _ = write_report(&request.report_path, Err(&format!("{error:#}")));
             1
         }
     }

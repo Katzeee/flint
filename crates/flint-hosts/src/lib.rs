@@ -1,6 +1,5 @@
 mod host;
 pub use host::HostKind;
-use serde::Serialize;
 use strum::IntoEnumIterator;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
@@ -9,11 +8,11 @@ mod bridge;
 mod layout;
 mod platform;
 mod window;
-pub use attach::{Unsupported, attach_error, attach_supported, attachment};
+pub use attach::{Unsupported, attach_outcome, attachment};
 pub use bridge::Attach;
 pub use bridge::{ExportTarget, export};
 pub use platform::Platform;
-pub use window::{HostInfo, WindowInfo, WindowPreview, focus_application, host_info};
+pub use window::{CandidateInfo, WindowInfo, WindowPreview, allow_focus, candidate_info, focus_application};
 
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
@@ -23,8 +22,6 @@ pub enum HostError {
     Platform(#[from] anyhow::Error),
 }
 
-#[derive(Serialize)]
-#[cfg_attr(feature = "typescript", derive(specta::Type))]
 pub struct HostCandidate {
     pub pid: u32,
     pub host: HostKind,

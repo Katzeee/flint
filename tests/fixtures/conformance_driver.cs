@@ -88,7 +88,7 @@ internal static class Program
     private static JsonNode Take()
     {
         if (!requests.TryTake(out var request, 10000)) throw new TimeoutException("No execution entered the host");
-        return new JsonObject { ["request_id"] = request.RequestId };
+        return new JsonObject { ["code"] = request.Code };
     }
 
     private static JsonNode Close()

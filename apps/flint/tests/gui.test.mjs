@@ -81,13 +81,10 @@ test("desktop navigation preserves connection identity and asynchronous selectio
       window.__mayaApp = {
         instance_id: "maya-1",
         host: "maya",
-        name: null,
         pid: 4520,
         local: true,
-        connection: "not_connected",
-        executable: "C:/Maya/maya.exe",
-        runtime_version: null,
-        bridge_version: null,
+        registration: null,
+        candidate: { executable: "C:/Maya/maya.exe", attachable: true },
       };
       window.__mockSnapshot = {
         backend: {
@@ -148,7 +145,7 @@ test("desktop navigation preserves connection identity and asynchronous selectio
             });
           return record(args.id, args.id === "first" ? "Asset check" : "Material check");
         }
-        if (command === "host_info") {
+        if (command === "app_info") {
           if (args.preview !== true) throw new Error("Application cards must request previews explicitly");
           window.__captures = (window.__captures ?? 0) + 1;
           window.__peakCaptures = Math.max(window.__peakCaptures ?? 0, window.__captures);
@@ -160,37 +157,35 @@ test("desktop navigation preserves connection identity and asynchronous selectio
           window.__captures -= 1;
           if (args.pid === 4522)
             return {
-              pid: args.pid,
-              host: "maya",
-              executable: "C:/Maya/maya.exe",
+              app: { ...window.__mayaApp, pid: args.pid },
               window: { title: "Scene maya-3", minimized: true },
               preview: { unavailable_reason: "Window is minimized" },
             };
+          const canvas = document.createElement("canvas");
+          canvas.width = 640;
+          canvas.height = 400;
+          const context = canvas.getContext("2d");
+          context.fillStyle = "#78988b";
+          context.fillRect(0, 0, canvas.width, canvas.height);
           return {
-            pid: args.pid,
-            host: "maya",
-            executable: "C:/Maya/maya.exe",
+            app: { ...window.__mayaApp, pid: args.pid },
             window: {
               minimized: false,
               title: args.pid === 4520 ? "Character_Rig.ma" : `Scene maya-${args.pid - 4519}`,
             },
-            preview: {
-              image:
-                "data:image/svg+xml," +
-                encodeURIComponent(
-                  '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#344842"/><rect x="16" y="40" width="150" height="344" fill="#263630"/><rect x="182" y="40" width="442" height="344" fill="#78988b"/><text x="208" y="214" font-size="24" fill="white">Character_Rig.ma</text></svg>',
-                ),
-            },
+            preview: { png: canvas.toDataURL("image/png").split(",")[1] },
           };
         }
-        if (command === "focus_application") return;
+        if (command === "focus_app") return;
         if (command === "attach") {
           const attached = {
             ...window.__mayaApp,
-            name: "Maya session",
-            connection: "ready",
-            runtime_version: "Python 3.11",
-            bridge_version: "0.1.0",
+            registration: {
+              name: "Maya session",
+              runtime_version: "Python 3.11",
+              bridge_version: "0.1.0",
+              execution_ready: true,
+            },
           };
           window.__mockSnapshot.apps = [attached];
           return attached;
@@ -200,7 +195,6 @@ test("desktop navigation preserves connection identity and asynchronous selectio
             version: "0.1.0",
             state_dir: "C:/FlintData",
             control_endpoint: "127.0.0.1:6322",
-            attach_supported: true,
           };
         if (command === "start_backend") return window.__mockSnapshot.backend;
         throw new Error(`Unexpected command: ${command}`);
@@ -250,7 +244,7 @@ test("desktop navigation preserves connection identity and asynchronous selectio
     });
     assert.ok(
       await page.evaluate(() =>
-        window.__invokeCalls.some((call) => call.command === "focus_application" && call.args.pid === 4520),
+        window.__invokeCalls.some((call) => call.command === "focus_app" && call.args.pid === 4520),
       ),
     );
     await page.getByRole("button", { name: "Back to applications" }).click();
@@ -277,7 +271,13 @@ test("desktop navigation preserves connection identity and asynchronous selectio
       window.__mockSnapshot.apps.push(
         { ...app, instance_id: "custom-2", host: "custom-editor", pid: 4521 },
         { ...app, instance_id: "maya-3", pid: 4522 },
-        { ...app, instance_id: "remote-1", name: "Remote Maya", local: false, executable: null },
+        {
+          ...app,
+          instance_id: "remote-1",
+          local: false,
+          registration: { ...app.registration, name: "Remote Maya" },
+          candidate: null,
+        },
       );
     });
     await page.getByRole("button", { name: "Back to applications" }).click();
@@ -349,7 +349,6 @@ test("backend controls recover from refusal and preserve pending work across nav
             version: "0.1.0",
             state_dir: "C:/FlintData",
             control_endpoint: "127.0.0.1:6322",
-            attach_supported: true,
           };
         if (command === "stop_backend") {
           if (!window.__allowStop) throw { code: "backend_busy", message: "executions are still active" };

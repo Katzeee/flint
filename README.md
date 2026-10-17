@@ -30,7 +30,7 @@ Load the appropriate Bridge in the application you want to control. Follow the [
 flint apps --json
 ```
 
-apps lists host applications in one place: instances connected to the backend and supported processes discovered on this machine. Each entry's `connection` is `ready` when it can run code, `connecting` while its execution channel is not yet established, or `not_connected` for a discovered process without a Bridge. Discovery alone does not establish a connection. Process operations such as attach take an entry's `pid`; submitting code takes its `instance_id`.
+apps lists host applications in one place: instances connected to the backend and supported processes discovered on this machine. An entry has a `registration` while its Bridge is connected, whose `execution_ready` is true once it can run code, and a `candidate` when discovery recognizes its process on this machine, whose `attachable` says whether attach can inject a Bridge. Discovery alone does not establish a connection. Process operations such as attach take an entry's `pid`; submitting code takes its `instance_id`.
 
 Alternatively, on Windows, attach injects the Bridge into a running host so it connects without loading any flint code yourself:
 
@@ -50,7 +50,7 @@ flint bridge token --json
 
 In the remote application's Bridge connection settings, enter one of those addresses, the port, and the token. Remote applications appear in apps with their instance name, host kind, and PID; previews, focus, and attach act only on this machine's processes.
 
-The desktop's application discovery, inspection, and window switching use the same local services as the CLI. Use `flint apps info --help` and `flint apps focus --help` to inspect or focus a local application by PID. Information queries return process identity and window metadata without capturing an image. Request a preview explicitly when visual context is needed; image capture failure leaves the process information available and includes the reason. Minimized and headless processes remain discoverable. Inspection does not restore windows; window switching is an explicit action. Unity asset import workers are internal editor processes and are excluded from discovery.
+The desktop and the CLI share the backend's application discovery, inspection, and window switching. Use `flint apps info --help` and `flint apps focus --help` to inspect or focus a local application by PID. Information queries return process identity and window metadata without capturing an image. Request a preview explicitly when visual context is needed; image capture failure leaves the process information available and includes the reason. Minimized and headless processes remain discoverable. Inspection does not restore windows; window switching is an explicit action. Unity asset import workers are internal editor processes and are excluded from discovery.
 
 ## Execute and inspect
 

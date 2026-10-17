@@ -1,7 +1,6 @@
 use anyhow::Context;
 use chrono::Utc;
-use flint_contracts::protocol::{ExecutionStatus, Failure, FailureCode, WorkflowSummary};
-use serde::{Deserialize, Serialize};
+use flint_contracts::protocol::{Execution, ExecutionStatus, Failure, FailureCode, Workflow, WorkflowSummary};
 use std::{
     fs, io,
     io::Write,
@@ -9,8 +8,6 @@ use std::{
     sync::Mutex,
 };
 use uuid::Uuid;
-
-pub const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -49,55 +46,9 @@ pub fn now() -> String {
     Utc::now().to_rfc3339()
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Execution {
-    pub execution_id: String,
-    pub name: String,
-    pub workflow_id: String,
-    pub instance_id: String,
-    pub code: String,
-    pub status: ExecutionStatus,
-    pub stdout: String,
-    pub stderr: String,
-    pub started_at: String,
-    pub finished_at: Option<String>,
-    pub traceback: Option<String>,
-    pub error: Option<Failure>,
-    pub updated_at: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Workflow {
-    pub workflow_id: String,
-    pub name: String,
-    pub description: String,
-    pub created_at: String,
-    pub schema_version: u32,
-    pub latest_execution_id: u64,
-    pub execs: Vec<Execution>,
-}
-
-/// Reads the version alone first, so an older record reports its version rather than a shape mismatch.
 fn decode(path: &Path, bytes: io::Result<Vec<u8>>) -> Result<Workflow> {
-    #[derive(Deserialize)]
-    struct Header {
-        schema_version: u32,
-    }
     let decode = || -> anyhow::Result<Workflow> {
-        let bytes = bytes?;
-        let Header { schema_version } = serde_json::from_slice(&bytes)?;
-        anyhow::ensure!(
-            schema_version == SCHEMA_VERSION,
-            "unsupported schema version {schema_version}"
-        );
-        let workflow: Workflow = serde_json::from_slice(&bytes)?;
-        anyhow::ensure!(
-            workflow
-                .execs
-                .iter()
-                .all(|entry| entry.status != ExecutionStatus::Unspecified),
-            "a recorded execution has no status"
-        );
+        let workflow: Workflow = serde_json::from_slice(&bytes?)?;
         anyhow::ensure!(
             workflow
                 .execs
@@ -141,8 +92,8 @@ impl Store {
             };
             let mut changed = false;
             for entry in &mut workflow.execs {
-                if matches!(entry.status, ExecutionStatus::Pending | ExecutionStatus::Running) {
-                    entry.status = ExecutionStatus::Failed;
+                if entry.status() == ExecutionStatus::Running {
+                    entry.set_status(ExecutionStatus::Failed);
                     entry.error = Some(Failure::new(FailureCode::ExecutionInterrupted));
                     entry.finished_at = Some(now());
                     entry.updated_at = entry.finished_at.clone();
@@ -216,23 +167,16 @@ impl Store {
                     instance_ids.push(execution.instance_id.clone());
                 }
             }
+            let count = |status| workflow.execs.iter().filter(|e| e.status() == status).count() as u64;
             summaries.push(WorkflowSummary {
+                running_count: count(ExecutionStatus::Running),
+                failed_count: count(ExecutionStatus::Failed),
                 workflow_id: workflow.workflow_id,
                 name: workflow.name,
                 description: workflow.description,
                 updated_at,
                 execution_count: workflow.execs.len() as u64,
                 instance_ids,
-                running_count: workflow
-                    .execs
-                    .iter()
-                    .filter(|e| matches!(e.status, ExecutionStatus::Pending | ExecutionStatus::Running))
-                    .count() as u64,
-                failed_count: workflow
-                    .execs
-                    .iter()
-                    .filter(|e| e.status == ExecutionStatus::Failed)
-                    .count() as u64,
             });
         }
         summaries.sort_by(|a, b| {
@@ -252,8 +196,6 @@ impl Store {
                 name,
                 description,
                 created_at: now(),
-                schema_version: SCHEMA_VERSION,
-                latest_execution_id: 0,
                 execs: vec![],
             },
         )?;
@@ -262,22 +204,14 @@ impl Store {
     pub fn append(&self, workflow_id: &str, instance_id: &str, code: String, name: String) -> Result<String> {
         let _guard = self.gate.lock().unwrap();
         let mut workflow = self.load(workflow_id)?;
-        workflow.latest_execution_id += 1;
-        let id = format!("{:04}", workflow.latest_execution_id);
+        let id = format!("{:04}", workflow.execs.len() + 1);
         workflow.execs.push(Execution {
             execution_id: id.clone(),
-            workflow_id: workflow_id.into(),
             instance_id: instance_id.into(),
             name,
-            code,
-            status: ExecutionStatus::Running,
-            stdout: String::new(),
-            stderr: String::new(),
+            code: Some(code),
             started_at: now(),
-            finished_at: None,
-            traceback: None,
-            error: None,
-            updated_at: None,
+            ..Default::default()
         });
         self.write(&self.path(workflow_id)?, &workflow)?;
         Ok(id)

@@ -4,7 +4,9 @@ use crate::{
     ffi::{flint_step_fail, flint_step_run, flint_step_succeed},
     settings::{HostSettings, SettingsSnapshot},
 };
-use flint_contracts::protocol::{Envelope, ExecutionResult, ExecutionStatus, HostExecuteRequest, envelope::Payload};
+use flint_contracts::protocol::{
+    Envelope, ExecutionStatus, HostExecuteRequest, HostExecuteResponse, envelope::Payload,
+};
 use std::{ptr, sync::atomic::Ordering, time::Duration};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -95,10 +97,10 @@ impl Fixture {
         messages
     }
 
-    fn result(&mut self) -> ExecutionResult {
+    fn result(&mut self) -> HostExecuteResponse {
         let deadline = std::time::Instant::now() + WAIT;
         loop {
-            if let Some(Payload::ExecutionResult(result)) = self.messages().pop() {
+            if let Some(Payload::HostExecuteResponse(result)) = self.messages().pop() {
                 return result;
             }
             assert!(std::time::Instant::now() < deadline, "no result was reported");
@@ -115,7 +117,7 @@ impl Drop for Fixture {
     }
 }
 
-fn failed(result: &ExecutionResult, error: &str) {
+fn failed(result: &HostExecuteResponse, error: &str) {
     assert_eq!(result.status, ExecutionStatus::Failed as i32);
     assert_eq!(result.error.as_ref().map(|failure| failure.code.as_str()), Some(error));
 }
@@ -153,7 +155,11 @@ fn preparation_completion_runs_the_value_and_reports_ordered_output() {
         );
         assert_eq!(f.fake.take_request().unwrap()["code"], "code", "{case}");
         let messages: [Payload; 2] = f.messages().try_into().expect(case);
-        let [Payload::ExecutionOutputUpdate(output), Payload::ExecutionResult(result)] = messages else {
+        let [
+            Payload::ExecutionOutputUpdate(output),
+            Payload::HostExecuteResponse(result),
+        ] = messages
+        else {
             panic!("{case}: expected output before the result");
         };
         assert_eq!(output.stdout_delta, stdout, "{case}");
@@ -343,7 +349,11 @@ fn a_completed_preparation_step_cannot_affect_the_running_execution() {
     flint_step_succeed(running, 0);
     assert!(!f.busy());
     let messages: [Payload; 2] = f.messages().try_into().expect("output and one result");
-    let [Payload::ExecutionOutputUpdate(output), Payload::ExecutionResult(result)] = messages else {
+    let [
+        Payload::ExecutionOutputUpdate(output),
+        Payload::HostExecuteResponse(result),
+    ] = messages
+    else {
         panic!("expected output before the result");
     };
     assert_eq!(output.stdout_delta, "ran\ncurrent output");
@@ -361,16 +371,14 @@ fn output_is_bounded_ordered_and_flushed_before_the_result() {
     let step = f.fake.held().unwrap();
     assert!(write(step, &text, "错误"));
     flint_step_succeed(f.fake.take_held().unwrap(), 0);
-    let (mut stdout, mut stderr, mut sequence) = (String::new(), String::new(), 0);
+    let (mut stdout, mut stderr) = (String::new(), String::new());
     let messages = f.messages();
     let (result, updates) = messages.split_last().unwrap();
-    assert!(matches!(result, Payload::ExecutionResult(_)));
+    assert!(matches!(result, Payload::HostExecuteResponse(_)));
     for update in updates {
         let Payload::ExecutionOutputUpdate(output) = update else {
             panic!("unexpected message");
         };
-        sequence += 1;
-        assert_eq!(output.sequence, sequence);
         assert!(output.stdout_delta.len() + output.stderr_delta.len() <= 64 * 1024);
         stdout.push_str(&output.stdout_delta);
         stderr.push_str(&output.stderr_delta);

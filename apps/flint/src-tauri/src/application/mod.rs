@@ -1,28 +1,25 @@
 //! The product API shared by application frontends.
 //!
-//! Local host operations are associated functions that need neither a backend nor
-//! its configuration. Backend queries use the control protocol and never start a
-//! process implicitly. `start_backend` and `attach` establish a running backend
-//! when their operation requires one.
+//! Operations on a machine's host applications and workflows are backend requests
+//! over the control protocol and never start a process implicitly; `start_backend`
+//! establishes one. Bridge exports write to the caller's file system.
 
 mod apps;
-mod attach;
+mod bridge;
 mod control;
-mod hosts;
 mod workflows;
 
 use serde::Serialize;
 use std::path::PathBuf;
 
-pub use apps::{App, Connection};
+pub use bridge::ExportResult;
 pub use control::{BackendStopped, Snapshot};
 use flint_contracts::config::Config;
 pub use flint_contracts::protocol::{
-    ExecuteRequest, ExecutionResult, ExecutionStatus, ExecutionView, Failure, FailureCode, GetExecutionResponse,
-    GetWorkflowResponse, InstanceInfo, PingResponse, StartWorkflowRequest, StartWorkflowResponse, WorkflowSummary,
+    App, ExecuteRequest, ExecuteResponse, Execution, ExecutionStatus, ExecutionView, Failure, FailureCode,
+    GetAppInfoResponse, PingResponse, StartWorkflowRequest, StartWorkflowResponse, Workflow, WorkflowSummary,
 };
-pub use flint_hosts::{ExportTarget, HostCandidate, HostKind};
-pub use hosts::{ExportResult, HostInfo, Preview};
+pub use flint_hosts::{ExportTarget, HostKind};
 pub type Result<T> = std::result::Result<T, Failure>;
 
 #[derive(Serialize, specta::Type)]
@@ -30,7 +27,6 @@ pub struct ApplicationInfo {
     pub version: &'static str,
     pub control_endpoint: String,
     pub state_dir: PathBuf,
-    pub attach_supported: bool,
 }
 
 pub struct Application {
@@ -51,15 +47,8 @@ impl Application {
             version: env!("CARGO_PKG_VERSION"),
             control_endpoint: config.endpoints.control.to_string(),
             state_dir: config.state.root().to_path_buf(),
-            attach_supported: flint_hosts::attach_supported(),
         }
     }
-}
-
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|error| Failure::caused_by(FailureCode::InternalError, &error))?
 }
 
 #[cfg(test)]

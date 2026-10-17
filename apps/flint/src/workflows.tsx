@@ -52,7 +52,7 @@ function statusLabel(status: string) {
 }
 
 function appName(apps: readonly App[], id: string) {
-  return apps.find((item) => item.instance_id === id)?.name ?? id;
+  return apps.find((item) => item.instance_id === id)?.registration?.name ?? id;
 }
 
 function executionName(execution: Execution) {
@@ -127,9 +127,7 @@ function ExecutionPage({
           {execution.stdout ? <OutputBlock title="Output">{execution.stdout}</OutputBlock> : null}
           {errors ? <OutputBlock title="Error output">{errors}</OutputBlock> : null}
           {silent ? (
-            <Text tone="muted">
-              {status === "running" || status === "pending" ? "Waiting for output…" : "No output recorded."}
-            </Text>
+            <Text tone="muted">{status === "running" ? "Waiting for output…" : "No output recorded."}</Text>
           ) : null}
           {execution.code != null ? <OutputBlock title="Code">{execution.code}</OutputBlock> : null}
         </Flex>

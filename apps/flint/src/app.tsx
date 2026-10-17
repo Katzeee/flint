@@ -92,7 +92,7 @@ export function App() {
   const connecting = !ready && (backendBusy !== null || (snapshot.loading && !snapshot.data));
   const stoppedMessage = backendError ? `Backend operation failed: ${backendError}` : "The backend is stopped.";
   const apps = snapshot.data?.apps ?? [];
-  const connectedCount = apps.filter((app) => app.connection !== "not_connected").length;
+  const connectedCount = apps.filter((app) => app.registration).length;
   const showAttached = (attached: Application) =>
     snapshot.mutate((current) => ({
       backend: current?.backend ?? null,

@@ -68,7 +68,7 @@ def bound():
 
 
 def request(code="code"):
-    return json.dumps({"request_id": "r", "code": code}).encode()
+    return json.dumps({"code": code, "filename": None}).encode()
 
 
 def test_synchronous_steps_pass_the_prepared_result_to_run_and_stream_output(bound):

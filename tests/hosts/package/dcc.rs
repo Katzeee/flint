@@ -173,7 +173,7 @@ pub(super) fn verify_host(kind: &str, variable: &str, expected_executable: &str,
     let id = instance["instance_id"].as_str().unwrap();
     assert_eq!(instance["pid"], host.0.id());
     assert!(
-        instance["executable"].is_string(),
+        instance["candidate"]["executable"].is_string(),
         "discovery did not recognize the connected process: {instance}"
     );
     evidence.checkpoint("native_startup_and_registration")?;

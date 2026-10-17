@@ -10,31 +10,40 @@ message Envelope {
   uint32 protocol_version = 1;
   string request_id = 2;
   oneof payload {
-    PingRequest ping_request = 3;
-    PingResponse ping_response = 4;
-    StopBackendRequest stop_backend_request = 5;
-    StopBackendResponse stop_backend_response = 6;
-    ListInstancesRequest list_instances_request = 7;
-    ListInstancesResponse list_instances_response = 8;
-    StartWorkflowRequest start_workflow_request = 9;
-    StartWorkflowResponse start_workflow_response = 10;
-    ExecuteRequest execute_request = 11;
-    GetExecutionRequest get_execution_request = 12;
-    GetExecutionResponse get_execution_response = 13;
-    Failure failure = 14;
-    ListWorkflowsRequest list_workflows_request = 15;
-    ListWorkflowsResponse list_workflows_response = 16;
-    GetWorkflowRequest get_workflow_request = 17;
-    GetWorkflowResponse get_workflow_response = 18;
-    RegisterInstance register_instance = 19;
-    RegisterExecutionChannel register_execution_channel = 20;
-    Heartbeat heartbeat = 21;
-    SessionRegistered session_registered = 22;
-    Ack ack = 23;
-    HostExecuteRequest host_execute_request = 24;
-    ExecutionOutputUpdate execution_output_update = 25;
-    ExecutionResult execution_result = 26;
-    GetBridgeTokenRequest get_bridge_token_request = 27;
-    GetBridgeTokenResponse get_bridge_token_response = 28;
+    Failure failure = 3;
+
+    PingRequest ping_request = 4;
+    PingResponse ping_response = 5;
+    StopBackendRequest stop_backend_request = 6;
+    StopBackendResponse stop_backend_response = 7;
+    GetBridgeTokenRequest get_bridge_token_request = 8;
+    GetBridgeTokenResponse get_bridge_token_response = 9;
+    ListAppsRequest list_apps_request = 10;
+    ListAppsResponse list_apps_response = 11;
+    GetAppInfoRequest get_app_info_request = 12;
+    GetAppInfoResponse get_app_info_response = 13;
+    FocusAppRequest focus_app_request = 14;
+    FocusAppResponse focus_app_response = 15;
+    AttachRequest attach_request = 16;
+    AttachResponse attach_response = 17;
+    StartWorkflowRequest start_workflow_request = 18;
+    StartWorkflowResponse start_workflow_response = 19;
+    ListWorkflowsRequest list_workflows_request = 20;
+    ListWorkflowsResponse list_workflows_response = 21;
+    GetWorkflowRequest get_workflow_request = 22;
+    GetWorkflowResponse get_workflow_response = 23;
+    ExecuteRequest execute_request = 24;
+    ExecuteResponse execute_response = 25;
+    GetExecutionRequest get_execution_request = 26;
+    GetExecutionResponse get_execution_response = 27;
+
+    RegisterInstance register_instance = 28;
+    RegisterExecutionChannel register_execution_channel = 29;
+    Heartbeat heartbeat = 30;
+    SessionRegistered session_registered = 31;
+    Ack ack = 32;
+    HostExecuteRequest host_execute_request = 33;
+    ExecutionOutputUpdate execution_output_update = 34;
+    HostExecuteResponse host_execute_response = 35;
   }
 }

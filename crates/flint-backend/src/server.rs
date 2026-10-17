@@ -1,4 +1,4 @@
-use crate::store::{Store, now};
+use crate::store::Store;
 use anyhow::{Context, Result};
 use flint_contracts::config::Config;
 use flint_contracts::lock::FileLock;
@@ -18,11 +18,13 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+mod apps;
 mod bridge;
 mod control;
+mod executions;
 mod state;
 
-use state::{Job, State};
+use state::State;
 
 const FIRST_MESSAGE_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -65,24 +67,6 @@ struct Shared {
 #[derive(Clone)]
 pub struct BackendHandle(Arc<Shared>);
 impl BackendHandle {
-    pub(crate) fn instances(&self) -> Vec<InstanceInfo> {
-        let state = self.0.state.lock().unwrap();
-        let mut result: Vec<_> = state
-            .sessions
-            .values()
-            .map(|s| InstanceInfo {
-                instance_id: s.registration.instance_id.clone(),
-                instance_name: s.registration.instance_name.clone(),
-                instance_type: s.registration.instance_type.clone(),
-                pid: s.registration.pid,
-                runtime_version: s.registration.runtime_version.clone(),
-                bridge_version: s.registration.bridge_version.clone(),
-                execution_ready: s.sender.is_some(),
-            })
-            .collect();
-        result.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
-        result
-    }
     pub(crate) fn status(&self) -> PingResponse {
         PingResponse {
             ready: !self.0.state.lock().unwrap().stopping,
@@ -202,38 +186,7 @@ impl Backend {
     }
 }
 
-fn finish_job(backend: &BackendHandle, job: Job, result: ExecutionResult) {
-    let persisted = backend.0.store.update(&job.workflow, &job.execution, |entry| {
-        entry.status = result.status();
-        entry.finished_at = Some(now());
-        entry.traceback = result.traceback.clone();
-        entry.error = result.error.clone();
-    });
-    let result = match persisted {
-        Ok(()) => result,
-        Err(error) => ExecutionResult {
-            execution_id: job.execution.clone(),
-            status: ExecutionStatus::Failed as i32,
-            traceback: None,
-            error: Some(Failure::caused_by(FailureCode::ResultPersistenceFailed, &error)),
-        },
-    };
-    let _ = job.result.send(result);
-}
-
-fn fail_disconnected(backend: &BackendHandle, jobs: Vec<Job>) {
-    for job in jobs {
-        let result = ExecutionResult {
-            execution_id: job.execution.clone(),
-            status: ExecutionStatus::Failed as i32,
-            traceback: None,
-            error: Some(Failure::new(FailureCode::ExecutionDisconnected)),
-        };
-        finish_job(backend, job, result);
-    }
-}
-
 fn disconnect(backend: &BackendHandle, session_id: &str) {
     let jobs = backend.0.state.lock().unwrap().remove_session(session_id);
-    fail_disconnected(backend, jobs);
+    executions::fail_disconnected(backend, jobs);
 }

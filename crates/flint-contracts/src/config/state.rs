@@ -25,8 +25,8 @@ impl StateDir {
         Runtime(self.0.join("runtime"))
     }
 
-    pub fn attach_error_path(&self, pid: u32) -> PathBuf {
-        self.runtime().0.join("attach").join(format!("{pid}.error"))
+    pub fn attach_report_path(&self, pid: u32) -> PathBuf {
+        self.runtime().0.join("attach").join(format!("{pid}.report"))
     }
 
     pub fn attach_staging(&self) -> PathBuf {

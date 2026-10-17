@@ -150,8 +150,6 @@ class NativeCore:
             raise ValueError("Invalid Bridge connection settings")
         if result == 3:
             raise BridgeStoppedError()
-        if result != 0:
-            raise RuntimeError("Unknown Bridge settings result")
 
     def stop(self):
         """End the connection; False while started host code is still active."""

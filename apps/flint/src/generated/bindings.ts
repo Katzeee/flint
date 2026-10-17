@@ -9,11 +9,11 @@ export const commands = {
 	snapshot: () => __TAURI_INVOKE<Snapshot>("snapshot"),
 	attach: (pid: number) => __TAURI_INVOKE<App>("attach", { pid }),
 	workflows: () => __TAURI_INVOKE<WorkflowSummary[]>("workflows"),
-	workflow: (id: string) => __TAURI_INVOKE<GetWorkflowResponse_Serialize>("workflow", { id }),
+	workflow: (id: string) => __TAURI_INVOKE<Workflow_Serialize>("workflow", { id }),
 	desktopInfo: () => __TAURI_INVOKE<ApplicationInfo>("desktop_info"),
 	bridgeToken: () => __TAURI_INVOKE<string>("bridge_token"),
-	hostInfo: (pid: number, preview: boolean) => __TAURI_INVOKE<HostInfo_Serialize>("host_info", { pid, preview }),
-	focusApplication: (pid: number) => __TAURI_INVOKE<null>("focus_application", { pid }),
+	appInfo: (pid: number, preview: boolean) => __TAURI_INVOKE<GetAppInfoResponse_Serialize>("app_info", { pid, preview }),
+	focusApp: (pid: number) => __TAURI_INVOKE<null>("focus_app", { pid }),
 	startBackend: () => __TAURI_INVOKE<PingResponse>("start_backend"),
 	stopBackend: () => __TAURI_INVOKE<BackendStopped>("stop_backend"),
 };
@@ -27,55 +27,47 @@ export const events = {
 export const hostNames = {"blender":"Blender","houdini":"Houdini","max":"3ds Max","maya":"Maya","standalone_csharp":"C#","standalone_python":"Python","unity":"Unity"} as const;
 
 /* Types */
+/**  A host application as listed: its registration, its discovered process, or both, joined by instance ID. */
 export type App = {
 	instance_id: string,
-	/**  A built-in host kind, or the type an independently loaded Bridge registered. */
+	/**  A host kind, or the identifier an independently loaded Bridge registered. */
 	host: string,
-	/**  The registered instance name; absent until a Bridge connects. */
-	name: string | null,
-	/**  Only meaningful on this machine when `local` is true. */
+	/**  Only meaningful on the backend's machine when local is true. */
 	pid: number,
 	local: boolean,
-	connection: Connection,
-	/**  Present when discovery recognizes the process on this machine. */
-	executable: string | null,
-	runtime_version: string | null,
-	bridge_version: string | null,
+	/**  Present while a Bridge is registered. */
+	registration: Registration | null,
+	/**  Present when discovery recognizes the process on the backend's machine. */
+	candidate: Candidate | null,
 };
 
 export type ApplicationInfo = {
 	version: string,
 	control_endpoint: string,
 	state_dir: string,
-	attach_supported: boolean,
 };
 
 export type BackendStopped = {
 	stopped_pid: number | null,
 };
 
-export type Connection = "ready" | "connecting" | "not_connected";
+export type Candidate = {
+	executable: string,
+	/**  Attach can inject a Bridge into this process. */
+	attachable: boolean,
+};
 
 export type DesktopOpened = null;
 
-export type ExecutionStatus = "unspecified" | "pending" | "running" | "succeeded" | "failed";
+/**  Timestamps preserve the workflow's ISO 8601 text representation. */
+export type Execution = Execution_Serialize | Execution_Deserialize;
 
-/**
- *  Codes are stable, nonempty machine-readable identifiers. Unknown codes are preserved.
- *  The message is human-readable diagnostic context; callers must not parse it.
- */
-export type Failure = {
-	code: string,
-	message: string,
-};
+/**  Every execution starts running. */
+export type ExecutionStatus = "running" | "succeeded" | "failed";
 
 /**  Timestamps preserve the workflow's ISO 8601 text representation. */
-export type GetExecutionResponse = GetExecutionResponse_Serialize | GetExecutionResponse_Deserialize;
-
-/**  Timestamps preserve the workflow's ISO 8601 text representation. */
-export type GetExecutionResponse_Deserialize = {
+export type Execution_Deserialize = {
 	execution_id: string,
-	workflow_id: string,
 	name: string,
 	instance_id: string,
 	status: ExecutionStatus,
@@ -90,9 +82,8 @@ export type GetExecutionResponse_Deserialize = {
 };
 
 /**  Timestamps preserve the workflow's ISO 8601 text representation. */
-export type GetExecutionResponse_Serialize = {
+export type Execution_Serialize = {
 	execution_id: string,
-	workflow_id: string,
 	name: string,
 	instance_id: string,
 	status: ExecutionStatus,
@@ -106,52 +97,33 @@ export type GetExecutionResponse_Serialize = {
 	code?: string | null,
 };
 
-/**  Product data only; storage schema and internal request bookkeeping stay in the backend. */
-export type GetWorkflowResponse = GetWorkflowResponse_Serialize | GetWorkflowResponse_Deserialize;
-
-/**  Product data only; storage schema and internal request bookkeeping stay in the backend. */
-export type GetWorkflowResponse_Deserialize = {
-	workflow_id: string,
-	name: string,
-	description: string,
-	created_at: string,
-	execs: GetExecutionResponse_Deserialize[],
-};
-
-/**  Product data only; storage schema and internal request bookkeeping stay in the backend. */
-export type GetWorkflowResponse_Serialize = {
-	workflow_id: string,
-	name: string,
-	description: string,
-	created_at: string,
-	execs: GetExecutionResponse_Serialize[],
-};
-
-export type HostCandidate = {
-	pid: number,
-	host: HostKind,
-	executable: string,
-};
-
-export type HostInfo = HostInfo_Serialize | HostInfo_Deserialize;
-
-export type HostInfo_Deserialize = {
-	window: WindowInfo | null,
-	preview: Preview | null,
-} & HostCandidate;
-
-export type HostInfo_Serialize = {
-	window: WindowInfo | null,
-	preview?: Preview | null,
-} & HostCandidate;
-
 /**
- *  A host integration Flint knows by name. This does not promise that the host
- *  is discoverable, attachable, or ready to execute on the current platform.
- *  Standalone variants identify their language-specific integration; application
- *  hosts choose their runtime inside their own implementation.
+ *  Codes are stable, nonempty machine-readable identifiers. Unknown codes are preserved.
+ *  The message is human-readable diagnostic context; callers must not parse it.
  */
-export type HostKind = "maya" | "max" | "blender" | "houdini" | "unity" | "standalone_python" | "standalone_csharp";
+export type Failure = {
+	code: string,
+	message: string,
+};
+
+/**  Inspection never changes window state. */
+export type GetAppInfoResponse = GetAppInfoResponse_Serialize | GetAppInfoResponse_Deserialize;
+
+/**  Inspection never changes window state. */
+export type GetAppInfoResponse_Deserialize = {
+	app: App | null,
+	window: WindowInfo | null,
+	/**  Set only when requested. */
+	preview: Preview_Deserialize | null,
+};
+
+/**  Inspection never changes window state. */
+export type GetAppInfoResponse_Serialize = {
+	app: App | null,
+	window: WindowInfo | null,
+	/**  Set only when requested. */
+	preview?: Preview_Serialize | null,
+};
 
 export type NetworkAddress = {
 	interface: string,
@@ -166,10 +138,25 @@ export type PingResponse = {
 	bridge_port: number,
 };
 
-export type Preview = ({ image: string }) & { unavailable_reason?: never } | ({ unavailable_reason: string }) & { image?: never };
+/**  Set only when requested. */
+export type Preview = Preview_Serialize | Preview_Deserialize;
+
+/**  Set only when requested. */
+export type Preview_Deserialize = ({ png: string }) & { unavailable_reason?: never } | ({ unavailable_reason: string }) & { png?: never };
+
+/**  Set only when requested. */
+export type Preview_Serialize = ({ png: string }) & { unavailable_reason?: never } | ({ unavailable_reason: string }) & { png?: never };
+
+export type Registration = {
+	name: string,
+	runtime_version: string,
+	bridge_version: string,
+	/**  The execution channel is connected; this does not mean the instance is idle. */
+	execution_ready: boolean,
+};
 
 export type Snapshot = {
-	/**  No backend is listening. This is distinct from a running backend with no instances. */
+	/**  No backend is listening. This is distinct from a running backend with no applications. */
 	backend: PingResponse | null,
 	apps: App[],
 };
@@ -181,6 +168,9 @@ export type WindowInfo = {
 	minimized: boolean,
 };
 
+/**  Also the backend's workflow record. */
+export type Workflow = Workflow_Serialize | Workflow_Deserialize;
+
 export type WorkflowSummary = {
 	workflow_id: string,
 	name: string,
@@ -190,6 +180,26 @@ export type WorkflowSummary = {
 	instance_ids: string[],
 	running_count: number,
 	failed_count: number,
+};
+
+/**  Also the backend's workflow record. */
+export type Workflow_Deserialize = {
+	workflow_id: string,
+	name: string,
+	description: string,
+	created_at: string,
+	/**  In submission order; execution IDs number them from 0001. */
+	execs: Execution_Deserialize[],
+};
+
+/**  Also the backend's workflow record. */
+export type Workflow_Serialize = {
+	workflow_id: string,
+	name: string,
+	description: string,
+	created_at: string,
+	/**  In submission order; execution IDs number them from 0001. */
+	execs: Execution_Serialize[],
 };
 
 /* Tauri Specta runtime */

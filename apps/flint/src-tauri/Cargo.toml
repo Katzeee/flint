@@ -16,7 +16,7 @@ test-runtime = ["flint-backend/test-runtime"]
 [dependencies]
 thiserror.workspace = true
 flint-backend.workspace = true
-flint-hosts = { workspace = true, features = ["typescript"] }
+flint-hosts.workspace = true
 flint-contracts = { workspace = true, features = ["protocol", "typescript"] }
 specta.workspace = true
 specta-typescript = { workspace = true, optional = true }
@@ -32,11 +32,11 @@ uuid = { workspace = true, features = ["v4"] }
 strum.workspace = true
 clap = { workspace = true, features = ["derive"] }
 anyhow.workspace = true
-base64 = "0.22"
 [build-dependencies]
 tauri-build.workspace = true
 
 [dev-dependencies]
+base64 = "0.22"
 tokio = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
 wait-timeout.workspace = true

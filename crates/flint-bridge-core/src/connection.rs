@@ -112,8 +112,8 @@ async fn register(
             request_id.clone(),
             Payload::RegisterInstance(RegisterInstance {
                 pid: std::process::id(),
-                instance_name: settings_snapshot.settings.name.clone(),
-                instance_type: identity.host.clone(),
+                name: settings_snapshot.settings.name.clone(),
+                host: identity.host.clone(),
                 instance_id: instance_id.into(),
                 runtime_version: identity.runtime_version.clone(),
                 bridge_version: env!("CARGO_PKG_VERSION").into(),

@@ -111,38 +111,40 @@ fn generate_protocol(root: &Path, temporary: &Path, check: bool) -> Result<()> {
     let generated = temporary.join("rust");
     fs::create_dir_all(&generated)?;
     std::env::set_var("PROTOC", &protoc);
-    prost_build::Config::new()
+    let mut config = prost_build::Config::new();
+    config
         .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(".", "#[cfg_attr(feature = \"typescript\", derive(specta::Type))]")
         .enum_attribute("ExecutionStatus", "#[serde(rename_all = \"snake_case\")]")
+        .enum_attribute("GetAppInfoResponse.preview", "#[serde(rename_all = \"snake_case\")]")
         .field_attribute(
-            "ExecutionResult.status",
-            "#[cfg_attr(feature = \"typescript\", specta(type = ExecutionStatus))]",
+            "GetAppInfoResponse.preview.png",
+            "#[cfg_attr(feature = \"typescript\", specta(type = String))]",
         )
         .field_attribute(
-            "ExecutionResult.status",
-            "#[serde(with = \"serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>\")]",
-        )
-        .field_attribute(
-            "GetExecutionResponse.status",
-            "#[cfg_attr(feature = \"typescript\", specta(type = ExecutionStatus))]",
-        )
-        .field_attribute(
-            "GetExecutionResponse.status",
-            "#[serde(with = \"serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>\")]",
-        )
-        .field_attribute(
-            "ExecutionResult.traceback",
-            "#[serde(skip_serializing_if = \"Option::is_none\")]",
-        )
-        .field_attribute(
-            "ExecutionResult.error",
-            "#[serde(skip_serializing_if = \"Option::is_none\")]",
-        )
-        .field_attribute(
-            "GetExecutionResponse.code",
-            "#[serde(skip_serializing_if = \"Option::is_none\")]",
-        )
+            "GetAppInfoResponse.preview.png",
+            "#[serde(with = \"serde_with::As::<serde_with::base64::Base64>\")]",
+        );
+    for status in ["ExecuteResponse.status", "Execution.status"] {
+        config
+            .field_attribute(
+                status,
+                "#[cfg_attr(feature = \"typescript\", specta(type = ExecutionStatus))]",
+            )
+            .field_attribute(
+                status,
+                "#[serde(with = \"serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>\")]",
+            );
+    }
+    for optional in [
+        "ExecuteResponse.traceback",
+        "ExecuteResponse.error",
+        "Execution.code",
+        "GetAppInfoResponse.preview",
+    ] {
+        config.field_attribute(optional, "#[serde(skip_serializing_if = \"Option::is_none\")]");
+    }
+    config
         .out_dir(&generated)
         .compile_protos(&[protocol.join("flint_protocol/v1/envelope.proto")], &[protocol])?;
     synchronize(

@@ -43,9 +43,8 @@ fn acquire_scope(scope: &str, owner: &ClaimOwner) -> io::Result<ClaimOutcome> {
         Some(lock) => {
             // The descriptor is a diagnostic aid; failing to record it must not
             // forfeit an otherwise valid claim.
-            if let Ok(record) = serde_json::to_vec(owner) {
-                let _ = fs::write(&owner_path, record);
-            }
+            let record = serde_json::to_vec(owner).unwrap();
+            let _ = fs::write(&owner_path, record);
             Ok(ClaimOutcome::Acquired(lock))
         }
         None => {

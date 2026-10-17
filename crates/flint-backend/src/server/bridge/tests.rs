@@ -16,8 +16,8 @@ fn registration(id: &str) -> Payload {
     Payload::RegisterInstance(RegisterInstance {
         pid: 42,
         instance_id: id.into(),
-        instance_name: "Editor".into(),
-        instance_type: "unity".into(),
+        name: "Editor".into(),
+        host: "unity".into(),
         token: flint_contracts::config::bridge_token::load_or_create().unwrap(),
         ..Default::default()
     })
@@ -47,7 +47,7 @@ fn execute(
     backend: &BackendHandle,
     id: &str,
     workflow: &str,
-) -> tokio::task::JoinHandle<std::result::Result<ExecutionResult, Failure>> {
+) -> tokio::task::JoinHandle<std::result::Result<ExecuteResponse, Failure>> {
     let backend = backend.clone();
     let request = ExecuteRequest {
         instance_id: id.into(),
@@ -56,7 +56,7 @@ fn execute(
         ..Default::default()
     };
     tokio::spawn(async move {
-        let (_, completion) = control::execute(&backend, request)?;
+        let (_, completion) = executions::execute(&backend, request)?;
         Ok(completion.await.unwrap())
     })
 }
@@ -80,7 +80,7 @@ async fn stable_instances_share_pids_and_replacement_isolates_old_sessions_and_j
         let (_old_heartbeat, old_task, old_session) = register(&backend, id).await;
         let (_remote, remote_task, remote_session) = register(&backend, "ABCDEFGHIJKLMNOP").await;
         assert_eq!(
-            backend.instances().len(),
+            backend.registered().len(),
             2,
             "equal PIDs on distinct machines must coexist"
         );
@@ -97,23 +97,20 @@ async fn stable_instances_share_pids_and_replacement_isolates_old_sessions_and_j
         let _ = old_channel_task.await.unwrap();
         // Exercise delayed cleanup even if cancellation won the scheduling race.
         disconnect(&backend, &old_session);
-        assert_eq!(backend.instances().len(), 2);
+        assert_eq!(backend.registered().len(), 2);
 
         let (mut current, current_task) = channel(&backend, &new_session).await;
         let next = execute(&backend, id, &workflow);
         let request = read_envelope(&mut current).await.unwrap();
-        let Some(Payload::HostExecuteRequest(command)) = request.payload else {
-            panic!("missing new request");
-        };
-        let result = envelope(
+        assert!(matches!(request.payload, Some(Payload::HostExecuteRequest(_))));
+        let response = envelope(
             request.request_id.clone(),
-            Payload::ExecutionResult(ExecutionResult {
-                execution_id: command.execution_id,
+            Payload::HostExecuteResponse(HostExecuteResponse {
                 status: ExecutionStatus::Succeeded as i32,
                 ..Default::default()
             }),
         );
-        current.send(result).await.unwrap();
+        current.send(response).await.unwrap();
         assert_eq!(next.await.unwrap().unwrap().status(), ExecutionStatus::Succeeded);
         disconnect(&backend, &new_session);
         disconnect(&backend, &remote_session);

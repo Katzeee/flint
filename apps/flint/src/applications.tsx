@@ -22,7 +22,7 @@ import {
 } from "@cairn/ui";
 import { AppWindow, Play, RefreshCw, SquareArrowOutUpRight, Zap } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { attachHost, focusApplication, readDesktopInfo, readWorkflows, type App, type Snapshot } from "./backend.js";
+import { attachApp, focusApp, readWorkflows, type App, type AppInfo, type Snapshot } from "./backend.js";
 import { appPath, navigate, workflowPath, type Route } from "./navigation.js";
 import { messageOf, useResource } from "./resource.js";
 import { ErrorNotice, formatTime, Loading } from "./shared.js";
@@ -33,8 +33,24 @@ const hostNames: Readonly<Record<string, string>> = generatedHostNames;
 // eslint-disable-next-line cairn/no-raw-visual-values -- Preview tile width is a Flint layout choice.
 const cardColumns = "repeat(auto-fill, min(100%, 280px))";
 
-const connectionTone = { ready: "success", connecting: "warning", not_connected: "neutral" } as const;
+type Connection = "ready" | "connecting" | "not_connected";
+
+function connectionOf({ registration }: App): Connection {
+  if (!registration) return "not_connected";
+  return registration.execution_ready ? "ready" : "connecting";
+}
+
+const connectionTone = {
+  ready: "success",
+  connecting: "warning",
+  not_connected: "neutral",
+} as const;
 const remotePreviewReason = "Running on another machine";
+
+function previewImage(info: AppInfo | null | undefined) {
+  const png = info?.preview?.png;
+  return png ? `data:image/png;base64,${png}` : undefined;
+}
 
 function useWindowPreview(app: App | undefined, revision = 0) {
   return useResource(
@@ -48,14 +64,13 @@ function useWindowPreview(app: App | undefined, revision = 0) {
 function ApplicationCard({ app, revision }: Readonly<{ app: App; revision: number }>) {
   const href = `#/${appPath(app.instance_id)}`;
   const preview = useWindowPreview(app, revision);
-  const title = preview.data?.window?.title || app.name || (hostNames[app.host] ?? app.host);
-  const windowPreview = preview.data?.preview;
-  const connected = app.connection !== "not_connected";
+  const title = preview.data?.window?.title || app.registration?.name || (hostNames[app.host] ?? app.host);
+  const connection = connectionOf(app);
   return (
     <Card as="article">
       <Card.Media>
         <Image
-          src={windowPreview && "image" in windowPreview ? windowPreview.image : undefined}
+          src={previewImage(preview.data)}
           alt=""
           aspectRatio="16/10"
           fit="contain"
@@ -67,9 +82,7 @@ function ApplicationCard({ app, revision }: Readonly<{ app: App; revision: numbe
                   ? remotePreviewReason
                   : preview.loading
                     ? "Loading preview"
-                    : windowPreview && "unavailable_reason" in windowPreview
-                      ? windowPreview.unavailable_reason
-                      : preview.error || "Window preview unavailable"}
+                    : preview.data?.preview?.unavailable_reason || preview.error || "Window preview unavailable"}
               </Text>
             </>
           }
@@ -84,11 +97,11 @@ function ApplicationCard({ app, revision }: Readonly<{ app: App; revision: numbe
             {hostNames[app.host] ?? app.host} · PID {app.pid}
           </Text>
           <Flex align="center" justify="between" gap="2">
-            <Status tone={connectionTone[app.connection]}>
-              {{ ready: "Ready", connecting: "Connecting", not_connected: "Not connected" }[app.connection]}
+            <Status tone={connectionTone[connection]}>
+              {{ ready: "Ready", connecting: "Connecting", not_connected: "Not connected" }[connection]}
             </Status>
             <Button size="sm" variant="ghost" onClick={() => navigate(href.slice(2))}>
-              {connected ? "Details" : "Set up"}
+              {app.registration ? "Details" : "Set up"}
             </Button>
           </Flex>
         </Flex>
@@ -161,14 +174,15 @@ function ApplicationDetail({
   const preview = useWindowPreview(app);
   const [actionError, setActionError] = useState("");
   const [attaching, setAttaching] = useState(false);
-  const desktop = useResource("desktop-info", readDesktopInfo);
-  const connected = app !== undefined && app.connection !== "not_connected";
-  const attachable = app?.connection === "not_connected" && (desktop.data?.attach_supported ?? false);
+  const registration = app?.registration;
+  const connection = app ? connectionOf(app) : "not_connected";
+  const connected = Boolean(registration);
+  const attachable = !registration && Boolean(app?.candidate?.attachable);
   const focus = async () => {
     if (app === undefined) return;
     setActionError("");
     try {
-      await focusApplication(app.pid);
+      await focusApp(app.pid);
     } catch (error) {
       setActionError(messageOf(error));
     }
@@ -178,7 +192,7 @@ function ApplicationDetail({
     setActionError("");
     setAttaching(true);
     try {
-      onAttached(await attachHost(app.pid));
+      onAttached(await attachApp(app.pid));
     } catch (error) {
       setActionError(messageOf(error));
     } finally {
@@ -188,10 +202,9 @@ function ApplicationDetail({
   const related = useResource(connected ? "workflows" : null, readWorkflows, 5000);
   const records = related.data?.filter((item) => app && item.instance_ids.includes(app.instance_id)) ?? [];
   const hostWindow = preview.data?.window;
-  const windowPreview = preview.data?.preview;
   const application = app ? (hostNames[app.host] ?? app.host) : "Application";
-  const name = app?.name || application;
-  const executable = preview.data?.executable || app?.executable;
+  const name = registration?.name || application;
+  const executable = app?.candidate?.executable;
   const [view, setView] = useState("overview");
   return (
     <>
@@ -240,7 +253,7 @@ function ApplicationDetail({
               <Box width="280px" maxWidth="100%" flexShrink="0">
                 <Image
                   key={app.instance_id}
-                  src={windowPreview && "image" in windowPreview ? windowPreview.image : undefined}
+                  src={previewImage(preview.data)}
                   alt={`Window preview of ${hostWindow?.title || name}`}
                   aspectRatio="16/10"
                   fit="contain"
@@ -253,9 +266,7 @@ function ApplicationDetail({
                           ? remotePreviewReason
                           : preview.loading
                             ? "Loading preview"
-                            : windowPreview && "unavailable_reason" in windowPreview
-                              ? windowPreview.unavailable_reason
-                              : "Window preview unavailable"}
+                            : preview.data?.preview?.unavailable_reason || "Window preview unavailable"}
                       </Text>
                     </>
                   }
@@ -265,19 +276,21 @@ function ApplicationDetail({
               <Flex direction="column" gap="4" flexGrow="1" flexBasis="320px" minWidth="0" pt="1">
                 <Grid columns="2" gapX="6" gapY="4">
                   <Fact label="Bridge">
-                    <Status tone={connectionTone[app.connection]}>
+                    <Status tone={connectionTone[connection]}>
                       {
-                        { ready: "Ready to execute", connecting: "Connecting", not_connected: "Not connected" }[
-                          app.connection
-                        ]
+                        {
+                          ready: "Ready to execute",
+                          connecting: "Connecting",
+                          not_connected: "Not connected",
+                        }[connection]
                       }
                     </Status>
                   </Fact>
                   <Fact label="Application">{application}</Fact>
-                  {connected ? (
+                  {registration ? (
                     <>
-                      <Fact label="Runtime">{app.runtime_version}</Fact>
-                      <Fact label="Bridge version">{app.bridge_version}</Fact>
+                      <Fact label="Runtime">{registration.runtime_version}</Fact>
+                      <Fact label="Bridge version">{registration.bridge_version}</Fact>
                     </>
                   ) : null}
                 </Grid>
@@ -416,8 +429,8 @@ export function Applications({
 }>) {
   const [previewRevision, setPreviewRevision] = useState(0);
   const apps = snapshot?.apps ?? [];
-  const connected = apps.filter((app) => app.connection !== "not_connected");
-  const available = apps.filter((app) => app.connection === "not_connected");
+  const connected = apps.filter((app) => app.registration);
+  const available = apps.filter((app) => !app.registration);
   const reload = () => {
     setPreviewRevision((value) => value + 1);
     refresh();

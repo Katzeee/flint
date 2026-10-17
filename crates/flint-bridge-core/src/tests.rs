@@ -159,11 +159,8 @@ pub(crate) fn execute(request_id: &str) -> Envelope {
     envelope(
         request_id.into(),
         Payload::HostExecuteRequest(HostExecuteRequest {
-            execution_id: format!("execution-{request_id}"),
-            code: "print('你好')".into(),
-            workflow_id: "workflow-1".into(),
+            code: format!("print('你好 {request_id}')"),
             filename: Some("scene.py".into()),
-            ..Default::default()
         }),
     )
 }
@@ -301,7 +298,7 @@ impl Backend {
         let mut received = vec![];
         loop {
             let envelope = self.receive_before(deadline);
-            let done = matches!(envelope.payload, Some(Payload::ExecutionResult(_)));
+            let done = matches!(envelope.payload, Some(Payload::HostExecuteResponse(_)));
             received.push(envelope);
             if done {
                 return received;
@@ -338,12 +335,12 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
     let mut first = Backend::start();
     let core = connected(&mut first);
     let original = first.registration();
-    assert_eq!(original.instance_name, "场景");
-    assert_eq!(original.instance_type, "custom-editor");
+    assert_eq!(original.name, "场景");
+    assert_eq!(original.host, "custom-editor");
     assert_eq!(original.token, "configured");
 
     first.send(execute("active"));
-    assert_eq!(core.wait_request(WAIT).unwrap()["request_id"], "active");
+    assert_eq!(core.wait_request(WAIT).unwrap()["code"], "print('你好 active')");
     let mut second = Backend::start();
     let replacement = settings(second.port, "新场景");
     assert_eq!(core.apply_settings(replacement.clone()), ApplyResult::Busy as u32);
@@ -352,7 +349,7 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
     assert!(core.finish());
     let completed = first.until_result();
     assert!(completed.iter().all(|message| message.request_id == "active"));
-    let Some(Payload::ExecutionResult(result)) = &completed.last().unwrap().payload else {
+    let Some(Payload::HostExecuteResponse(result)) = &completed.last().unwrap().payload else {
         panic!("expected the active execution result on the original connection");
     };
     assert_eq!(result.status, ExecutionStatus::Succeeded as i32);
@@ -363,9 +360,9 @@ fn applying_settings_re_registers_on_the_new_endpoint_with_the_new_name() {
         core.connected()
     });
     let updated = second.registration();
-    assert_eq!(updated.instance_name, "新场景");
+    assert_eq!(updated.name, "新场景");
     assert_eq!(updated.instance_id, original.instance_id);
-    assert_eq!(updated.instance_type, original.instance_type);
+    assert_eq!(updated.host, original.host);
     let status = core.status();
     assert_eq!(status["connection"], json!({"state": "connected"}));
     assert_eq!(status["instance_id"], original.instance_id);
@@ -378,7 +375,7 @@ fn reconnect_does_not_forward_previous_executions_to_the_new_channel() {
     let core = connected(&mut backend);
     backend.registration();
     backend.send(execute("old"));
-    assert_eq!(core.wait_request(WAIT).unwrap()["request_id"], "old");
+    assert_eq!(core.wait_request(WAIT).unwrap()["code"], "print('你好 old')");
 
     core.reconnect();
     wait_until(|| {
@@ -390,7 +387,7 @@ fn reconnect_does_not_forward_previous_executions_to_the_new_channel() {
     backend.send(execute("overlap"));
     let rejected = backend.receive();
     assert_eq!(rejected.request_id, "overlap");
-    let Some(Payload::ExecutionResult(result)) = rejected.payload else {
+    let Some(Payload::HostExecuteResponse(result)) = rejected.payload else {
         panic!("expected a refusal for the overlapping execution");
     };
     assert_eq!(result.status, ExecutionStatus::Failed as i32);
@@ -405,14 +402,14 @@ fn reconnect_does_not_forward_previous_executions_to_the_new_channel() {
     assert!(!core.busy());
     backend.send(execute("new"));
     assert_eq!(
-        core.wait_request(WAIT).unwrap()["request_id"],
-        "new",
+        core.wait_request(WAIT).unwrap()["code"],
+        "print('你好 new')",
         "the refused execution must not run after the old execution finishes"
     );
     assert!(core.finish());
     let received = backend.until_result();
     assert!(received.iter().all(|envelope| envelope.request_id == "new"));
-    let Some(Payload::ExecutionResult(result)) = &received.last().unwrap().payload else {
+    let Some(Payload::HostExecuteResponse(result)) = &received.last().unwrap().payload else {
         panic!("expected the new execution result");
     };
     assert_eq!(result.status, ExecutionStatus::Succeeded as i32);

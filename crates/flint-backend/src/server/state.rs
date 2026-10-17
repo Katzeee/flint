@@ -1,4 +1,4 @@
-use flint_contracts::protocol::{Envelope, ExecutionResult, RegisterInstance};
+use flint_contracts::protocol::{Envelope, ExecuteResponse, RegisterInstance};
 use std::{collections::HashMap, time::Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -14,8 +14,7 @@ pub(super) struct Job {
     pub(super) session_id: String,
     pub(super) workflow: String,
     pub(super) execution: String,
-    pub(super) output_sequence: u64,
-    pub(super) result: oneshot::Sender<ExecutionResult>,
+    pub(super) result: oneshot::Sender<ExecuteResponse>,
 }
 #[derive(Default)]
 pub(super) struct State {

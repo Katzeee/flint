@@ -54,17 +54,8 @@ async fn heartbeat_connection(
     if !token_matches(&token, &req.token) {
         return reject(wire, request_id, "the Bridge token does not match this backend").await;
     }
-    if req.pid == 0
-        || req.instance_id.len() != 16
-        || !req
-            .instance_id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-    {
-        return reject(wire, request_id, "the instance identity is invalid").await;
-    }
     let (session_id, cancel, superseded) = backend.0.state.lock().unwrap().register(req);
-    fail_disconnected(&backend, superseded);
+    executions::fail_disconnected(&backend, superseded);
     let result: Result<()> = async {
         wire.send(envelope(request_id, Payload::SessionRegistered(SessionRegistered { session_id: session_id.clone() }))).await?;
         loop {
@@ -116,7 +107,7 @@ async fn execution_connection(
                 next = receiver.recv() => { if let Some(message) = next { wire.send(message).await?; } else { break; } },
                 next = read_envelope(&mut wire) => {
                     let message = next.context("execution channel closed")?;
-                    process_message(&backend, &req.session_id, message)?;
+                    executions::receive(&backend, &req.session_id, message)?;
                 }
             }
         }
@@ -124,49 +115,6 @@ async fn execution_connection(
     }.await;
     disconnect(&backend, &req.session_id);
     result
-}
-
-fn process_message(backend: &BackendHandle, session_id: &str, message: Envelope) -> Result<()> {
-    let mut state = backend.0.state.lock().unwrap();
-    if !state.sessions.contains_key(session_id) {
-        return Ok(());
-    }
-    let Some(job) = state.jobs.get_mut(&message.request_id) else {
-        return Ok(());
-    };
-    anyhow::ensure!(job.session_id == session_id, "response belongs to another session");
-    match message.payload.unwrap() {
-        Payload::ExecutionOutputUpdate(update) => {
-            anyhow::ensure!(
-                update.execution_id == job.execution && update.workflow_id == job.workflow,
-                "output identity mismatch"
-            );
-            if update.sequence <= job.output_sequence {
-                return Ok(());
-            }
-            anyhow::ensure!(update.sequence == job.output_sequence + 1, "output sequence gap");
-            backend.0.store.update(&job.workflow, &job.execution, |e| {
-                e.stdout += &update.stdout_delta;
-                e.stderr += &update.stderr_delta;
-            })?;
-            job.output_sequence = update.sequence;
-        }
-        Payload::ExecutionResult(result) => {
-            anyhow::ensure!(
-                result.execution_id == job.execution
-                    && matches!(
-                        ExecutionStatus::try_from(result.status),
-                        Ok(ExecutionStatus::Succeeded | ExecutionStatus::Failed)
-                    ),
-                "invalid execution result"
-            );
-            let job = state.jobs.remove(&message.request_id).unwrap();
-            drop(state);
-            finish_job(backend, job, result);
-        }
-        _ => anyhow::bail!("unexpected host message"),
-    }
-    Ok(())
 }
 
 #[cfg(test)]

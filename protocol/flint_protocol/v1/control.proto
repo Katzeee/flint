@@ -19,8 +19,65 @@ message StopBackendResponse {}
 message GetBridgeTokenRequest {}
 message GetBridgeTokenResponse { string token = 1; }
 
-message ListInstancesRequest { optional string instance_type = 1; }
-message ListInstancesResponse { repeated InstanceInfo instances = 1; }
+message Registration {
+  string name = 1;
+  string runtime_version = 2;
+  string bridge_version = 3;
+  // The execution channel is connected; this does not mean the instance is idle.
+  bool execution_ready = 4;
+}
+message Candidate {
+  string executable = 1;
+  // Attach can inject a Bridge into this process.
+  bool attachable = 2;
+}
+// A host application as listed: its registration, its discovered process, or both, joined by instance ID.
+message App {
+  string instance_id = 1;
+  // A host kind, or the identifier an independently loaded Bridge registered.
+  string host = 2;
+  // Only meaningful on the backend's machine when local is true.
+  uint32 pid = 3;
+  bool local = 4;
+  // Present while a Bridge is registered.
+  Registration registration = 5;
+  // Present when discovery recognizes the process on the backend's machine.
+  Candidate candidate = 6;
+}
+message ListAppsRequest { optional string host = 1; }
+// Registered applications come first.
+message ListAppsResponse { repeated App apps = 1; }
+
+message WindowInfo {
+  string title = 1;
+  bool minimized = 2;
+}
+message GetAppInfoRequest {
+  uint32 pid = 1;
+  bool preview = 2;
+}
+// Inspection never changes window state.
+message GetAppInfoResponse {
+  App app = 1;
+  WindowInfo window = 2;
+  // Set only when requested.
+  oneof preview {
+    bytes png = 3;
+    string unavailable_reason = 4;
+  }
+}
+// Windows lets the backend take focus only when the foreground process allows it before the request.
+message FocusAppRequest { uint32 pid = 1; }
+message FocusAppResponse {}
+message AttachRequest {
+  uint32 pid = 1;
+  // Overrides the detected host kind.
+  optional string host_kind = 2;
+  // Defaults to the host kind.
+  optional string name = 3;
+}
+// Sent once the injected Bridge registers.
+message AttachResponse { App app = 1; }
 
 message StartWorkflowRequest {
   string name = 1;
@@ -40,15 +97,17 @@ message WorkflowSummary {
   uint64 failed_count = 8;
 }
 message ListWorkflowsResponse { repeated WorkflowSummary workflows = 1; }
-message GetWorkflowRequest { string workflow_id = 1; }
-// Product data only; storage schema and internal request bookkeeping stay in the backend.
-message GetWorkflowResponse {
+// Also the backend's workflow record.
+message Workflow {
   string workflow_id = 1;
   string name = 2;
   string description = 3;
   string created_at = 4;
-  repeated GetExecutionResponse execs = 5;
+  // In submission order; execution IDs number them from 0001.
+  repeated Execution execs = 5;
 }
+message GetWorkflowRequest { string workflow_id = 1; }
+message GetWorkflowResponse { Workflow workflow = 1; }
 
 message ExecuteRequest {
   string instance_id = 1;
@@ -59,31 +118,36 @@ message ExecuteRequest {
   // False waits for the terminal result. True returns RUNNING after submission.
   bool detach = 6;
 }
+message ExecuteResponse {
+  string execution_id = 1;
+  ExecutionStatus status = 2;
+  optional string traceback = 3;
+  Failure error = 4;
+}
 
 enum ExecutionView {
-  // An omitted view is treated as summary.
-  EXECUTION_VIEW_UNSPECIFIED = 0;
-  EXECUTION_VIEW_SUMMARY = 1;
-  EXECUTION_VIEW_FULL = 2;
+  EXECUTION_VIEW_SUMMARY = 0;
+  // Includes the submitted code.
+  EXECUTION_VIEW_FULL = 1;
+}
+// Timestamps preserve the workflow's ISO 8601 text representation.
+message Execution {
+  string execution_id = 1;
+  string name = 2;
+  string instance_id = 3;
+  ExecutionStatus status = 4;
+  string stdout = 5;
+  string stderr = 6;
+  string started_at = 7;
+  optional string finished_at = 8;
+  optional string traceback = 9;
+  Failure error = 10;
+  optional string updated_at = 11;
+  optional string code = 12;
 }
 message GetExecutionRequest {
   string workflow_id = 1;
   string execution_id = 2;
   ExecutionView view = 3;
 }
-// Timestamps preserve the workflow's ISO 8601 text representation.
-message GetExecutionResponse {
-  string execution_id = 1;
-  string workflow_id = 2;
-  string name = 3;
-  string instance_id = 4;
-  ExecutionStatus status = 5;
-  string stdout = 6;
-  string stderr = 7;
-  string started_at = 8;
-  optional string finished_at = 9;
-  optional string traceback = 10;
-  Failure error = 11;
-  optional string updated_at = 12;
-  optional string code = 13;
-}
+message GetExecutionResponse { Execution execution = 1; }

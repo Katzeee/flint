@@ -1,4 +1,4 @@
-//! Local application windows are shared by CLI and desktop callers, independently of Bridges.
+//! Application windows on this machine, independently of Bridges.
 use crate::HostError;
 #[cfg(not(windows))]
 use anyhow::bail;
@@ -7,15 +7,13 @@ use anyhow::{Context, Result};
 #[cfg(all(test, windows))]
 mod tests;
 
-pub struct HostInfo {
+pub struct CandidateInfo {
     pub candidate: crate::HostCandidate,
     pub window: Option<WindowInfo>,
     /// Absent unless the caller explicitly requests image capture.
     pub preview: Option<WindowPreview>,
 }
 
-#[derive(serde::Serialize)]
-#[cfg_attr(feature = "typescript", derive(specta::Type))]
 pub struct WindowInfo {
     pub title: String,
     pub minimized: bool,
@@ -31,9 +29,9 @@ pub enum WindowPreview {
 static CAPTURE_SLOTS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Semaphore>> =
     std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Semaphore::new(2)));
 
-pub async fn host_info(pid: u32, include_preview: bool) -> Result<HostInfo, HostError> {
+pub async fn candidate_info(pid: u32, include_preview: bool) -> Result<CandidateInfo, HostError> {
     let mut info = tokio::task::spawn_blocking(move || {
-        Ok::<_, HostError>(HostInfo {
+        Ok::<_, HostError>(CandidateInfo {
             candidate: local_candidate(pid)?,
             window: window_info(pid),
             preview: None,
@@ -66,6 +64,16 @@ async fn capture_preview(pid: u32) -> Result<Vec<u8>> {
 
 pub fn focus_application(pid: u32) -> Result<(), HostError> {
     Ok(focus(local_candidate(pid)?.pid)?)
+}
+
+/// Lets process `pid` take focus while this process holds the foreground.
+pub fn allow_focus(pid: u32) {
+    #[cfg(windows)]
+    unsafe {
+        windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid);
+    }
+    #[cfg(not(windows))]
+    let _ = pid;
 }
 
 fn local_candidate(pid: u32) -> Result<crate::HostCandidate, HostError> {

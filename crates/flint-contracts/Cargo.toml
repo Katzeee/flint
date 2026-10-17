@@ -19,7 +19,7 @@ dirs.workspace = true
 fs2.workspace = true
 serde = { workspace = true, features = ["derive"] }
 specta = { workspace = true, optional = true }
-serde_with = { workspace = true, optional = true }
+serde_with = { workspace = true, optional = true, features = ["base64"] }
 strum = { workspace = true, features = ["derive"] }
 uuid = { workspace = true, features = ["v4"] }
 bytes = { workspace = true, optional = true }

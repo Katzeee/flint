@@ -32,7 +32,6 @@ namespace Flint.Bridge
     [DataContract]
     public sealed class ExecutionRequest
     {
-        [DataMember(Name = "request_id")] public string RequestId { get; set; }
         [DataMember(Name = "code")] public string Code { get; set; }
     }
 

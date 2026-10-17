@@ -3,7 +3,10 @@
 
 use crate::host_settings::HostSettings;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 /// Prepared by a platform from its host's entry and consumed by the injected bootstrap.
 #[derive(Deserialize, Serialize)]
@@ -36,9 +39,23 @@ pub struct MonoPlan {
 }
 
 /// NUL-terminated JSON passed to the bootstrap's remote entry point.
-/// The injector supplies the plan and resolves the error report path.
+/// The injector supplies the plan and resolves the report path.
 #[derive(Deserialize, Serialize)]
 pub struct BootstrapRequest {
     pub plan: RuntimePlan,
-    pub error_path: PathBuf,
+    /// Written once the injected side knows the outcome: empty when the Bridge connected
+    /// with the plan's settings, otherwise why it did not. Replaced whole, never written in place.
+    pub report_path: PathBuf,
+}
+
+pub fn write_report(path: &Path, outcome: Result<(), &str>) -> io::Result<()> {
+    let staged = path.with_extension("staged");
+    fs::write(&staged, outcome.err().unwrap_or_default())?;
+    fs::rename(staged, path)
+}
+
+/// None while the injected side is still working.
+pub fn read_report(path: &Path) -> Option<Result<(), String>> {
+    let report = fs::read_to_string(path).ok()?;
+    Some(if report.is_empty() { Ok(()) } else { Err(report) })
 }

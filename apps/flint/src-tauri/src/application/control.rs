@@ -1,5 +1,5 @@
-//! Backend lifecycle, observation, and control requests.
-use super::{Application, Result as ApplicationResult, apps, apps::App};
+//! Backend lifecycle, observation, and the control request transport.
+use super::{Application, Result as ApplicationResult};
 use flint_contracts::lock::FileLock;
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
@@ -35,7 +35,9 @@ impl From<ControlError> for Failure {
 type Result<T> = std::result::Result<T, ControlError>;
 
 async fn request_until(endpoint: SocketAddr, payload: Payload, deadline: Instant) -> Result<Payload> {
-    let wait_for_execution = matches!(&payload, Payload::ExecuteRequest(request) if !request.detach);
+    // The backend bounds its own wait for a host.
+    let awaits_host = matches!(&payload, Payload::ExecuteRequest(request) if !request.detach)
+        || matches!(&payload, Payload::AttachRequest(_));
     let id = Uuid::new_v4().simple().to_string();
     let send = async {
         let socket = TcpStream::connect(endpoint).await?;
@@ -46,7 +48,7 @@ async fn request_until(endpoint: SocketAddr, payload: Payload, deadline: Instant
     let mut wire = tokio::time::timeout_at(deadline, send)
         .await
         .map_err(|_| Failure::with_message(FailureCode::BackendUnavailable, "backend request timed out"))??;
-    let received = if wait_for_execution {
+    let received = if awaits_host {
         read_envelope(&mut wire).await
     } else {
         tokio::time::timeout_at(deadline, read_envelope(&mut wire))
@@ -220,7 +222,7 @@ async fn pause(deadline: Instant) -> Result<()> {
 
 #[derive(Serialize, specta::Type)]
 pub struct Snapshot {
-    /// No backend is listening. This is distinct from a running backend with no instances.
+    /// No backend is listening. This is distinct from a running backend with no applications.
     pub backend: Option<PingResponse>,
     pub apps: Vec<App>,
 }
@@ -244,47 +246,26 @@ impl Application {
         result
     }
 
-    /// Observes the backend without starting it; local processes are listed either way.
+    /// Observes the backend without starting it.
     pub async fn snapshot(&self) -> ApplicationResult<Snapshot> {
-        let (backend, instances) = match self.backend_status().await? {
-            None => (None, vec![]),
-            Some(backend) => match self.instances(None).await {
-                Ok(instances) => (Some(backend), instances),
-                // The backend can stop between the two requests.
-                Err(failure)
-                    if failure.is(FailureCode::BackendUnavailable) && self.backend_status().await?.is_none() =>
-                {
-                    (None, vec![])
-                }
-                Err(failure) => return Err(failure),
-            },
+        let stopped = Snapshot {
+            backend: None,
+            apps: vec![],
         };
-        Ok(Snapshot {
-            backend,
-            apps: apps::with_local(instances, None).await?,
-        })
-    }
-
-    pub async fn instances(&self, instance_type: Option<String>) -> ApplicationResult<Vec<InstanceInfo>> {
-        self.query(
-            Payload::ListInstancesRequest(ListInstancesRequest { instance_type }),
-            |response| match response {
-                Payload::ListInstancesResponse(response) => Some(response.instances),
-                _ => None,
-            },
-        )
-        .await
-    }
-
-    pub async fn bridge_token(&self) -> ApplicationResult<String> {
-        self.query(
-            Payload::GetBridgeTokenRequest(GetBridgeTokenRequest {}),
-            |response| match response {
-                Payload::GetBridgeTokenResponse(response) => Some(response.token),
-                _ => None,
-            },
-        )
-        .await
+        let Some(backend) = self.backend_status().await? else {
+            return Ok(stopped);
+        };
+        match self.apps(None).await {
+            Ok(apps) => Ok(Snapshot {
+                backend: Some(backend),
+                apps,
+            }),
+            // The backend can stop between the two requests.
+            Err(failure) if failure.is(FailureCode::BackendUnavailable) && self.backend_status().await?.is_none() => {
+                Ok(stopped)
+            }
+            Err(failure) => Err(failure),
+        }
     }
 
     pub(super) async fn query<T>(&self, payload: Payload, response: fn(Payload) -> Option<T>) -> ApplicationResult<T> {

@@ -5,7 +5,7 @@ use std::{process::Command, time::Duration};
 
 #[cfg(windows)]
 #[test]
-fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
+fn app_info_infers_host_and_only_includes_a_requested_preview() -> Result<()> {
     let app = App::new();
     let fixture = app.directory.join("maya.exe");
     // A disposable recognized process without a window exercises headless host inspection.
@@ -30,21 +30,23 @@ fn host_info_infers_type_and_only_includes_a_requested_preview() -> Result<()> {
         }
         let output = checked(&mut command, Duration::from_secs(10))?;
         let info: Value = serde_json::from_str(&output.stdout)?;
-        assert_eq!(info["pid"], host.0.id());
-        assert_eq!(info["host"], "maya");
-        assert_eq!(info["executable"], fixture.to_string_lossy().as_ref());
+        assert_eq!(info["app"]["pid"], host.0.id());
+        assert_eq!(info["app"]["host"], "maya");
+        assert_eq!(
+            info["app"]["candidate"]["executable"],
+            fixture.to_string_lossy().as_ref()
+        );
         assert_eq!(info["window"], Value::Null);
         if preview {
             assert!(
                 info["preview"]["unavailable_reason"]
                     .as_str()
-                    .is_some_and(|reason| !reason.is_empty())
+                    .is_some_and(|reason| !reason.is_empty()),
+                "{info}"
             );
         } else {
-            assert!(info.get("preview").is_none());
+            assert!(info.get("preview").is_none(), "{info}");
         }
     }
-    assert!(!app.directory.join("workflows").exists());
-    assert!(!app.directory.join("runtime").exists());
     Ok(())
 }

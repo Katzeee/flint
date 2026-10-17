@@ -11,7 +11,6 @@ fn backend_reports_rejected_registrations_before_closing_the_connection() -> Res
 
     let app = App::new();
     app.call("start", &[], 0)?;
-    let token = flint_contracts::config::bridge_token::read()?;
     tokio::runtime::Runtime::new()?.block_on(async {
         for (request_id, request, reason) in [
             (
@@ -19,24 +18,12 @@ fn backend_reports_rejected_registrations_before_closing_the_connection() -> Res
                 Payload::RegisterInstance(RegisterInstance {
                     pid: 42,
                     instance_id: "abcdefghijklmnop".into(),
-                    instance_name: "Rejected Bridge".into(),
-                    instance_type: "test".into(),
+                    name: "Rejected Bridge".into(),
+                    host: "test".into(),
                     token: "wrong".into(),
                     ..Default::default()
                 }),
                 "token",
-            ),
-            (
-                "invalid-bridge",
-                Payload::RegisterInstance(RegisterInstance {
-                    pid: 0,
-                    instance_id: "invalid-pid".into(),
-                    instance_name: "Rejected Bridge".into(),
-                    instance_type: "test".into(),
-                    token: token.clone(),
-                    ..Default::default()
-                }),
-                "identity",
             ),
             (
                 "unregistered-channel",

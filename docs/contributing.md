@@ -19,7 +19,7 @@ Other product code belongs in a module of the crate that owns its meaning, inclu
 | Crate | Reason | Owns |
 |---|---|---|
 | `crates/flint-contracts` | Contract | What separately built binaries exchange, and the runtime configuration they share |
-| `crates/flint-backend` | Service | The backend service: listeners, request dispatch, connected instances, executions, and workflow records |
+| `crates/flint-backend` | Service | The backend service: listeners, request dispatch, host applications, executions, and workflow records |
 | `crates/flint-hosts` | Service | Host discovery and inspection, window operations, Bridge packaging, and bootstrap injection |
 | `crates/flint-bridge-core` | Artifact | Bridge core and its C ABI for host adapters |
 | `crates/flint-bridge-bootstrap` | Artifact | Starting the platform's Bridge entry inside an injected host runtime |
@@ -27,7 +27,7 @@ Other product code belongs in a module of the crate that owns its meaning, inclu
 
 Dependencies stay acyclic and follow ownership. Tauri and UI dependencies stay in `apps/flint`; the Bridge core and bootstrap depend only on `flint-contracts`, the bootstrap without its `protocol` feature.
 
-Expose product operations through `application` in `apps/flint/src-tauri`, independently of terminal input and window presentation. CLI and Tauri commands call this API. Use the single runtime configuration entry in `flint-contracts::config` for the application and its backend child; callers supply no per-invocation overrides. Local host inspection, focus, and export remain independent of the backend and its configuration; backend operations use the control protocol.
+Expose product operations through `application` in `apps/flint/src-tauri`, independently of terminal input and window presentation. CLI and Tauri commands call this API. Use the single runtime configuration entry in `flint-contracts::config` for the application and its backend child; callers supply no per-invocation overrides. Each capability has one implementation. Operations that read or act on a machine's processes, windows, Bridges, executions, or records run in that machine's backend and are reached through the control protocol; CLI and desktop keep only backend lifecycle, presentation, and the caller's own files, such as code read for `exec` or packages written by `bridge export`.
 
 The CLI owns terminal input, output, and exit codes. Backend service hosting belongs to the application API and runs without a desktop event loop.
 
@@ -41,7 +41,7 @@ GUI tests use the desktop's content security policy and fail on violations.
 
 ## Workflow records
 
-Workflow files own durable state; live connections and pending requests are transient. Execution records own the facts used by workflow summaries; derived values are computed when summaries are read, rather than persisted separately. A workflow file that cannot be read fails only the operations that need that workflow. Flint has not released a workflow format, so files from older schema versions are unsupported rather than migrated.
+Workflow files own durable state; live connections and pending requests are transient. Execution records own the facts used by workflow summaries; derived values are computed when summaries are read, rather than persisted separately. A workflow file that cannot be read fails only the operations that need that workflow.
 
 ## Bridge
 
@@ -67,7 +67,7 @@ An error's `Display` describes only its own layer, as a lowercase phrase without
 
 Report cross-component failures as `Failure { code, message }`. Codes are stable, nonempty, open strings identifying conditions consistently across surfaces; messages are diagnostic text and may change. Use error types within a component and codes across boundaries. Maintain Flint's codes in `flint-contracts::protocol::failure`; hosts may define their own, and every component preserves unknown codes. Tracebacks travel separately from messages.
 
-Errors become `Failure` where they cross a component boundary: in the backend's control responses and execution records, and in the product API, whose callers are CLI and Tauri commands. The crate that owns an error type owns its mapping to codes, unless it has no wire contract, as `flint-hosts`, in which case the application maps it. The product API selects among those mappings and reports anything else as `command_failed`, so a condition its callers must tell apart needs its own error type and code. CLI and Tauri commands report the API's `Failure` unchanged; the CLI adds only failures it detects itself, such as invalid arguments or interruption.
+Errors become `Failure` where they cross a component boundary: in the backend's control responses and execution records, and in the product API, whose callers are CLI and Tauri commands. The crate that owns an error type owns its mapping to codes, unless it has no wire contract, as `flint-hosts`, in which case its caller maps it. The product API selects among those mappings and reports anything else as `command_failed`, so a condition its callers must tell apart needs its own error type and code. CLI and Tauri commands report the API's `Failure` unchanged; the CLI adds only failures it detects itself, such as invalid arguments or interruption.
 
 Operations that cannot complete use the surface's failure channel: the CLI reports the failure and exits nonzero, and Tauri commands reject with it. Completed operations, such as executions, carry any failure in their result record.
 
@@ -86,8 +86,7 @@ Each boundary between separately built parts has one source, and its other side 
 
 Register desktop commands and events once in `apps/flint/src-tauri/src/desktop/ipc.rs`. React uses generated commands and types; its backend adapter owns presentation behavior. Keep wire types protobuf-sourced even when exposed through IPC.
 
-A type belongs in a protobuf schema only when it travels on the wire; `HostKind` and IPC types stay Rust-sourced. Protocol changes start in the owning schema, with wire semantics beside the corresponding fields and framing implementation. Generated files come only from [`tools/contracts-codegen`](../tools/contracts-codegen/src/main.rs): `cargo codegen` regenerates them in the same change as their sources, and `cargo codegen --check` verifies that they match. A change to the shape or meaning of a wire message raises `PROTOCOL_VERSION` in the framing module, and a change to workflow records raises the workflow schema version in `flint-backend::store`.
-
+A type belongs in a protobuf schema only when it travels on the wire; `HostKind` and IPC types stay Rust-sourced. Protocol changes start in the owning schema, with wire semantics beside the corresponding fields and framing implementation. Generated files come only from [`tools/contracts-codegen`](../tools/contracts-codegen/src/main.rs): `cargo codegen` regenerates them in the same change as their sources, and `cargo codegen --check` verifies that they match.
 Builds use declared, locked dependencies. `cargo xtask setup` owns checkout initialization: repository dependencies and Git hooks. Build, check, and test commands use that prepared environment; application build scripts compile and embed prepared sources. Tooling declares the interpreters it requires but never provisions them; a missing prerequisite fails with an error naming the requirement.
 
 Declare host installation and attach layouts in `flint-hosts` and use its shared assembler. Platforms supply reusable libraries and attach entries; hosts add their own files and entry parameters. Platforms construct typed runtime plans; bootstrap translates them into host-runtime calls without selecting host integrations. Keep host, platform, and runtime responsibilities separate when adding integrations. Put layer-wide behavior on its enum and use a data enum for use-specific payloads; derive matching discriminants so variants have one source.

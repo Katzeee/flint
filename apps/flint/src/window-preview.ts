@@ -1,4 +1,4 @@
-import { readHostInfo, type HostInfo } from "./backend.js";
+import { readAppInfo, type AppInfo } from "./backend.js";
 
 // Match the shared window service's capture capacity. Leaving a page removes its queued captures;
 // captures already running keep their slot until the native call finishes.
@@ -10,7 +10,7 @@ function drain() {
 }
 
 export function loadWindowPreview(pid: number, signal: AbortSignal) {
-  return new Promise<HostInfo>((resolve, reject) => {
+  return new Promise<AppInfo>((resolve, reject) => {
     const cancel = () => {
       const index = pending.indexOf(start);
       if (index >= 0) pending.splice(index, 1);
@@ -19,7 +19,7 @@ export function loadWindowPreview(pid: number, signal: AbortSignal) {
     const start = () => {
       signal.removeEventListener("abort", cancel);
       running += 1;
-      void readHostInfo(pid, true)
+      void readAppInfo(pid, true)
         .then(resolve, reject)
         .finally(() => {
           running -= 1;

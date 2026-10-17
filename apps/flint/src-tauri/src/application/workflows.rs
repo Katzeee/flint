@@ -22,11 +22,11 @@ impl Application {
         .await
     }
 
-    pub async fn workflow(&self, workflow_id: String) -> Result<GetWorkflowResponse> {
+    pub async fn workflow(&self, workflow_id: String) -> Result<Workflow> {
         self.query(
             Payload::GetWorkflowRequest(GetWorkflowRequest { workflow_id }),
             |response| match response {
-                Payload::GetWorkflowResponse(response) => Some(response),
+                Payload::GetWorkflowResponse(response) => response.workflow,
                 _ => None,
             },
         )
@@ -34,20 +34,15 @@ impl Application {
     }
 
     /// Code and its optional filename are already supplied; terminal and file input belong to the caller.
-    pub async fn execute(&self, request: ExecuteRequest) -> Result<ExecutionResult> {
+    pub async fn execute(&self, request: ExecuteRequest) -> Result<ExecuteResponse> {
         self.query(Payload::ExecuteRequest(request), |response| match response {
-            Payload::ExecutionResult(response) => Some(response),
+            Payload::ExecuteResponse(response) => Some(response),
             _ => None,
         })
         .await
     }
 
-    pub async fn execution(
-        &self,
-        workflow_id: String,
-        execution_id: String,
-        view: ExecutionView,
-    ) -> Result<GetExecutionResponse> {
+    pub async fn execution(&self, workflow_id: String, execution_id: String, view: ExecutionView) -> Result<Execution> {
         self.query(
             Payload::GetExecutionRequest(GetExecutionRequest {
                 workflow_id,
@@ -55,7 +50,7 @@ impl Application {
                 view: view as i32,
             }),
             |response| match response {
-                Payload::GetExecutionResponse(response) => Some(response),
+                Payload::GetExecutionResponse(response) => response.execution,
                 _ => None,
             },
         )

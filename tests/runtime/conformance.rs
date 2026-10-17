@@ -96,7 +96,7 @@ pub fn verify(app: &App, host: &str, mut driver: Driver, code: &str, stdout: &st
     let execution = std::thread::scope(|scope| -> Result<Value> {
         let submitted = scope.spawn(|| app.execute(instance.as_str().unwrap(), &workflow, code, 0));
         let taken = driver.call(json!({"op": "take"}))?;
-        assert!(taken["request_id"].is_string(), "{taken}");
+        assert_eq!(taken["code"], code, "{taken}");
         assert_eq!(driver.call(json!({"op": "status"}))?["busy"], true);
         let busy = driver.call(json!({"op": "apply", "settings": settings(free_port(), "moved")}))?;
         assert_eq!(busy, json!({"rejected": "busy"}));

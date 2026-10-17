@@ -10,6 +10,14 @@ _Avoid_: Host for a network address; use endpoint address.
 A built-in host integration recognized by Flint, represented by `HostKind` in `flint-hosts`. An application integration owns its runtime selection and execution behavior; a standalone integration identifies a fixed source language. Recognizing a kind does not imply that Flint can discover or attach it. Bridge registration identifiers remain open strings, so independently loaded Bridges can identify hosts outside this built-in set.
 _Avoid_: Language or runtime kind for this integration identity.
 
+**Host identifier**:
+The open string naming a host application's integration: a host kind for built-in integrations, or the identifier an independently loaded Bridge registers.
+_Avoid_: Instance type, host type.
+
+**App**:
+A host application as listed by Flint: its registration, its discovered process, or both, joined by instance ID. It is the short product name for a host application in commands and the desktop.
+_Avoid_: Instance for the listed application; an instance is its identity.
+
 **Host runtime**:
 The interpreter or managed runtime inside a host application that executes submitted code. Its version is reported by a connected instance.
 _Avoid_: Runtime without qualification.
@@ -85,7 +93,7 @@ A request to a Bridge, or to start one, that was refused without changing any st
 The host-side code that supplies its application's execution capabilities, along with its startup, settings storage, and teardown.
 
 **Backend**:
-The single local service for the current user that accepts control commands and Bridge connections, coordinates executions, and owns workflow records. CLI sessions and the desktop reuse this service independently of their working directory. Bridges on other machines may register with it; only this machine controls it.
+The single local service for the current user that accepts control commands and Bridge connections, discovers, inspects, focuses, and attaches the host applications on its machine, coordinates executions, and owns workflow records. CLI sessions and the desktop reuse this service independently of their working directory. Bridges on other machines may register with it; only this machine controls it.
 _Avoid_: Server or core when referring to this service as a whole.
 
 **Backend lease**:

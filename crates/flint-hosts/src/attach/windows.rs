@@ -2,7 +2,10 @@
 use crate::layout::stage;
 use crate::layout::{BOOTSTRAP, Layout};
 use anyhow::Result;
-use flint_contracts::{attach::BootstrapRequest, config::StateDir};
+use flint_contracts::{
+    attach::{BootstrapRequest, read_report},
+    config::StateDir,
+};
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use windows_sys::Win32::Foundation::{CloseHandle, FreeLibrary, HANDLE, HMODULE, WAIT_OBJECT_0};
@@ -95,13 +98,14 @@ unsafe fn inject_windows(pid: u32, bootstrap: &Path, request: &BootstrapRequest)
     payload.push(0);
     let exit = remote_call(process.0, start, &payload)?;
     if exit != 0 {
-        let report = std::fs::read_to_string(&request.error_path).unwrap_or_else(|_| {
-            format!(
-                "bootstrap failed with status {exit}; error report: {}",
-                request.error_path.display()
-            )
-        });
-        anyhow::bail!("{report}");
+        let reason = match read_report(&request.report_path) {
+            Some(Err(reason)) => reason,
+            _ => format!(
+                "bootstrap failed with status {exit}; report: {}",
+                request.report_path.display()
+            ),
+        };
+        anyhow::bail!("{reason}");
     }
     Ok(())
 }

@@ -2,7 +2,6 @@ use crate::state::BridgeState;
 use anyhow::Context;
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
-use serde::Serialize;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex, mpsc};
 use tokio::{net::TcpStream, sync::mpsc as async_mpsc};
@@ -10,15 +9,6 @@ use tokio::{net::TcpStream, sync::mpsc as async_mpsc};
 type Wire = flint_contracts::protocol::framing::Wire<TcpStream>;
 
 const OUTPUT_LIMIT: usize = 64 * 1024;
-
-#[derive(Serialize)]
-pub(crate) struct ExecutionRequest {
-    request_id: String,
-    workflow_id: String,
-    execution_id: String,
-    code: String,
-    filename: Option<String>,
-}
 
 /// Execution progress, including who resumes it when preparation completes.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -57,9 +47,8 @@ pub(crate) enum ExecutionFailure {
 }
 
 impl ExecutionFailure {
-    fn into_result(self, execution_id: String, stage: Stage) -> ExecutionResult {
-        let failed = |error, traceback| ExecutionResult {
-            execution_id,
+    fn into_response(self, stage: Stage) -> HostExecuteResponse {
+        let failed = |error, traceback| HostExecuteResponse {
             status: ExecutionStatus::Failed as i32,
             traceback,
             error: Some(error),
@@ -85,10 +74,11 @@ impl ExecutionFailure {
 
 pub(crate) struct Execution {
     pub(crate) id: u64,
-    pub(crate) request: ExecutionRequest,
+    request_id: String,
+    /// Serialized as the request JSON passed to the host.
+    pub(crate) request: HostExecuteRequest,
     pub(crate) stage: Stage,
     outbound: async_mpsc::UnboundedSender<Envelope>,
-    sequence: u64,
     stdout: String,
     stderr: String,
 }
@@ -102,16 +92,10 @@ impl Execution {
     ) -> Self {
         Self {
             id,
-            request: ExecutionRequest {
-                request_id,
-                workflow_id: request.workflow_id,
-                execution_id: request.execution_id,
-                code: request.code,
-                filename: request.filename,
-            },
+            request_id,
+            request,
             stage: Stage::Scheduled,
             outbound,
-            sequence: 0,
             stdout: String::new(),
             stderr: String::new(),
         }
@@ -130,19 +114,17 @@ impl BridgeState {
         };
         self.flush_output();
         let execution = self.execution.take().unwrap();
-        let execution_id = execution.request.execution_id;
-        let result = match result {
-            Ok(()) => ExecutionResult {
-                execution_id,
+        let response = match result {
+            Ok(()) => HostExecuteResponse {
                 status: ExecutionStatus::Succeeded as i32,
                 traceback: None,
                 error: None,
             },
-            Err(failure) => failure.into_result(execution_id, stage),
+            Err(failure) => failure.into_response(stage),
         };
         execution
             .outbound
-            .send(envelope(execution.request.request_id, Payload::ExecutionResult(result)))
+            .send(envelope(execution.request_id, Payload::HostExecuteResponse(response)))
             .is_ok()
     }
 
@@ -181,13 +163,9 @@ impl BridgeState {
         if execution.stdout.is_empty() && execution.stderr.is_empty() {
             return;
         }
-        execution.sequence += 1;
         let _ = execution.outbound.send(envelope(
-            execution.request.request_id.clone(),
+            execution.request_id.clone(),
             Payload::ExecutionOutputUpdate(ExecutionOutputUpdate {
-                workflow_id: execution.request.workflow_id.clone(),
-                execution_id: execution.request.execution_id.clone(),
-                sequence: execution.sequence,
                 stdout_delta: std::mem::take(&mut execution.stdout),
                 stderr_delta: std::mem::take(&mut execution.stderr),
             }),
@@ -209,7 +187,6 @@ pub(crate) async fn run_execution(
                 let Some(Payload::HostExecuteRequest(request)) = message.payload else {
                     anyhow::bail!("unexpected execution message");
                 };
-                let execution_id = request.execution_id.clone();
                 let admitted = state.lock().unwrap().begin_execution(
                     message.request_id.clone(), request, outbound_tx.clone(),
                 );
@@ -217,16 +194,14 @@ pub(crate) async fn run_execution(
                     schedule.send(id)
                         .context("execution dispatcher stopped")?;
                 } else {
-                    wire.send(envelope(message.request_id, Payload::ExecutionResult(ExecutionResult {
-                        execution_id,
+                    wire.send(envelope(message.request_id, Payload::HostExecuteResponse(HostExecuteResponse {
                         status: ExecutionStatus::Failed as i32,
                         traceback: None,
                         error: Some(Failure::new(FailureCode::InstanceBusy)),
                     }))).await?;
                 }
             }
-            outgoing = outbound_rx.recv() => {
-                let outgoing = outgoing.context("outbound channel closed")?;
+            Some(outgoing) = outbound_rx.recv() => {
                 wire.send(outgoing).await?;
             }
         }

@@ -56,7 +56,7 @@ def apply(command):
 
 
 def take(command):
-    return {"request_id": requests.get(timeout=10)["request_id"]}
+    return {"code": requests.get(timeout=10)["code"]}
 
 
 def finish(command):

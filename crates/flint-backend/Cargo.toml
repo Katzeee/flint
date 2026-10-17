@@ -10,6 +10,7 @@ test-runtime = ["flint-contracts/test-runtime"]
 [dependencies]
 thiserror.workspace = true
 flint-contracts = { workspace = true, features = ["protocol"] }
+flint-hosts.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "net", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }
 futures-util = { workspace = true, features = ["sink"] }

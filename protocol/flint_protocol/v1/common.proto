@@ -1,12 +1,11 @@
 syntax = "proto3";
 package flint_protocol.v1;
 
+// Every execution starts running.
 enum ExecutionStatus {
-  EXECUTION_STATUS_UNSPECIFIED = 0;
-  EXECUTION_STATUS_PENDING = 1;
-  EXECUTION_STATUS_RUNNING = 2;
-  EXECUTION_STATUS_SUCCEEDED = 3;
-  EXECUTION_STATUS_FAILED = 4;
+  EXECUTION_STATUS_RUNNING = 0;
+  EXECUTION_STATUS_SUCCEEDED = 1;
+  EXECUTION_STATUS_FAILED = 2;
 }
 
 // Codes are stable, nonempty machine-readable identifiers. Unknown codes are preserved.
@@ -14,22 +13,4 @@ enum ExecutionStatus {
 message Failure {
   string code = 1;
   string message = 2;
-}
-
-message InstanceInfo {
-  string instance_id = 1;
-  string instance_name = 2;
-  string instance_type = 3;
-  uint32 pid = 4;
-  string runtime_version = 5;
-  string bridge_version = 6;
-  // The execution connection is established; this does not mean the instance is idle.
-  bool execution_ready = 7;
-}
-
-message ExecutionResult {
-  string execution_id = 1;
-  ExecutionStatus status = 2;
-  optional string traceback = 3;
-  Failure error = 4;
 }

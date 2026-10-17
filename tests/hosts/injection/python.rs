@@ -139,10 +139,59 @@ fn attaches_a_plain_python_process_and_executes() -> Result<()> {
     );
     anyhow::ensure!(
         instances[0]["pid"].as_u64() == Some(pid as u64)
-            && instances[0]["name"] == "Reattached"
+            && instances[0]["registration"]["name"] == "Reattached"
             && instances[0]["instance_id"] == renamed["instance_id"],
         "attach did not register the new name in the target: {instances:?}"
     );
+
+    // While host code runs the Bridge refuses new settings, and its existing
+    // registration must not make the attach look successful.
+    let release = app.directory.join("release-busy-execution");
+    let code = format!(
+        "import time\nfrom pathlib import Path\nprint('busy', flush=True)\nwhile not Path({}).exists():\n    time.sleep(0.05)",
+        serde_json::json!(release.to_string_lossy().as_ref())
+    );
+    let busy = app.call(
+        "exec",
+        &[
+            "--instance-id",
+            renamed["instance_id"].as_str().unwrap(),
+            "--workflow-id",
+            &workflow,
+            "--detach",
+            "--code",
+            &code,
+        ],
+        0,
+    )?;
+    wait_until(Duration::from_secs(30), || {
+        Ok(app.details(&workflow, &busy, 0)?["stdout"]
+            .as_str()
+            .is_some_and(|stdout| stdout.contains("busy")))
+    })?;
+    let refused = app.call(
+        "attach",
+        &[
+            "--pid",
+            &pid.to_string(),
+            "--host-kind",
+            "standalone_python",
+            "--name",
+            "Reattached",
+        ],
+        1,
+    )?;
+    anyhow::ensure!(
+        refused["error"]["code"] == "attach_failed"
+            && refused["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("executing host code")),
+        "attach must report the busy Bridge's refusal: {refused}"
+    );
+    fs::write(&release, b"release")?;
+    wait_until(Duration::from_secs(30), || {
+        Ok(app.details(&workflow, &busy, 0)?["status"] == "succeeded")
+    })?;
     Ok(())
 }
 

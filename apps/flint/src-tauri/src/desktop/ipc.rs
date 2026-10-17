@@ -1,7 +1,7 @@
 //! Desktop IPC commands and the registry used by both Tauri and binding generation.
 use crate::application::{
-    App, Application, ApplicationInfo, BackendStopped, Failure, GetWorkflowResponse, HostInfo, HostKind, PingResponse,
-    Snapshot, WorkflowSummary,
+    App, Application, ApplicationInfo, BackendStopped, Failure, GetAppInfoResponse, HostKind, PingResponse, Snapshot,
+    Workflow, WorkflowSummary,
 };
 use strum::IntoEnumIterator;
 use tauri_plugin_decoration::WebviewWindowExt;
@@ -18,14 +18,18 @@ pub(super) struct DesktopOpened;
 
 #[tauri::command]
 #[specta::specta]
-async fn host_info(pid: u32, preview: bool) -> Result<HostInfo, Failure> {
-    Application::host_info(pid, preview).await
+async fn app_info(
+    state: tauri::State<'_, Application>,
+    pid: u32,
+    preview: bool,
+) -> Result<GetAppInfoResponse, Failure> {
+    state.app_info(pid, preview).await
 }
 
 #[tauri::command]
 #[specta::specta]
-async fn focus_application(pid: u32) -> Result<(), Failure> {
-    Application::focus_application(pid).await
+async fn focus_app(state: tauri::State<'_, Application>, pid: u32) -> Result<(), Failure> {
+    state.focus_app(pid).await
 }
 
 // A failed activation restores the native frame before it resolves, so either mode leaves a usable window.
@@ -65,7 +69,7 @@ async fn workflows(state: tauri::State<'_, Application>) -> Result<Vec<WorkflowS
 
 #[tauri::command]
 #[specta::specta]
-async fn workflow(state: tauri::State<'_, Application>, id: String) -> Result<GetWorkflowResponse, Failure> {
+async fn workflow(state: tauri::State<'_, Application>, id: String) -> Result<Workflow, Failure> {
     state.workflow(id).await
 }
 
@@ -104,8 +108,8 @@ pub(super) fn bindings() -> tauri_specta::Builder<tauri::Wry> {
             workflow,
             desktop_info,
             bridge_token,
-            host_info,
-            focus_application,
+            app_info,
+            focus_app,
             start_backend,
             stop_backend
         ])

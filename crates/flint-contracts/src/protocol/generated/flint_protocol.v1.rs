@@ -10,54 +10,16 @@ pub struct Failure {
     #[prost(string, tag = "2")]
     pub message: ::prost::alloc::string::String,
 }
-#[derive(serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "typescript", derive(specta::Type))]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct InstanceInfo {
-    #[prost(string, tag = "1")]
-    pub instance_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub instance_name: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub instance_type: ::prost::alloc::string::String,
-    #[prost(uint32, tag = "4")]
-    pub pid: u32,
-    #[prost(string, tag = "5")]
-    pub runtime_version: ::prost::alloc::string::String,
-    #[prost(string, tag = "6")]
-    pub bridge_version: ::prost::alloc::string::String,
-    /// The execution connection is established; this does not mean the instance is idle.
-    #[prost(bool, tag = "7")]
-    pub execution_ready: bool,
-}
-#[derive(serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "typescript", derive(specta::Type))]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ExecutionResult {
-    #[prost(string, tag = "1")]
-    pub execution_id: ::prost::alloc::string::String,
-    #[prost(enumeration = "ExecutionStatus", tag = "2")]
-    #[cfg_attr(feature = "typescript", specta(type = ExecutionStatus))]
-    #[serde(with = "serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>")]
-    pub status: i32,
-    #[prost(string, optional, tag = "3")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub traceback: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(message, optional, tag = "4")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: ::core::option::Option<Failure>,
-}
+/// Every execution starts running.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[serde(rename_all = "snake_case")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ExecutionStatus {
-    Unspecified = 0,
-    Pending = 1,
-    Running = 2,
-    Succeeded = 3,
-    Failed = 4,
+    Running = 0,
+    Succeeded = 1,
+    Failed = 2,
 }
 impl ExecutionStatus {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -66,8 +28,6 @@ impl ExecutionStatus {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Self::Unspecified => "EXECUTION_STATUS_UNSPECIFIED",
-            Self::Pending => "EXECUTION_STATUS_PENDING",
             Self::Running => "EXECUTION_STATUS_RUNNING",
             Self::Succeeded => "EXECUTION_STATUS_SUCCEEDED",
             Self::Failed => "EXECUTION_STATUS_FAILED",
@@ -76,8 +36,6 @@ impl ExecutionStatus {
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "EXECUTION_STATUS_UNSPECIFIED" => Some(Self::Unspecified),
-            "EXECUTION_STATUS_PENDING" => Some(Self::Pending),
             "EXECUTION_STATUS_RUNNING" => Some(Self::Running),
             "EXECUTION_STATUS_SUCCEEDED" => Some(Self::Succeeded),
             "EXECUTION_STATUS_FAILED" => Some(Self::Failed),
@@ -134,16 +92,144 @@ pub struct GetBridgeTokenResponse {
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListInstancesRequest {
-    #[prost(string, optional, tag = "1")]
-    pub instance_type: ::core::option::Option<::prost::alloc::string::String>,
+pub struct Registration {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub runtime_version: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub bridge_version: ::prost::alloc::string::String,
+    /// The execution channel is connected; this does not mean the instance is idle.
+    #[prost(bool, tag = "4")]
+    pub execution_ready: bool,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListInstancesResponse {
+pub struct Candidate {
+    #[prost(string, tag = "1")]
+    pub executable: ::prost::alloc::string::String,
+    /// Attach can inject a Bridge into this process.
+    #[prost(bool, tag = "2")]
+    pub attachable: bool,
+}
+/// A host application as listed: its registration, its discovered process, or both, joined by instance ID.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct App {
+    #[prost(string, tag = "1")]
+    pub instance_id: ::prost::alloc::string::String,
+    /// A host kind, or the identifier an independently loaded Bridge registered.
+    #[prost(string, tag = "2")]
+    pub host: ::prost::alloc::string::String,
+    /// Only meaningful on the backend's machine when local is true.
+    #[prost(uint32, tag = "3")]
+    pub pid: u32,
+    #[prost(bool, tag = "4")]
+    pub local: bool,
+    /// Present while a Bridge is registered.
+    #[prost(message, optional, tag = "5")]
+    pub registration: ::core::option::Option<Registration>,
+    /// Present when discovery recognizes the process on the backend's machine.
+    #[prost(message, optional, tag = "6")]
+    pub candidate: ::core::option::Option<Candidate>,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListAppsRequest {
+    #[prost(string, optional, tag = "1")]
+    pub host: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Registered applications come first.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListAppsResponse {
     #[prost(message, repeated, tag = "1")]
-    pub instances: ::prost::alloc::vec::Vec<InstanceInfo>,
+    pub apps: ::prost::alloc::vec::Vec<App>,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WindowInfo {
+    #[prost(string, tag = "1")]
+    pub title: ::prost::alloc::string::String,
+    #[prost(bool, tag = "2")]
+    pub minimized: bool,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct GetAppInfoRequest {
+    #[prost(uint32, tag = "1")]
+    pub pid: u32,
+    #[prost(bool, tag = "2")]
+    pub preview: bool,
+}
+/// Inspection never changes window state.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetAppInfoResponse {
+    #[prost(message, optional, tag = "1")]
+    pub app: ::core::option::Option<App>,
+    #[prost(message, optional, tag = "2")]
+    pub window: ::core::option::Option<WindowInfo>,
+    /// Set only when requested.
+    #[prost(oneof = "get_app_info_response::Preview", tags = "3, 4")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: ::core::option::Option<get_app_info_response::Preview>,
+}
+/// Nested message and enum types in `GetAppInfoResponse`.
+pub mod get_app_info_response {
+    /// Set only when requested.
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[cfg_attr(feature = "typescript", derive(specta::Type))]
+    #[serde(rename_all = "snake_case")]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Preview {
+        #[prost(bytes, tag = "3")]
+        #[cfg_attr(feature = "typescript", specta(type = String))]
+        #[serde(with = "serde_with::As::<serde_with::base64::Base64>")]
+        Png(::prost::alloc::vec::Vec<u8>),
+        #[prost(string, tag = "4")]
+        UnavailableReason(::prost::alloc::string::String),
+    }
+}
+/// Windows lets the backend take focus only when the foreground process allows it before the request.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct FocusAppRequest {
+    #[prost(uint32, tag = "1")]
+    pub pid: u32,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct FocusAppResponse {}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AttachRequest {
+    #[prost(uint32, tag = "1")]
+    pub pid: u32,
+    /// Overrides the detected host kind.
+    #[prost(string, optional, tag = "2")]
+    pub host_kind: ::core::option::Option<::prost::alloc::string::String>,
+    /// Defaults to the host kind.
+    #[prost(string, optional, tag = "3")]
+    pub name: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// Sent once the injected Bridge registers.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AttachResponse {
+    #[prost(message, optional, tag = "1")]
+    pub app: ::core::option::Option<App>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
@@ -193,18 +279,11 @@ pub struct ListWorkflowsResponse {
     #[prost(message, repeated, tag = "1")]
     pub workflows: ::prost::alloc::vec::Vec<WorkflowSummary>,
 }
+/// Also the backend's workflow record.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetWorkflowRequest {
-    #[prost(string, tag = "1")]
-    pub workflow_id: ::prost::alloc::string::String,
-}
-/// Product data only; storage schema and internal request bookkeeping stay in the backend.
-#[derive(serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "typescript", derive(specta::Type))]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetWorkflowResponse {
+pub struct Workflow {
     #[prost(string, tag = "1")]
     pub workflow_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
@@ -213,8 +292,23 @@ pub struct GetWorkflowResponse {
     pub description: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
     pub created_at: ::prost::alloc::string::String,
+    /// In submission order; execution IDs number them from 0001.
     #[prost(message, repeated, tag = "5")]
-    pub execs: ::prost::alloc::vec::Vec<GetExecutionResponse>,
+    pub execs: ::prost::alloc::vec::Vec<Execution>,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetWorkflowRequest {
+    #[prost(string, tag = "1")]
+    pub workflow_id: ::prost::alloc::string::String,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetWorkflowResponse {
+    #[prost(message, optional, tag = "1")]
+    pub workflow: ::core::option::Option<Workflow>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
@@ -237,6 +331,56 @@ pub struct ExecuteRequest {
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ExecuteResponse {
+    #[prost(string, tag = "1")]
+    pub execution_id: ::prost::alloc::string::String,
+    #[prost(enumeration = "ExecutionStatus", tag = "2")]
+    #[cfg_attr(feature = "typescript", specta(type = ExecutionStatus))]
+    #[serde(with = "serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>")]
+    pub status: i32,
+    #[prost(string, optional, tag = "3")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub traceback: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "4")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: ::core::option::Option<Failure>,
+}
+/// Timestamps preserve the workflow's ISO 8601 text representation.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Execution {
+    #[prost(string, tag = "1")]
+    pub execution_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub instance_id: ::prost::alloc::string::String,
+    #[prost(enumeration = "ExecutionStatus", tag = "4")]
+    #[cfg_attr(feature = "typescript", specta(type = ExecutionStatus))]
+    #[serde(with = "serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>")]
+    pub status: i32,
+    #[prost(string, tag = "5")]
+    pub stdout: ::prost::alloc::string::String,
+    #[prost(string, tag = "6")]
+    pub stderr: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub started_at: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "8")]
+    pub finished_at: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "9")]
+    pub traceback: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "10")]
+    pub error: ::core::option::Option<Failure>,
+    #[prost(string, optional, tag = "11")]
+    pub updated_at: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "12")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetExecutionRequest {
     #[prost(string, tag = "1")]
     pub workflow_id: ::prost::alloc::string::String,
@@ -245,50 +389,21 @@ pub struct GetExecutionRequest {
     #[prost(enumeration = "ExecutionView", tag = "3")]
     pub view: i32,
 }
-/// Timestamps preserve the workflow's ISO 8601 text representation.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetExecutionResponse {
-    #[prost(string, tag = "1")]
-    pub execution_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub workflow_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub name: ::prost::alloc::string::String,
-    #[prost(string, tag = "4")]
-    pub instance_id: ::prost::alloc::string::String,
-    #[prost(enumeration = "ExecutionStatus", tag = "5")]
-    #[cfg_attr(feature = "typescript", specta(type = ExecutionStatus))]
-    #[serde(with = "serde_with::As::<serde_with::TryFromInto<ExecutionStatus>>")]
-    pub status: i32,
-    #[prost(string, tag = "6")]
-    pub stdout: ::prost::alloc::string::String,
-    #[prost(string, tag = "7")]
-    pub stderr: ::prost::alloc::string::String,
-    #[prost(string, tag = "8")]
-    pub started_at: ::prost::alloc::string::String,
-    #[prost(string, optional, tag = "9")]
-    pub finished_at: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(string, optional, tag = "10")]
-    pub traceback: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(message, optional, tag = "11")]
-    pub error: ::core::option::Option<Failure>,
-    #[prost(string, optional, tag = "12")]
-    pub updated_at: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(string, optional, tag = "13")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "1")]
+    pub execution: ::core::option::Option<Execution>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ExecutionView {
-    /// An omitted view is treated as summary.
-    Unspecified = 0,
-    Summary = 1,
-    Full = 2,
+    Summary = 0,
+    /// Includes the submitted code.
+    Full = 1,
 }
 impl ExecutionView {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -297,7 +412,6 @@ impl ExecutionView {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Self::Unspecified => "EXECUTION_VIEW_UNSPECIFIED",
             Self::Summary => "EXECUTION_VIEW_SUMMARY",
             Self::Full => "EXECUTION_VIEW_FULL",
         }
@@ -305,7 +419,6 @@ impl ExecutionView {
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "EXECUTION_VIEW_UNSPECIFIED" => Some(Self::Unspecified),
             "EXECUTION_VIEW_SUMMARY" => Some(Self::Summary),
             "EXECUTION_VIEW_FULL" => Some(Self::Full),
             _ => None,
@@ -320,9 +433,10 @@ pub struct RegisterInstance {
     #[prost(uint32, tag = "1")]
     pub pid: u32,
     #[prost(string, tag = "2")]
-    pub instance_name: ::prost::alloc::string::String,
+    pub name: ::prost::alloc::string::String,
+    /// A host kind, or an identifier outside the built-in set.
     #[prost(string, tag = "3")]
-    pub instance_type: ::prost::alloc::string::String,
+    pub host: ::prost::alloc::string::String,
     /// Host-generated 16-character Base64URL identity of one process lifetime.
     /// Stable across Bridge recreation, reconnects, and backend changes.
     #[prost(string, tag = "4")]
@@ -359,19 +473,14 @@ pub struct SessionRegistered {
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct Ack {}
+/// Output updates and the response echo the request's request_id, which identifies the execution.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HostExecuteRequest {
     #[prost(string, tag = "1")]
-    pub execution_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
     pub code: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub workflow_id: ::prost::alloc::string::String,
-    #[prost(string, optional, tag = "4")]
-    pub execution_name: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(string, optional, tag = "5")]
+    #[prost(string, optional, tag = "2")]
     pub filename: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -379,16 +488,21 @@ pub struct HostExecuteRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecutionOutputUpdate {
     #[prost(string, tag = "1")]
-    pub execution_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub workflow_id: ::prost::alloc::string::String,
-    /// Starts at 1 per execution. Repeated sequences are ignored; a gap closes the connection.
-    #[prost(uint64, tag = "3")]
-    pub sequence: u64,
-    #[prost(string, tag = "4")]
     pub stdout_delta: ::prost::alloc::string::String,
-    #[prost(string, tag = "5")]
+    #[prost(string, tag = "2")]
     pub stderr_delta: ::prost::alloc::string::String,
+}
+/// The status is SUCCEEDED or FAILED.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct HostExecuteResponse {
+    #[prost(enumeration = "ExecutionStatus", tag = "1")]
+    pub status: i32,
+    #[prost(string, optional, tag = "2")]
+    pub traceback: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "3")]
+    pub error: ::core::option::Option<Failure>,
 }
 /// Each frame carries one envelope. Responses and output updates echo request_id.
 /// Any request may be answered with a Failure payload instead of its response.
@@ -402,7 +516,7 @@ pub struct Envelope {
     pub request_id: ::prost::alloc::string::String,
     #[prost(
         oneof = "envelope::Payload",
-        tags = "3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28"
+        tags = "3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35"
     )]
     pub payload: ::core::option::Option<envelope::Payload>,
 }
@@ -413,56 +527,70 @@ pub mod envelope {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Payload {
         #[prost(message, tag = "3")]
-        PingRequest(super::PingRequest),
-        #[prost(message, tag = "4")]
-        PingResponse(super::PingResponse),
-        #[prost(message, tag = "5")]
-        StopBackendRequest(super::StopBackendRequest),
-        #[prost(message, tag = "6")]
-        StopBackendResponse(super::StopBackendResponse),
-        #[prost(message, tag = "7")]
-        ListInstancesRequest(super::ListInstancesRequest),
-        #[prost(message, tag = "8")]
-        ListInstancesResponse(super::ListInstancesResponse),
-        #[prost(message, tag = "9")]
-        StartWorkflowRequest(super::StartWorkflowRequest),
-        #[prost(message, tag = "10")]
-        StartWorkflowResponse(super::StartWorkflowResponse),
-        #[prost(message, tag = "11")]
-        ExecuteRequest(super::ExecuteRequest),
-        #[prost(message, tag = "12")]
-        GetExecutionRequest(super::GetExecutionRequest),
-        #[prost(message, tag = "13")]
-        GetExecutionResponse(super::GetExecutionResponse),
-        #[prost(message, tag = "14")]
         Failure(super::Failure),
-        #[prost(message, tag = "15")]
-        ListWorkflowsRequest(super::ListWorkflowsRequest),
-        #[prost(message, tag = "16")]
-        ListWorkflowsResponse(super::ListWorkflowsResponse),
-        #[prost(message, tag = "17")]
-        GetWorkflowRequest(super::GetWorkflowRequest),
-        #[prost(message, tag = "18")]
-        GetWorkflowResponse(super::GetWorkflowResponse),
-        #[prost(message, tag = "19")]
-        RegisterInstance(super::RegisterInstance),
-        #[prost(message, tag = "20")]
-        RegisterExecutionChannel(super::RegisterExecutionChannel),
-        #[prost(message, tag = "21")]
-        Heartbeat(super::Heartbeat),
-        #[prost(message, tag = "22")]
-        SessionRegistered(super::SessionRegistered),
-        #[prost(message, tag = "23")]
-        Ack(super::Ack),
-        #[prost(message, tag = "24")]
-        HostExecuteRequest(super::HostExecuteRequest),
-        #[prost(message, tag = "25")]
-        ExecutionOutputUpdate(super::ExecutionOutputUpdate),
-        #[prost(message, tag = "26")]
-        ExecutionResult(super::ExecutionResult),
-        #[prost(message, tag = "27")]
+        #[prost(message, tag = "4")]
+        PingRequest(super::PingRequest),
+        #[prost(message, tag = "5")]
+        PingResponse(super::PingResponse),
+        #[prost(message, tag = "6")]
+        StopBackendRequest(super::StopBackendRequest),
+        #[prost(message, tag = "7")]
+        StopBackendResponse(super::StopBackendResponse),
+        #[prost(message, tag = "8")]
         GetBridgeTokenRequest(super::GetBridgeTokenRequest),
-        #[prost(message, tag = "28")]
+        #[prost(message, tag = "9")]
         GetBridgeTokenResponse(super::GetBridgeTokenResponse),
+        #[prost(message, tag = "10")]
+        ListAppsRequest(super::ListAppsRequest),
+        #[prost(message, tag = "11")]
+        ListAppsResponse(super::ListAppsResponse),
+        #[prost(message, tag = "12")]
+        GetAppInfoRequest(super::GetAppInfoRequest),
+        #[prost(message, tag = "13")]
+        GetAppInfoResponse(super::GetAppInfoResponse),
+        #[prost(message, tag = "14")]
+        FocusAppRequest(super::FocusAppRequest),
+        #[prost(message, tag = "15")]
+        FocusAppResponse(super::FocusAppResponse),
+        #[prost(message, tag = "16")]
+        AttachRequest(super::AttachRequest),
+        #[prost(message, tag = "17")]
+        AttachResponse(super::AttachResponse),
+        #[prost(message, tag = "18")]
+        StartWorkflowRequest(super::StartWorkflowRequest),
+        #[prost(message, tag = "19")]
+        StartWorkflowResponse(super::StartWorkflowResponse),
+        #[prost(message, tag = "20")]
+        ListWorkflowsRequest(super::ListWorkflowsRequest),
+        #[prost(message, tag = "21")]
+        ListWorkflowsResponse(super::ListWorkflowsResponse),
+        #[prost(message, tag = "22")]
+        GetWorkflowRequest(super::GetWorkflowRequest),
+        #[prost(message, tag = "23")]
+        GetWorkflowResponse(super::GetWorkflowResponse),
+        #[prost(message, tag = "24")]
+        ExecuteRequest(super::ExecuteRequest),
+        #[prost(message, tag = "25")]
+        ExecuteResponse(super::ExecuteResponse),
+        #[prost(message, tag = "26")]
+        GetExecutionRequest(super::GetExecutionRequest),
+        #[prost(message, tag = "27")]
+        GetExecutionResponse(super::GetExecutionResponse),
+        #[prost(message, tag = "28")]
+        RegisterInstance(super::RegisterInstance),
+        #[prost(message, tag = "29")]
+        RegisterExecutionChannel(super::RegisterExecutionChannel),
+        #[prost(message, tag = "30")]
+        Heartbeat(super::Heartbeat),
+        #[prost(message, tag = "31")]
+        SessionRegistered(super::SessionRegistered),
+        #[prost(message, tag = "32")]
+        Ack(super::Ack),
+        #[prost(message, tag = "33")]
+        HostExecuteRequest(super::HostExecuteRequest),
+        #[prost(message, tag = "34")]
+        ExecutionOutputUpdate(super::ExecutionOutputUpdate),
+        #[prost(message, tag = "35")]
+        HostExecuteResponse(super::HostExecuteResponse),
     }
 }
