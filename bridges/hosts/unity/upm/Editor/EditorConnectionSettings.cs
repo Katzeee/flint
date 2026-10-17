@@ -11,6 +11,7 @@ namespace Flint.Unity
         internal const string AddressKey = "Flint.Bridge.BridgeAddress";
         internal const string PortKey = "Flint.Bridge.BridgePort";
         internal const string NameKey = "Flint.Bridge.InstanceName";
+        internal const string TokenKey = "Flint.Bridge.Token";
 
         [Serializable]
         internal sealed class Values
@@ -18,6 +19,7 @@ namespace Flint.Unity
             public string address;
             public int port;
             public string name;
+            public string token;
         }
 
         internal static Values Read()
@@ -27,6 +29,7 @@ namespace Flint.Unity
                 address = EditorPrefs.GetString(AddressKey, "127.0.0.1"),
                 port = EditorPrefs.GetInt(PortKey, 6321),
                 name = EditorPrefs.GetString(NameKey, "Unity Editor"),
+                token = EditorPrefs.GetString(TokenKey, ""),
             };
         }
 
@@ -39,6 +42,7 @@ namespace Flint.Unity
             EditorPrefs.SetString(AddressKey, values.address);
             EditorPrefs.SetInt(PortKey, values.port);
             EditorPrefs.SetString(NameKey, values.name);
+            EditorPrefs.SetString(TokenKey, (values.token ?? "").Trim());
         }
 
         [MenuItem("Window/Flint Bridge/Connection Settings")]
@@ -117,7 +121,8 @@ namespace Flint.Unity
                                 ? "—" : snapshot.settings.address + ":" + snapshot.settings.port + " · " + snapshot.settings.name);
                             var saved = Read();
                             if (snapshot != null && (saved.address != snapshot.settings.address ||
-                                saved.port != snapshot.settings.port || saved.name != snapshot.settings.name))
+                                saved.port != snapshot.settings.port || saved.name != snapshot.settings.name ||
+                                saved.token != (snapshot.settings.token ?? "")))
                                 EditorGUILayout.LabelField("New settings will take effect on the next connection.", noteStyle);
                             // JsonUtility fills an absent obstacle with empty fields.
                             var obstacle = snapshot?.connection?.obstacle?.message;
@@ -129,6 +134,8 @@ namespace Flint.Unity
                             draft.address = EditorGUILayout.TextField("Bridge address", draft.address);
                             draft.port = EditorGUILayout.IntField("Bridge port", draft.port);
                             draft.name = EditorGUILayout.TextField("Instance name", draft.name);
+                            draft.token = EditorGUILayout.PasswordField(
+                                new GUIContent("Token", "Empty uses this machine's token"), draft.token);
 
                             EditorGUILayout.Space();
                             using (new EditorGUILayout.HorizontalScope())

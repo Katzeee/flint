@@ -26,7 +26,7 @@ namespace Flint.Unity
             var library = NativeLibrary();
             if (library == null) return;
             var settings = EditorConnectionSettings.Read();
-            EditorBridge.Connect(library, settings.address, settings.port, settings.name);
+            EditorBridge.Connect(library, settings.address, settings.port, settings.name, settings.token);
         }
 
         private static void Start()
@@ -34,7 +34,7 @@ namespace Flint.Unity
             var library = NativeLibrary();
             if (library == null) return;
             var settings = EditorConnectionSettings.Read();
-            EditorBridge.Start(library, settings.address, settings.port, settings.name);
+            EditorBridge.Start(library, settings.address, settings.port, settings.name, settings.token);
         }
 
         private static string NativeLibrary()

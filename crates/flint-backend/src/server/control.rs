@@ -52,6 +52,10 @@ fn dispatch(backend: &BackendHandle, request: Payload) -> Result<Payload, Failur
             backend.begin_stop()?;
             Payload::StopBackendResponse(StopBackendResponse {})
         }
+        Payload::GetBridgeTokenRequest(_) => Payload::GetBridgeTokenResponse(GetBridgeTokenResponse {
+            token: flint_contracts::config::bridge_token::load_or_create()
+                .map_err(|error| Failure::caused_by(FailureCode::InternalError, &error))?,
+        }),
         Payload::ListInstancesRequest(req) => list_instances(backend, req),
         Payload::StartWorkflowRequest(req) => {
             let workflow_id = backend.0.store.create(req.name, req.description)?;

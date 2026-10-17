@@ -69,9 +69,13 @@ class ConnectionPanel(QtWidgets.QDialog):
         self.port.setRange(1, 65535)
         self.port.setValue(settings["port"])
         self.name = QtWidgets.QLineEdit(settings["name"])
+        self.token = QtWidgets.QLineEdit(settings["token"])
+        self.token.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.token.setPlaceholderText("This machine's token")
         form_layout.addRow("Bridge address", self.address)
         form_layout.addRow("Bridge port", self.port)
         form_layout.addRow("Instance name", self.name)
+        form_layout.addRow("Token", self.token)
         layout.addWidget(form)
 
         buttons = QtWidgets.QHBoxLayout()
@@ -111,7 +115,7 @@ class ConnectionPanel(QtWidgets.QDialog):
         try:
             if not self.address.text().strip() or not self.name.text().strip():
                 raise ValueError("Address and instance name are required")
-            self._apply_settings(self.address.text(), self.port.value(), self.name.text())
+            self._apply_settings(self.address.text(), self.port.value(), self.name.text(), self.token.text().strip())
             self._action_error = None
         except Exception as problem:
             self._action_error = str(problem)

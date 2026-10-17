@@ -16,13 +16,14 @@ def _settings_path():
 
 def settings():
     path = _settings_path()
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    return {"address": "127.0.0.1", "port": 6321, "name": "Houdini"}
+    saved = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    return {"address": "127.0.0.1", "port": 6321, "name": "Houdini", "token": "", **saved}
 
 
-def apply_settings(address, port, name):
-    _settings_path().write_text(json.dumps({"address": address, "port": int(port), "name": name}), encoding="utf-8")
+def apply_settings(address, port, name, token):
+    _settings_path().write_text(
+        json.dumps({"address": address, "port": int(port), "name": name, "token": token}), encoding="utf-8"
+    )
 
 
 def initialize():

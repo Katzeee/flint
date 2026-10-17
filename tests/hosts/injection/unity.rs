@@ -62,7 +62,7 @@ public static class FlintReload
         var bridge = AppDomain.CurrentDomain.GetAssemblies()
             .Select(assembly => assembly.GetType("Flint.Unity.EditorBridge")).FirstOrDefault(type => type != null);
         if (command == "rename")
-            bridge.GetMethod("ApplySettings").Invoke(null, new object[] {{ "127.0.0.1", {port}, "Reloaded Unity" }});
+            bridge.GetMethod("ApplySettings").Invoke(null, new object[] {{ "127.0.0.1", {port}, "Reloaded Unity", "" }});
         if (command == "disconnect" && !(bool)bridge.GetMethod("Disconnect").Invoke(null, null))
             throw new Exception("Idle Bridge refused disconnect");
         EditorUtility.RequestScriptReload();

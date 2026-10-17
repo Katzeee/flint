@@ -85,7 +85,7 @@ A request to a Bridge, or to start one, that was refused without changing any st
 The host-side code that supplies its application's execution capabilities, along with its startup, settings storage, and teardown.
 
 **Backend**:
-The single local service for the current user that accepts control commands and Bridge connections, coordinates executions, and owns workflow records. CLI sessions and the desktop reuse this service independently of their working directory.
+The single local service for the current user that accepts control commands and Bridge connections, coordinates executions, and owns workflow records. CLI sessions and the desktop reuse this service independently of their working directory. Bridges on other machines may register with it; only this machine controls it.
 _Avoid_: Server or core when referring to this service as a whole.
 
 **Backend lease**:
@@ -114,7 +114,7 @@ The component of the CLI and desktop that sends a command to the backend and rec
 _Avoid_: Client without qualification.
 
 **Listen address**:
-The local IP address and port on which the backend accepts connections. A wildcard listen address is not a connection target.
+The local IP address and port on which the backend accepts connections. A wildcard listen address is not a connection target: a Bridge on this machine connects through loopback, and one on another machine through one of this machine's network addresses.
 
 **Control endpoint**:
 The backend address and port used by control clients to send commands.

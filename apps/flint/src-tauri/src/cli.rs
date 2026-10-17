@@ -100,6 +100,8 @@ enum BridgeCommand {
         #[arg(long, help = "Defaults to flint-<target>.<format> in the current directory")]
         output: Option<PathBuf>,
     },
+    /// Print the token a Bridge on another machine enters to register with this backend.
+    Token,
 }
 fn export_target_parser() -> impl TypedValueParser<Value = ExportTarget> {
     clap::builder::PossibleValuesParser::new(Application::export_targets().into_iter().map(ExportTarget::name))
@@ -161,6 +163,9 @@ enum Output {
     },
     Execution(application::GetExecutionResponse),
     Exported(application::ExportResult),
+    Token {
+        token: String,
+    },
     Host(application::HostInfo),
     Focused {
         pid: u32,
@@ -346,6 +351,11 @@ async fn dispatch(command: Command, execute: Option<ExecuteRequest>) -> Result<O
         Command::Bridge {
             command: BridgeCommand::Export { target, output },
         } => Output::Exported(Application::export_bridge(target, output).await?),
+        Command::Bridge {
+            command: BridgeCommand::Token,
+        } => Output::Token {
+            token: running_application().await?.bridge_token().await?,
+        },
         Command::Serve | Command::Gui => unreachable!("handled before dispatch"),
     })
 }

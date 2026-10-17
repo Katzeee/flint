@@ -11,7 +11,7 @@ import {
   type CairnAppearance,
 } from "@cairn/ui";
 import { useState } from "react";
-import { readDesktopInfo } from "./backend.js";
+import { type BackendStatus, readBridgeToken, readDesktopInfo } from "./backend.js";
 import { useResource } from "./resource.js";
 import { ErrorNotice } from "./shared.js";
 
@@ -19,7 +19,7 @@ export function Settings({
   appearance,
   onAppearanceChange,
   preferenceError,
-  ready,
+  backend,
   busy,
   error,
   changeBackend,
@@ -27,14 +27,27 @@ export function Settings({
   appearance: CairnAppearance;
   onAppearanceChange: (appearance: CairnAppearance) => void;
   preferenceError: string;
-  ready: boolean;
+  backend: BackendStatus | null;
   busy: "start" | "stop" | null;
   error: string;
   changeBackend: (operation: "start" | "stop") => Promise<void>;
 }>) {
   const info = useResource("desktop-info", readDesktopInfo);
+  const ready = backend !== null;
   const [confirmStop, setConfirmStop] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
   const pending = info.loading && !info.data ? "Loading…" : "Unavailable";
+  const copyToken = async () => {
+    try {
+      await navigator.clipboard.writeText(await readBridgeToken());
+      setCopyError("");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (error) {
+      setCopyError(error instanceof Error ? error.message : String(error));
+    }
+  };
   return (
     <>
       <PageBar.Root>
@@ -99,13 +112,41 @@ export function Settings({
             <List.Item trailing={info.data ? <Code>{info.data.control_endpoint}</Code> : pending}>
               Control endpoint
             </List.Item>
-            <List.Item trailing={info.data ? <Code>{info.data.bridge_endpoint}</Code> : pending}>
-              Bridge endpoint
-            </List.Item>
             <List.Item trailing={info.data?.state_dir ?? pending}>Data directory</List.Item>
           </List.Section>
           <ErrorNotice error={error} />
           <ErrorNotice error={info.error} retry={info.reload} />
+
+          <List.Section
+            title="Remote Bridges"
+            description="On another machine, enter one of these addresses, the port, and the token in the Bridge's connection settings."
+          >
+            {backend ? (
+              backend.bridge_addresses.length > 0 ? (
+                backend.bridge_addresses.map((network) => (
+                  <List.Item key={`${network.interface}/${network.address}`} trailing={<Code>{network.address}</Code>}>
+                    {network.interface}
+                  </List.Item>
+                ))
+              ) : (
+                <List.Item trailing="None">Network addresses</List.Item>
+              )
+            ) : (
+              <List.Item trailing="Backend not running">Network addresses</List.Item>
+            )}
+            <List.Item trailing={backend ? <Code>{backend.bridge_port}</Code> : "—"}>Port</List.Item>
+            <List.Item
+              description="Bridges on this machine use it automatically."
+              trailing={
+                <Button disabled={!ready} size="sm" variant="secondary" onClick={() => void copyToken()}>
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              }
+            >
+              Token
+            </List.Item>
+          </List.Section>
+          <ErrorNotice error={copyError} />
 
           <List.Section title="About">
             <List.Item trailing={info.data?.version ?? pending}>Version</List.Item>

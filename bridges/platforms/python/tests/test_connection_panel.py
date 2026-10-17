@@ -8,7 +8,7 @@ def panel_module(qapp):
     return connection_panel
 
 
-SETTINGS = {"address": "127.0.0.1", "port": 6321, "name": "Maya"}
+SETTINGS = {"address": "127.0.0.1", "port": 6321, "name": "Maya", "token": ""}
 
 
 def retrying(message):
@@ -87,8 +87,8 @@ def test_apply_saves_without_reconnecting_and_connect_uses_saved_settings(panel_
     snapshot = {"value": retrying("connection refused")}
     starts = []
 
-    def save(address, port, name):
-        saved.update(address=address, port=port, name=name)
+    def save(address, port, name, token):
+        saved.update(address=address, port=port, name=name, token=token)
 
     def disconnect():
         snapshot["value"] = None
@@ -133,7 +133,9 @@ def test_apply_saves_without_reconnecting_and_connect_uses_saved_settings(panel_
 
     # Saving while disconnected does not implicitly connect.
     panel.connection_button.click()
+    panel.token.setText(" remote ")
     panel.apply_button.click()
     assert saved["port"] == 6321
+    assert saved["token"] == "remote"
     assert snapshot["value"] is None
     assert len(starts) == 1

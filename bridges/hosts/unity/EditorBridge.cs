@@ -26,24 +26,24 @@ namespace Flint.Unity
             ReflectionApi.Subscribe(UnityRuntime.Editor, null, "quitting", _ => manager.Dispose());
         }
 
-        private static HostSettings Settings(string address, int port, string name)
+        private static HostSettings Settings(string address, int port, string name, string token)
         {
-            return new HostSettings { Address = address, Port = port, Name = name };
+            return new HostSettings { Address = address, Port = port, Name = name, Token = token };
         }
 
         public static bool Connected { get { return manager.Connected; } }
         public static bool Busy { get { return manager.Busy; } }
         public static string StatusJson { get { return manager.StatusJson; } }
 
-        public static void Connect(string nativeLibrary, string address, int port, string name)
+        public static void Connect(string nativeLibrary, string address, int port, string name, string token)
         {
-            manager.Connect(nativeLibrary, Settings(address, port, name));
+            manager.Connect(nativeLibrary, Settings(address, port, name, token));
             SaveConnection();
         }
 
-        public static void ApplySettings(string address, int port, string name)
+        public static void ApplySettings(string address, int port, string name, string token)
         {
-            manager.Configure(Settings(address, port, name));
+            manager.Configure(Settings(address, port, name, token));
             SaveConnection();
         }
 
@@ -56,9 +56,9 @@ namespace Flint.Unity
         }
 
         // The package supplies defaults only on the first startup in this Editor session.
-        public static void Start(string nativeLibrary, string address, int port, string name)
+        public static void Start(string nativeLibrary, string address, int port, string name, string token)
         {
-            if (ReadConnection().Length == 0) Connect(nativeLibrary, address, port, name);
+            if (ReadConnection().Length == 0) Connect(nativeLibrary, address, port, name, token);
             else Restore();
         }
 
@@ -88,7 +88,8 @@ namespace Flint.Unity
                 if (json.Length == 0) return;
                 var saved = Json.Read<SavedConnection>(json);
                 if (saved.Settings == null) return;
-                Connect(saved.Library, saved.Settings.Address, saved.Settings.Port, saved.Settings.Name);
+                Connect(saved.Library, saved.Settings.Address, saved.Settings.Port, saved.Settings.Name,
+                    saved.Settings.Token);
             }
             catch (Exception error)
             {

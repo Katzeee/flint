@@ -3,14 +3,21 @@ package flint_protocol.v1;
 import "flint_protocol/v1/common.proto";
 
 message PingRequest {}
+message NetworkAddress {
+  string interface = 1;
+  string address = 2;
+}
 message PingResponse {
   bool ready = 1;
   uint32 pid = 2;
-  string bridge_address = 3;
+  // Where Bridges reach the backend; a wildcard listen address yields this machine's network addresses.
+  repeated NetworkAddress bridge_addresses = 3;
   uint32 bridge_port = 4;
 }
 message StopBackendRequest {}
 message StopBackendResponse {}
+message GetBridgeTokenRequest {}
+message GetBridgeTokenResponse { string token = 1; }
 
 message ListInstancesRequest { optional string instance_type = 1; }
 message ListInstancesResponse { repeated InstanceInfo instances = 1; }

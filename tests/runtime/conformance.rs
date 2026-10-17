@@ -72,7 +72,7 @@ impl Driver {
 }
 
 fn settings(port: u16, name: &str) -> Value {
-    json!({"address": "127.0.0.1", "port": port, "name": name})
+    json!({"address": "127.0.0.1", "port": port, "name": name, "token": ""})
 }
 
 fn config(host: &str, port: u16) -> Value {
@@ -120,18 +120,28 @@ pub fn verify_host_entry(app: &App, host: &str, mut driver: Driver) -> Result<()
     );
     let original = driver.status_until("connected")?["instance_id"].clone();
 
+    let mut refused = settings(app.bridge_port, "conformance");
+    refused["token"] = "incorrect-remote-token".into();
+    assert_eq!(
+        driver.call(json!({"op": "apply", "settings": refused}))?,
+        json!({"applied": true})
+    );
+    assert_eq!(driver.call(json!({"op": "status"}))?["settings"], refused);
+    let retrying = driver.status_until("retrying")?;
+    assert_eq!(retrying["connection"]["obstacle"]["kind"], "registration", "{retrying}");
+
     // Reattaching applies settings through the real host entry, including when
     // registration must move to a different backend.
     let destination = App::new();
     destination.call("start", &[], 0)?;
-    let attached = driver.call(json!({"op": "attach", "settings": settings(destination.bridge_port, "reattached")}))?;
+    let mut reattached = settings(destination.bridge_port, "reattached");
+    reattached["token"] = destination.call("bridge", &["token"], 0)?["token"].clone();
+    let attached = driver.call(json!({"op": "attach", "settings": reattached}))?;
     let moved = destination.await_instance(host, None)?;
     assert_eq!(attached["instance_id"], moved["instance_id"]);
     assert_eq!(attached["instance_id"], original);
-    assert_eq!(
-        driver.call(json!({"op": "attach", "settings": settings(destination.bridge_port, "reattached")}))?,
-        attached
-    );
+    assert_eq!(driver.call(json!({"op": "status"}))?["settings"], reattached);
+    assert_eq!(driver.call(json!({"op": "attach", "settings": reattached}))?, attached);
     driver.call(json!({"op": "attach", "settings": settings(app.bridge_port, "conformance")}))?;
 
     verify_invalid_settings(app, &mut driver)?;

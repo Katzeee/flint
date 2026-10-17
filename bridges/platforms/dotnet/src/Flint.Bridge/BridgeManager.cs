@@ -54,8 +54,9 @@ namespace Flint.Bridge
                 {
                     bridge.CheckRunning();
                     var current = Json.Read<BridgeStatus>(bridge.StatusJson).Settings;
-                    if (current.Address != settings.Address || current.Port != settings.Port)
-                        throw new InvalidOperationException("Disconnect the existing Bridge before changing its endpoint");
+                    if (current.Address != settings.Address || current.Port != settings.Port ||
+                        (current.Token ?? "") != (settings.Token ?? ""))
+                        throw new InvalidOperationException("Disconnect the existing Bridge before changing its endpoint or token");
                     return;
                 }
                 library = nativeLibrary;

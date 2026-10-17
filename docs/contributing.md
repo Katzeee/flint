@@ -2,6 +2,8 @@
 
 Prepare a Windows checkout and verify the first build with the [environment guide](development.md).
 
+This guide records conventions that outlast individual changes: where code belongs, how failures cross boundaries, and how changes are verified. Product behavior lives in the code, the [glossary](../CONTEXT.md), and the [README](../README.md); a change that alters behavior updates those.
+
 ## Ownership
 
 Place a type or behavior in the component that defines its meaning, using the [glossary](../CONTEXT.md) to resolve terms; callers depend on that owner. Within a crate, modules and visibility express ownership.
@@ -16,10 +18,10 @@ Other product code belongs in a module of the crate that owns its meaning, inclu
 
 | Crate | Reason | Owns |
 |---|---|---|
-| `crates/flint-contracts` | Contract | Shared contracts for protocol, attach, host settings, runtime configuration, and cross-process coordination |
-| `crates/flint-backend` | Service | The backend service: control and Bridge listeners, request dispatch, connected instances, executions, and workflow records |
+| `crates/flint-contracts` | Contract | What separately built binaries exchange, and the runtime configuration they share |
+| `crates/flint-backend` | Service | The backend service: listeners, request dispatch, connected instances, executions, and workflow records |
 | `crates/flint-hosts` | Service | Host discovery and inspection, window operations, Bridge packaging, and bootstrap injection |
-| `crates/flint-bridge-core` | Artifact | Bridge core and its C ABI for host adapters, and the process claim that limits a host process to one Bridge |
+| `crates/flint-bridge-core` | Artifact | Bridge core and its C ABI for host adapters |
 | `crates/flint-bridge-bootstrap` | Artifact | Starting the platform's Bridge entry inside an injected host runtime |
 | `apps/flint/src-tauri` | Artifact | The product API, CLI commands, the control client and local backend lifecycle, Tauri window, tray, and IPC |
 
@@ -27,15 +29,9 @@ Dependencies stay acyclic and follow ownership. Tauri and UI dependencies stay i
 
 Expose product operations through `application` in `apps/flint/src-tauri`, independently of terminal input and window presentation. CLI and Tauri commands call this API. Use the single runtime configuration entry in `flint-contracts::config` for the application and its backend child; callers supply no per-invocation overrides. Local host inspection, focus, and export remain independent of the backend and its configuration; backend operations use the control protocol.
 
-API queries never start a backend; startup and shutdown are explicit operations. Frontends ensure it is running for CLI commands that need it and for opening or reopening the desktop. Status queries and polling leave a stopped backend stopped. Attach establishes a backend before injecting a Bridge.
+The CLI owns terminal input, output, and exit codes. Backend service hosting belongs to the application API and runs without a desktop event loop.
 
-Discovery identifies host processes, including batch-mode editors, and excludes recognized internal workers; a visible window does not make a process a host candidate.
-
-The CLI owns terminal input, output, and exit codes. Keep the desktop and backend lifetimes independent. Backend service hosting belongs to the application API and runs without a desktop event loop.
-
-Backend listen addresses describe local interfaces; application control and local injection explicitly target loopback. Host connection settings accept IP addresses or domain names and may target a remote backend.
-
-Config owns directory policy and cross-process coordination; consumers own other filesystem operations. Serialize backend lifecycle operations and lease checks through the lifecycle lock; status queries remain independent of it. Bootstrap execution must not depend on the host's directory configuration. Bridge process claims span backend endpoints and isolated test runtime roots so one host process cannot acquire multiple Bridges through different configurations. The Bridge token spans them the same way, so test Bridges authenticate with the token they would use in production.
+Config owns directory policy and cross-process coordination; consumers own other filesystem operations. Bootstrap execution must not depend on the host's directory configuration.
 
 ## Desktop interface
 
@@ -45,13 +41,13 @@ GUI tests use the desktop's content security policy and fail on violations.
 
 ## Workflow records
 
-Workflow files own durable state; live connections and pending requests are transient. Execution records own the facts used by workflow summaries; counts and participating instances are computed when summaries are read, rather than persisted separately. After a backend restart, Bridges reconnect, and interrupted executions have an unknown host outcome and must not be replayed automatically. A workflow file that cannot be read, because it is corrupt, uses an unsupported schema version, or records values its schema does not accept, fails only the operations that need that workflow; the backend still starts and serves the others. Flint has not released a workflow format, so files from older schema versions are unsupported rather than migrated.
+Workflow files own durable state; live connections and pending requests are transient. Execution records own the facts used by workflow summaries; derived values are computed when summaries are read, rather than persisted separately. A workflow file that cannot be read fails only the operations that need that workflow. Flint has not released a workflow format, so files from older schema versions are unsupported rather than migrated.
 
 ## Bridge
 
-Bridge integrations live under `bridges/hosts` and compose reusable capabilities from `bridges/platforms`. A capability that another host on the same platform can use belongs to the platform, even when it currently has one consumer. Hosts own application-specific startup, dispatch, settings storage, teardown, and delivery. Platform components depend on capabilities supplied by the host rather than selecting concrete hosts. Package loading and external attach converge on the same host adapter. When a scripting domain reloads, the bootstrap re-enters an attached adapter, and the host decides whether its Bridge resumes; an adapter the host loaded itself handles its own reloads. Source ownership and distribution boundaries are independent.
+Bridge integrations live under `bridges/hosts` and compose reusable capabilities from `bridges/platforms`. A capability that another host on the same platform can use belongs to the platform, even when it currently has one consumer. Hosts own application-specific startup, dispatch, settings storage, teardown, and delivery. Platform components depend on capabilities supplied by the host rather than selecting concrete hosts. Package loading and external attach converge on the same host adapter. Source ownership and distribution boundaries are independent.
 
-Persist only the connection target and instance name; connection state is transient. A host whose scripting domain reloads within one process may carry its active settings, and whether its Bridge was explicitly disconnected, across that reload. Bridge creation failures leave the settings UI available and report the reason through the host's diagnostics.
+Hosts persist their host settings; connection state is transient. Bridge creation failures leave the settings UI available and report the reason through the host's diagnostics.
 
 Runtime code supports the versions declared by its package, independently of the interpreter used by build tooling.
 

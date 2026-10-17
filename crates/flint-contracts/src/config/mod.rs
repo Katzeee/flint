@@ -25,11 +25,23 @@ pub struct Endpoints {
     pub bridge: SocketAddr,
 }
 
-impl Endpoints {
-    pub fn local(control_port: u16, bridge_port: u16) -> Self {
+/// Bridges on other machines may register; control stays on this machine.
+impl Default for Endpoints {
+    fn default() -> Self {
         Self {
-            control: (Ipv4Addr::LOCALHOST, control_port).into(),
-            bridge: (Ipv4Addr::LOCALHOST, bridge_port).into(),
+            control: (Ipv4Addr::LOCALHOST, 6322).into(),
+            bridge: (Ipv4Addr::UNSPECIFIED, 6321).into(),
+        }
+    }
+}
+
+impl Endpoints {
+    /// Where a Bridge on this machine connects; a wildcard listen address is not a target.
+    pub fn bridge_target(&self) -> SocketAddr {
+        if self.bridge.ip().is_unspecified() {
+            (Ipv4Addr::LOCALHOST, self.bridge.port()).into()
+        } else {
+            self.bridge
         }
     }
 }
@@ -37,12 +49,12 @@ impl Endpoints {
 impl Config {
     pub fn load() -> Result<Self> {
         #[cfg(not(feature = "test-runtime"))]
-        let (root, control_port, bridge_port) = (user_directory()?, 6322, 6321);
+        let (root, endpoints) = (user_directory()?, Endpoints::default());
         #[cfg(feature = "test-runtime")]
-        let (root, control_port, bridge_port) = test_runtime()?;
+        let (root, endpoints) = test_runtime()?;
 
         Ok(Self {
-            endpoints: Endpoints::local(control_port, bridge_port),
+            endpoints,
             timeout: Duration::from_secs(30),
             state: StateDir::new(root),
         })
@@ -50,7 +62,7 @@ impl Config {
 }
 
 #[cfg(feature = "test-runtime")]
-fn test_runtime() -> Result<(PathBuf, u16, u16)> {
+fn test_runtime() -> Result<(PathBuf, Endpoints)> {
     let root = PathBuf::from(std::env::var_os("FLINT_TEST_ROOT").context("test build requires FLINT_TEST_ROOT")?);
     anyhow::ensure!(
         root.is_absolute() && root.is_dir(),
@@ -69,7 +81,12 @@ fn test_runtime() -> Result<(PathBuf, u16, u16)> {
     let control_port = port("FLINT_TEST_CONTROL_PORT")?;
     let bridge_port = port("FLINT_TEST_BRIDGE_PORT")?;
     anyhow::ensure!(control_port != bridge_port, "test endpoints must use different ports");
-    Ok((root, control_port, bridge_port))
+    // Isolated runtimes stay on loopback: no firewall prompt and no exposure to the network.
+    let endpoints = Endpoints {
+        control: (Ipv4Addr::LOCALHOST, control_port).into(),
+        bridge: (Ipv4Addr::LOCALHOST, bridge_port).into(),
+    };
+    Ok((root, endpoints))
 }
 
 fn user_directory() -> io::Result<PathBuf> {

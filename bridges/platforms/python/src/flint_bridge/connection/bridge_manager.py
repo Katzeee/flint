@@ -22,34 +22,37 @@ class BridgeManager:
     create_execution: Callable[[], ExecutionCapabilities]
     dispatch_initialization: Callable[[Callable[[], None]], None]
 
-    def connect(self, address="127.0.0.1", port=6321, name=None):
-        """Reuse a matching Bridge or bind this host's execution capabilities."""
+    def connect(self, address="127.0.0.1", port=6321, name=None, token=""):
+        """Reuse a matching Bridge or bind this host's execution capabilities.
+
+        An empty token presents this machine's Bridge token.
+        """
         lock = sys.__dict__.setdefault(_LOCK, threading.RLock())
         with lock:
             current = getattr(sys, _SERVICE, None)
             if current is not None:
                 current.check_running()
-                if (current.host, current.address, current.port) != (self.host, address, port):
-                    raise RuntimeError("Disconnect the existing bridge before changing its endpoint or host")
+                if (current.host, current.address, current.port, current.token) != (self.host, address, port, token):
+                    raise RuntimeError("Disconnect the existing bridge before changing its endpoint, token, or host")
                 return current
             capabilities = self.create_execution()
-            bridge = Bridge(capabilities, self.host, address, port, self.host if name is None else name)
+            bridge = Bridge(capabilities, self.host, address, port, self.host if name is None else name, token)
             setattr(sys, _SERVICE, bridge)
             return bridge
 
-    def configure(self, address="127.0.0.1", port=6321, name=None):
+    def configure(self, address="127.0.0.1", port=6321, name=None, token=""):
         """Apply settings without replacing the existing execution adapter."""
         lock = sys.__dict__.setdefault(_LOCK, threading.RLock())
         with lock:
             current = getattr(sys, _SERVICE, None)
             if current is None:
-                return self.connect(address, port, name)
+                return self.connect(address, port, name, token)
             if current.host != self.host:
                 raise RuntimeError("Disconnect the existing host Bridge before changing host type")
-            current.apply_settings(address, port, current.name if name is None else name)
+            current.apply_settings(address, port, current.name if name is None else name, token)
             return current
 
-    def attach(self, address="127.0.0.1", port=6321, name=None, timeout=20):
+    def attach(self, address="127.0.0.1", port=6321, name=None, token="", timeout=20):
         """Schedule connection on the host thread and wait for registration.
 
         Call from a worker thread when the host scheduler queues work onto its
@@ -62,7 +65,7 @@ class BridgeManager:
             if not attempt.set_running_or_notify_cancel():
                 return
             try:
-                bridge = self.configure(address, port, name)
+                bridge = self.configure(address, port, name, token)
             except BaseException as error:
                 attempt.set_exception(error)
             else:

@@ -9,6 +9,7 @@ _KEYS = {
     "address": ("flint_bridge_address", "127.0.0.1"),
     "port": ("flint_bridge_port", 6321),
     "name": ("flint_instance_name", "Maya"),
+    "token": ("flint_bridge_token", ""),
 }
 _MENU = "FlintBridgeMenu"
 _loaded = False
@@ -23,12 +24,13 @@ def settings():
     return values
 
 
-def apply_settings(address, port, name):
+def apply_settings(address, port, name, token):
     """Persist settings for the next connection."""
     port = int(port)
     cmds.optionVar(stringValue=(_KEYS["address"][0], address))
     cmds.optionVar(intValue=(_KEYS["port"][0], port))
     cmds.optionVar(stringValue=(_KEYS["name"][0], name))
+    cmds.optionVar(stringValue=(_KEYS["token"][0], token))
 
 
 def reconnect():
@@ -72,9 +74,8 @@ def _install_menu():
 
 def initialize():
     global _loaded
-    values = settings()
     try:
-        manager.connect(address=values["address"], port=values["port"], name=values["name"])
+        manager.connect(**settings())
     except BridgeCreationError as error:
         # The settings panel stays available so the user can start it with Connect.
         cmds.warning("Flint Bridge did not start: {}".format(error))

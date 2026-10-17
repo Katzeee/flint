@@ -11,6 +11,7 @@ export const commands = {
 	workflows: () => __TAURI_INVOKE<WorkflowSummary[]>("workflows"),
 	workflow: (id: string) => __TAURI_INVOKE<GetWorkflowResponse_Serialize>("workflow", { id }),
 	desktopInfo: () => __TAURI_INVOKE<ApplicationInfo>("desktop_info"),
+	bridgeToken: () => __TAURI_INVOKE<string>("bridge_token"),
 	hostInfo: (pid: number, preview: boolean) => __TAURI_INVOKE<HostInfo_Serialize>("host_info", { pid, preview }),
 	focusApplication: (pid: number) => __TAURI_INVOKE<null>("focus_application", { pid }),
 	startBackend: () => __TAURI_INVOKE<PingResponse>("start_backend"),
@@ -45,7 +46,6 @@ export type App = {
 export type ApplicationInfo = {
 	version: string,
 	control_endpoint: string,
-	bridge_endpoint: string,
 	state_dir: string,
 	attach_supported: boolean,
 };
@@ -153,10 +153,16 @@ export type HostInfo_Serialize = {
  */
 export type HostKind = "maya" | "max" | "blender" | "houdini" | "unity" | "standalone_python" | "standalone_csharp";
 
+export type NetworkAddress = {
+	interface: string,
+	address: string,
+};
+
 export type PingResponse = {
 	ready: boolean,
 	pid: number,
-	bridge_address: string,
+	/**  Where Bridges reach the backend; a wildcard listen address yields this machine's network addresses. */
+	bridge_addresses: NetworkAddress[],
 	bridge_port: number,
 };
 

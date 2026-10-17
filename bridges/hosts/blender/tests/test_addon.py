@@ -32,8 +32,8 @@ def load_addon(monkeypatch, connect):
         register_class=lambda klass: registered.__setitem__(registration_key(klass), klass),
         unregister_class=lambda klass: registered.pop(registration_key(klass)),
     )
-    preferences = SimpleNamespace(address="127.0.0.1", port=6321, instance_name="Blender")
-    draft = SimpleNamespace(address="127.0.0.1", port=6321, instance_name="Blender")
+    preferences = SimpleNamespace(address="127.0.0.1", port=6321, instance_name="Blender", token="")
+    draft = SimpleNamespace(address="127.0.0.1", port=6321, instance_name="Blender", token="")
     bpy.context = SimpleNamespace(
         window_manager=SimpleNamespace(flint_bridge_draft=draft, windows=[]),
         preferences=SimpleNamespace(addons={"flint_blender": SimpleNamespace(preferences=preferences)}),
@@ -79,9 +79,11 @@ def test_a_bridge_that_cannot_start_leaves_the_addon_usable(monkeypatch, capsys)
         assert registered["FLINT_PT_connection"] is addon.FLINT_PT_connection
         assert hasattr(bpy.types.WindowManager, "flint_bridge_draft")
         draft.port = 6330
+        draft.token = " remote "
         apply = registered["flint_bridge.apply_settings"]()
         assert apply.execute(bpy.context) == {"FINISHED"}
         assert preferences.port == 6330
+        assert preferences.token == "remote"
         assert len(events) == 1
         draft.port = 6331
         assert registered["flint_bridge.connect"]().execute(bpy.context) == {"FINISHED"}
@@ -91,7 +93,7 @@ def test_a_bridge_that_cannot_start_leaves_the_addon_usable(monkeypatch, capsys)
     assert registered == {}
     assert not hasattr(bpy.types.WindowManager, "flint_bridge_draft")
     assert events == [
-        ("connect", {"address": "127.0.0.1", "port": 6321, "name": "Blender"}),
-        ("connect", {"address": "127.0.0.1", "port": 6330, "name": "Blender"}),
+        ("connect", {"address": "127.0.0.1", "port": 6321, "name": "Blender", "token": ""}),
+        ("connect", {"address": "127.0.0.1", "port": 6330, "name": "Blender", "token": "remote"}),
         ("disconnect",),
     ]

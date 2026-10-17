@@ -18,6 +18,10 @@ class FlintBridgeDraft(bpy.types.PropertyGroup):
     address: StringProperty(name="Bridge address", default="127.0.0.1")
     port: IntProperty(name="Bridge port", default=6321, min=1, max=65535)
     instance_name: StringProperty(name="Instance name", default="Blender")
+    token: StringProperty(name="Token", default="", subtype="PASSWORD", description="Empty uses this machine's token")
+
+
+_FIELDS = ("address", "port", "instance_name", "token")
 
 
 def _kv_row(layout, label, label_fraction):
@@ -62,7 +66,12 @@ def _draw_controls(layout, context):
             text="{}:{} · {}".format(active["address"], active["port"], active["name"])
         )
         saved = context.preferences.addons[__name__].preferences
-        if (saved.address, saved.port, saved.instance_name) != (active["address"], active["port"], active["name"]):
+        if (saved.address, saved.port, saved.instance_name, saved.token) != (
+            active["address"],
+            active["port"],
+            active["name"],
+            active["token"],
+        ):
             _draw_note(connection, context, "New settings will take effect on the next connection.")
         obstacle = snapshot["connection"].get("obstacle")
         if obstacle:
@@ -77,6 +86,7 @@ def _draw_controls(layout, context):
         ("Bridge address", "address"),
         ("Bridge port", "port"),
         ("Instance name", "instance_name"),
+        ("Token", "token"),
     ):
         _kv_row(settings, label, label_fraction).prop(draft, field, text="")
     row = layout.row()
@@ -95,6 +105,7 @@ class FlintBridgePreferences(bpy.types.AddonPreferences):
     address: StringProperty(default="127.0.0.1", options={"HIDDEN"})
     port: IntProperty(default=6321, min=1, max=65535, options={"HIDDEN"})
     instance_name: StringProperty(default="Blender", options={"HIDDEN"})
+    token: StringProperty(default="", subtype="PASSWORD", options={"HIDDEN"})
 
     def draw(self, context):
         _draw_controls(self.layout, context)
@@ -109,8 +120,9 @@ class FLINT_OT_apply_settings(bpy.types.Operator):
         if not draft.address.strip() or not draft.instance_name.strip():
             self.report({"ERROR"}, "Address and instance name are required")
             return {"CANCELLED"}
+        draft.token = draft.token.strip()
         preferences = context.preferences.addons[__name__].preferences
-        for field in ("address", "port", "instance_name"):
+        for field in _FIELDS:
             setattr(preferences, field, getattr(draft, field))
         return {"FINISHED"}
 
@@ -124,7 +136,7 @@ class FLINT_OT_connect(bpy.types.Operator):
 
         saved = context.preferences.addons[__name__].preferences
         try:
-            manager.connect(address=saved.address, port=saved.port, name=saved.instance_name)
+            manager.connect(address=saved.address, port=saved.port, name=saved.instance_name, token=saved.token)
         except (ValueError, RuntimeError) as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
@@ -182,7 +194,7 @@ def register():
     bpy.types.WindowManager.flint_bridge_draft = PointerProperty(type=FlintBridgeDraft)
     preferences = bpy.context.preferences.addons[__name__].preferences
     draft = bpy.context.window_manager.flint_bridge_draft
-    for field in ("address", "port", "instance_name"):
+    for field in _FIELDS:
         setattr(draft, field, getattr(preferences, field))
     try:
         try:
@@ -190,6 +202,7 @@ def register():
                 address=preferences.address,
                 port=preferences.port,
                 name=preferences.instance_name,
+                token=preferences.token,
             )
         except BridgeCreationError as error:
             # The panel stays available so the user can start it with Connect.

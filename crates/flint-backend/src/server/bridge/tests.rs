@@ -67,7 +67,7 @@ async fn stable_instances_share_pids_and_replacement_isolates_old_sessions_and_j
         let directory = tempfile::tempdir().unwrap();
         let backend = BackendHandle(Arc::new(Shared {
             config: Config {
-                endpoints: Endpoints::local(0, 0),
+                endpoints: Endpoints::default(),
                 timeout: Duration::from_secs(5),
                 state: StateDir::new(directory.path().into()),
             },

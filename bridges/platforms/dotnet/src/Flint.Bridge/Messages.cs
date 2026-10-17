@@ -11,6 +11,8 @@ namespace Flint.Bridge
         [DataMember(Name = "address")] public string Address { get; set; }
         [DataMember(Name = "port")] public int Port { get; set; }
         [DataMember(Name = "name")] public string Name { get; set; }
+        // Null is omitted: the core reads an absent or empty token as this machine's token.
+        [DataMember(Name = "token", EmitDefaultValue = false)] public string Token { get; set; }
     }
 
     [DataContract]

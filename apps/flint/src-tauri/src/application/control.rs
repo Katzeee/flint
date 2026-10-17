@@ -276,6 +276,17 @@ impl Application {
         .await
     }
 
+    pub async fn bridge_token(&self) -> ApplicationResult<String> {
+        self.query(
+            Payload::GetBridgeTokenRequest(GetBridgeTokenRequest {}),
+            |response| match response {
+                Payload::GetBridgeTokenResponse(response) => Some(response.token),
+                _ => None,
+            },
+        )
+        .await
+    }
+
     pub(super) async fn query<T>(&self, payload: Payload, response: fn(Payload) -> Option<T>) -> ApplicationResult<T> {
         let payload = request_until(self.config.endpoints.control, payload, self.deadline()).await?;
         response(payload).ok_or_else(|| Failure::with_message(FailureCode::InternalError, "invalid backend response"))

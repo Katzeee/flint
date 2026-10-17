@@ -14,8 +14,8 @@ namespace Flint.Unity
             { "Flint.Bridge.InstanceName", "Unity Editor" },
         };
 
-        public static string GetString(string key, string fallback) => (string)values[key];
-        public static int GetInt(string key, int fallback) => (int)values[key];
+        public static string GetString(string key, string fallback) => values.TryGetValue(key, out var value) ? (string)value : fallback;
+        public static int GetInt(string key, int fallback) => values.TryGetValue(key, out var value) ? (int)value : fallback;
         public static void SetString(string key, string value) => values[key] = value;
         public static void SetInt(string key, int value) => values[key] = value;
     }

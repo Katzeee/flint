@@ -9,7 +9,10 @@ fn application(directory: &Path) -> Result<Application> {
     let bridge = TcpListener::bind(("127.0.0.1", 0))?;
     Ok(Application {
         config: Config {
-            endpoints: Endpoints::local(control.local_addr()?.port(), bridge.local_addr()?.port()),
+            endpoints: Endpoints {
+                control: control.local_addr()?,
+                bridge: bridge.local_addr()?,
+            },
             timeout: std::time::Duration::from_secs(5),
             state: StateDir::new(directory.into()),
         },

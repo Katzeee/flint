@@ -23,14 +23,12 @@ pub use flint_contracts::protocol::{
 };
 pub use flint_hosts::{ExportTarget, HostCandidate, HostKind};
 pub use hosts::{ExportResult, HostInfo, Preview};
-
 pub type Result<T> = std::result::Result<T, Failure>;
 
 #[derive(Serialize, specta::Type)]
 pub struct ApplicationInfo {
     pub version: &'static str,
     pub control_endpoint: String,
-    pub bridge_endpoint: String,
     pub state_dir: PathBuf,
     pub attach_supported: bool,
 }
@@ -52,7 +50,6 @@ impl Application {
         ApplicationInfo {
             version: env!("CARGO_PKG_VERSION"),
             control_endpoint: config.endpoints.control.to_string(),
-            bridge_endpoint: config.endpoints.bridge.to_string(),
             state_dir: config.state.root().to_path_buf(),
             attach_supported: flint_hosts::attach_supported(),
         }

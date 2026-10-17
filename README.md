@@ -40,6 +40,16 @@ flint attach --pid <pid>
 
 attach starts a Bridge inside the process and prints its apps entry once it connects. A host process runs at most one Bridge. Attaching to an existing Bridge applies the requested settings. Use the ID returned by attach for subsequent requests; it remains stable for the host process's lifetime. Pass `--host-kind` for a process discovery does not classify (such as a plain Python interpreter), and `--name` to label the instance. For supported hosts, in-host loading, and host-specific behavior, follow the Bridge guides above.
 
+### Connect from another machine
+
+The backend accepts Bridges from other machines on its Bridge port, 6321; only this machine controls it. On first launch, Windows may ask whether to allow flint through the firewall; allow it on networks where remote Bridges should connect. Every registration must present this user's Bridge token, which a Bridge on this machine reads automatically. Settings in the desktop lists this machine's network addresses and the port and copies the token. In the CLI, `flint status` lists the addresses and port, and the token is printed separately:
+
+```text
+flint bridge token --json
+```
+
+In the remote application's Bridge connection settings, enter one of those addresses, the port, and the token. Remote applications appear in apps with their instance name, host kind, and PID; previews, focus, and attach act only on this machine's processes.
+
 The desktop's application discovery, inspection, and window switching use the same local services as the CLI. Use `flint apps info --help` and `flint apps focus --help` to inspect or focus a local application by PID. Information queries return process identity and window metadata without capturing an image. Request a preview explicitly when visual context is needed; image capture failure leaves the process information available and includes the reason. Minimized and headless processes remain discoverable. Inspection does not restore windows; window switching is an explicit action. Unity asset import workers are internal editor processes and are excluded from discovery.
 
 ## Execute and inspect

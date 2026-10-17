@@ -77,6 +77,12 @@ fn desktop_info(state: tauri::State<'_, Application>) -> ApplicationInfo {
 
 #[tauri::command]
 #[specta::specta]
+async fn bridge_token(state: tauri::State<'_, Application>) -> Result<String, Failure> {
+    state.bridge_token().await
+}
+
+#[tauri::command]
+#[specta::specta]
 async fn start_backend(state: tauri::State<'_, Application>) -> Result<PingResponse, Failure> {
     state.start_backend().await
 }
@@ -97,6 +103,7 @@ pub(super) fn bindings() -> tauri_specta::Builder<tauri::Wry> {
             workflows,
             workflow,
             desktop_info,
+            bridge_token,
             host_info,
             focus_application,
             start_backend,

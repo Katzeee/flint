@@ -3,6 +3,7 @@ import { commands, events, type Failure, type Snapshot } from "./generated/bindi
 export type {
   App,
   Failure,
+  PingResponse as BackendStatus,
   Snapshot,
   HostInfo_Serialize as HostInfo,
   GetExecutionResponse_Serialize as Execution,
@@ -50,6 +51,10 @@ export function readWorkflow(id: string) {
 
 export function readDesktopInfo() {
   return withFailure(commands.desktopInfo());
+}
+
+export function readBridgeToken() {
+  return withFailure(commands.bridgeToken());
 }
 
 export function readHostInfo(pid: number, preview = false) {

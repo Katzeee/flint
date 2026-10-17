@@ -94,6 +94,7 @@ fn loader_hands_the_request_to_the_platform_entry() {
                     "address": "127.0.0.1",
                     "port": 6321,
                     "name": "a\"b\\c\n场景",
+                    "token": "",
                 },
             },
         })

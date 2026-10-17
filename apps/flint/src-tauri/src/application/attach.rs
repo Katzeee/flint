@@ -51,8 +51,8 @@ impl Application {
         let name = name.unwrap_or_else(|| host.to_string());
         self.start_backend().await?;
         let settings = HostSettings {
-            address: self.config.endpoints.bridge.ip().to_string(),
-            port: self.config.endpoints.bridge.port(),
+            address: self.config.endpoints.bridge_target().ip().to_string(),
+            port: self.config.endpoints.bridge_target().port(),
             name: name.clone(),
             token: String::new(),
         };

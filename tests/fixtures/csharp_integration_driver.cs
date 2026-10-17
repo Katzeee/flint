@@ -62,6 +62,7 @@ internal static class Program
         Address = value["address"].GetValue<string>(),
         Port = value["port"].GetValue<int>(),
         Name = value["name"].GetValue<string>(),
+        Token = value["token"].GetValue<string>(),
     };
 
     private static JsonNode Call(JsonNode command)

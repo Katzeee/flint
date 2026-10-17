@@ -6,8 +6,8 @@ from flint_bridge import BridgeCreationError
 from flint_bridge.max import manager
 
 _SECTION = "Flint Bridge"
-_DEFAULTS = {"address": "127.0.0.1", "port": 6321, "name": "3ds Max"}
-_KEYS = {"address": "BridgeAddress", "port": "BridgePort", "name": "InstanceName"}
+_DEFAULTS = {"address": "127.0.0.1", "port": 6321, "name": "3ds Max", "token": ""}
+_KEYS = {"address": "BridgeAddress", "port": "BridgePort", "name": "InstanceName", "token": "BridgeToken"}
 _dialog = None
 
 
@@ -24,9 +24,9 @@ def settings():
     return values
 
 
-def apply_settings(address, port, name):
+def apply_settings(address, port, name, token):
     port = int(port)
-    for field, value in {"address": address, "port": port, "name": name}.items():
+    for field, value in {"address": address, "port": port, "name": name, "token": token}.items():
         rt.setINISetting(_ini(), _SECTION, _KEYS[field], str(value))
 
 

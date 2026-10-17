@@ -193,7 +193,8 @@ impl App {
             serde_json::from_str(&result.stdout).with_context(|| format!("Invalid JSON: {}", result.stdout))?;
         if response.get("ready").is_some() {
             anyhow::ensure!(
-                response["bridge_address"] == "127.0.0.1" && response["bridge_port"] == self.bridge_port,
+                response["bridge_addresses"][0]["address"] == "127.0.0.1"
+                    && response["bridge_port"] == self.bridge_port,
                 "Lifecycle command reached an unexpected backend"
             );
         }

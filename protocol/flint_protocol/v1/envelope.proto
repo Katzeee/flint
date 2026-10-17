@@ -34,5 +34,7 @@ message Envelope {
     HostExecuteRequest host_execute_request = 24;
     ExecutionOutputUpdate execution_output_update = 25;
     ExecutionResult execution_result = 26;
+    GetBridgeTokenRequest get_bridge_token_request = 27;
+    GetBridgeTokenResponse get_bridge_token_response = 28;
   }
 }

@@ -184,7 +184,7 @@ export function App() {
               appearance={appearance}
               onAppearanceChange={updateAppearance}
               preferenceError={preferenceError}
-              ready={ready}
+              backend={ready ? (snapshot.data?.backend ?? null) : null}
               busy={backendBusy}
               error={backendError}
               changeBackend={changeBackend}

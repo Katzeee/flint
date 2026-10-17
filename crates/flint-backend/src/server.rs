@@ -6,7 +6,7 @@ use flint_contracts::protocol::timing::HEARTBEAT_IDLE_TIMEOUT;
 use flint_contracts::protocol::{envelope::Payload, *};
 use futures_util::SinkExt;
 use std::{
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -87,7 +87,7 @@ impl BackendHandle {
         PingResponse {
             ready: !self.0.state.lock().unwrap().stopping,
             pid: std::process::id(),
-            bridge_address: self.0.config.endpoints.bridge.ip().to_string(),
+            bridge_addresses: bridge_addresses(self.0.config.endpoints.bridge.ip()),
             bridge_port: self.0.config.endpoints.bridge.port().into(),
         }
     }
@@ -105,6 +105,29 @@ impl BackendHandle {
         state.stopping = true;
         Ok(())
     }
+}
+
+fn bridge_addresses(listen: IpAddr) -> Vec<NetworkAddress> {
+    if !listen.is_unspecified() {
+        return vec![NetworkAddress {
+            interface: String::new(),
+            address: listen.to_string(),
+        }];
+    }
+    let mut addresses: Vec<_> = sysinfo::Networks::new_with_refreshed_list()
+        .iter()
+        .flat_map(|(interface, data)| {
+            data.ip_networks().iter().filter_map(move |network| match network.addr {
+                IpAddr::V4(address) if !address.is_loopback() && !address.is_link_local() => Some(NetworkAddress {
+                    interface: interface.clone(),
+                    address: address.to_string(),
+                }),
+                _ => None,
+            })
+        })
+        .collect();
+    addresses.sort_by(|a, b| (&a.interface, &a.address).cmp(&(&b.interface, &b.address)));
+    addresses
 }
 
 async fn listen(endpoint: SocketAddr) -> Result<TcpListener> {

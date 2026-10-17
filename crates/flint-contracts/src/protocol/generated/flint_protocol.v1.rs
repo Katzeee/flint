@@ -92,13 +92,23 @@ pub struct PingRequest {}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NetworkAddress {
+    #[prost(string, tag = "1")]
+    pub interface: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub address: ::prost::alloc::string::String,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PingResponse {
     #[prost(bool, tag = "1")]
     pub ready: bool,
     #[prost(uint32, tag = "2")]
     pub pid: u32,
-    #[prost(string, tag = "3")]
-    pub bridge_address: ::prost::alloc::string::String,
+    /// Where Bridges reach the backend; a wildcard listen address yields this machine's network addresses.
+    #[prost(message, repeated, tag = "3")]
+    pub bridge_addresses: ::prost::alloc::vec::Vec<NetworkAddress>,
     #[prost(uint32, tag = "4")]
     pub bridge_port: u32,
 }
@@ -110,6 +120,17 @@ pub struct StopBackendRequest {}
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StopBackendResponse {}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct GetBridgeTokenRequest {}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(specta::Type))]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetBridgeTokenResponse {
+    #[prost(string, tag = "1")]
+    pub token: ::prost::alloc::string::String,
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(specta::Type))]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -381,7 +402,7 @@ pub struct Envelope {
     pub request_id: ::prost::alloc::string::String,
     #[prost(
         oneof = "envelope::Payload",
-        tags = "3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26"
+        tags = "3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28"
     )]
     pub payload: ::core::option::Option<envelope::Payload>,
 }
@@ -439,5 +460,9 @@ pub mod envelope {
         ExecutionOutputUpdate(super::ExecutionOutputUpdate),
         #[prost(message, tag = "26")]
         ExecutionResult(super::ExecutionResult),
+        #[prost(message, tag = "27")]
+        GetBridgeTokenRequest(super::GetBridgeTokenRequest),
+        #[prost(message, tag = "28")]
+        GetBridgeTokenResponse(super::GetBridgeTokenResponse),
     }
 }

@@ -19,6 +19,7 @@ uuid = { workspace = true, features = ["v4"] }
 chrono.workspace = true
 anyhow.workspace = true
 tempfile.workspace = true
+sysinfo = { workspace = true, features = ["network"] }
 
 [lints]
 workspace = true

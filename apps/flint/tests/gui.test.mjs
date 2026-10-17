@@ -93,7 +93,7 @@ test("desktop navigation preserves connection identity and asynchronous selectio
         backend: {
           ready: true,
           pid: 4312,
-          bridge_address: "127.0.0.1",
+          bridge_addresses: [{ interface: "", address: "127.0.0.1" }],
           bridge_port: 6321,
         },
         apps: [window.__mayaApp],
@@ -200,7 +200,6 @@ test("desktop navigation preserves connection identity and asynchronous selectio
             version: "0.1.0",
             state_dir: "C:/FlintData",
             control_endpoint: "127.0.0.1:6322",
-            bridge_endpoint: "127.0.0.1:6321",
             attach_supported: true,
           };
         if (command === "start_backend") return window.__mockSnapshot.backend;
@@ -336,7 +335,7 @@ test("backend controls recover from refusal and preserve pending work across nav
       const backend = {
         ready: true,
         pid: 4312,
-        bridge_address: "127.0.0.1",
+        bridge_addresses: [{ interface: "Ethernet", address: "192.168.1.20" }],
         bridge_port: 6321,
       };
       window.__mockSnapshot = { backend, apps: [] };
@@ -350,7 +349,6 @@ test("backend controls recover from refusal and preserve pending work across nav
             version: "0.1.0",
             state_dir: "C:/FlintData",
             control_endpoint: "127.0.0.1:6322",
-            bridge_endpoint: "127.0.0.1:6321",
             attach_supported: true,
           };
         if (command === "stop_backend") {
